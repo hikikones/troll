@@ -44,6 +44,7 @@ The following table shows the entire syntax available.
 <td>
 
 <pre>
+=== Heading
 A normal paragraph with *bold* and _italic_ text.
 
 : Center paragraph
@@ -72,6 +73,7 @@ def add(a, b):
 </td>
 <td>
 
+<h3>Heading</h3>
 <p>A normal paragraph with <b>bold</b> and <i>italic</i> text.</p>
 <p align="center">Center paragraph</p>
 <p align="right">Right paragraph</p>
@@ -92,10 +94,10 @@ def add(a, b):
 
 $$ \int x^2 \ dx $$
 
-<pre>
+```python
 def add(a, b):
     return a + b
-</pre>
+```
 
 </td>
 </tr>
