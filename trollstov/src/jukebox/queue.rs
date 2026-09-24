@@ -1,11 +1,11 @@
-use database::TrackId;
+use crate::database::TrackId;
 
 // TODO: Max length? Drain from history.
 
 pub(crate) struct PlayQueue {
     list: Vec<TrackId>,
     index: Option<usize>,
-    rng: fastrand::Rng,
+    rng: fastrand::Rng, // TODO: Wrap in shared so we can pass around.
 }
 
 impl PlayQueue {

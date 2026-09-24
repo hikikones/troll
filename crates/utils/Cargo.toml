@@ -3,9 +3,10 @@ name = "utils"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-homepage.workspace = true
-repository.workspace = true
 license.workspace = true
 
 [dependencies]
+ahash = { workspace = true }
 itoa = { workspace = true }
+seahash = { workspace = true }
+unicode-segmentation = { workspace = true }

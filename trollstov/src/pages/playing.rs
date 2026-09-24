@@ -1,18 +1,20 @@
-use database::{AudioRating, Database};
-use jukebox::Jukebox;
 use ratatui::{
+    buffer::Buffer,
     crossterm::event::{KeyCode, KeyModifiers},
-    prelude::*,
-    widgets::{Block, Padding},
+    layout::{Constraint, Layout, Margin, Rect},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Padding, StatefulWidget, Widget},
 };
 use ratatui_image::StatefulImage;
-use widgets::{List, ListItem, Shortcut, Shortcuts};
+use shared::symbols;
+use widgets::{List, ListItem, ScrollMargins, Shortcut, Shortcuts};
 
 use crate::{
     app::{Action, FrontCover, ScreenSize},
+    database::{AudioRating, Database},
+    jukebox::Jukebox,
     pages::Route,
     settings::Colors,
-    symbols,
 };
 
 pub struct PlayingPage {
@@ -48,7 +50,9 @@ impl PlayingPage {
     pub const fn new() -> Self {
         Self {
             current_qi: None,
-            list: List::new(),
+            list: List::new()
+                .with_padding(Padding::horizontal(1))
+                .with_scrollbar(0),
             view_mode: ViewMode::Both,
         }
     }
@@ -308,9 +312,7 @@ impl PlayingPage {
         jb: &Jukebox,
         colors: &Colors,
     ) {
-        let block = Block::bordered()
-            .border_style(colors.secondary)
-            .padding(Padding::horizontal(1));
+        let block = Block::bordered().border_style(colors.secondary);
         let queue_inner_area = block.inner(area);
         block.render(area, buf);
 
@@ -340,14 +342,12 @@ impl PlayingPage {
             return;
         }
 
-        let scrolloff = (queue_inner_area.height / 2) as usize;
-        self.list
-            .set_margins(scrolloff, scrolloff)
-            .set_padding(scrolloff);
+        let scrolloff = queue_inner_area.height / 2;
+        self.list.set_scrolloff(ScrollMargins::all(scrolloff));
 
         let hlen = jb.history();
         let current_qi = jb.current_queue_index();
-        self.list.set_colors(colors.neutral, None).render(
+        self.list.set_colors(colors.list()).render(
             queue_inner_area,
             buf,
             jb.iter(),
@@ -409,7 +409,7 @@ fn render_cover_with_stars(
             if area.width > 12 && area.height > 10 {
                 let margin = Margin::new(1, 1);
                 let cover_area = render_cover(area.inner(margin), buf, front_cover, colors);
-                let stars = symbols::stars_split(rating);
+                let (filled_stars, empty_stars) = rating.stars_split();
                 widgets::print_texts_with_styles(
                     Rect {
                         y: cover_area.y + cover_area.height,
@@ -418,8 +418,8 @@ fn render_cover_with_stars(
                     },
                     buf,
                     [
-                        (stars.0, Style::new().fg(colors.primary)),
-                        (stars.1, Style::new().fg(colors.neutral)),
+                        (filled_stars, Style::new().fg(colors.primary)),
+                        (empty_stars, Style::new().fg(colors.neutral)),
                     ],
                     None,
                     Some(widgets::Alignment::CenterHorizontal),

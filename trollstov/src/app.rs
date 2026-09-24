@@ -1,24 +1,25 @@
 use std::{path::PathBuf, time::Duration};
 
-use database::{Database, DatabaseEvent, Track};
-use jukebox::{Jukebox, JukeboxEvent};
 use ratatui::{
     CompletedFrame,
+    buffer::Buffer,
     crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    prelude::*,
+    layout::{Alignment, Constraint, Layout, Margin, Rect},
+    style::{Color, Style},
 };
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
-use widgets::{Shortcut, Shortcuts, TextSegment};
+use shared::{symbols, terminal::Terminal};
+use widgets::{Shortcut, Shortcuts, TextSpan};
 
 use crate::{
+    database::{Database, DatabaseEvent, Track},
     events::{Event, EventHandler, MediaEvent, MediaPlayback},
+    jukebox::{Jukebox, JukeboxEvent},
     pages::{
         Log, LogsAction, LogsPage, Pages, PlayingPage, Route, SearchAction, SearchPage,
         SettingsPage, TracksPage,
     },
     settings::{Colors, Settings},
-    symbols,
-    terminal::Terminal,
 };
 
 // TODO: Add a dynamic playlist page for artists/albums/genres and filtering.
@@ -38,7 +39,7 @@ pub struct App {
     screen_size: ScreenSize,
     front_cover: FrontCover,
     front_cover_handle: Option<FrontCoverHandle>,
-    text: TextSegment,
+    text: TextSpan,
     shortcuts: Shortcuts,
 }
 
@@ -137,16 +138,17 @@ impl App {
             screen_size: ScreenSize::Large,
             front_cover: FrontCover::default(),
             front_cover_handle: None,
-            text: TextSegment::new().with_alignment(Alignment::Center),
+            text: TextSpan::new().with_alignment(Alignment::Center),
             shortcuts: Shortcuts::new(),
         }
     }
 
-    pub fn run(&mut self, mut terminal: Terminal) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
         // Draw logo
         terminal.draw(|frame| {
             let color = self.settings.neutral();
-            frame.render_widget(widgets::LogoWidget(color), frame.area());
+            frame.render_widget(crate::logo::LogoWidget(color), frame.area());
+            Ok(())
         })?;
 
         // Apply settings, read events, load music and enter first page
@@ -172,21 +174,21 @@ impl App {
             match action {
                 Action::None => {}
                 Action::Render => {
-                    self.render(&mut terminal)?;
+                    self.render(terminal)?;
                 }
                 Action::Route(route) => {
                     self.on_exit();
                     self.route = route;
                     self.on_enter();
-                    self.render(&mut terminal)?;
+                    self.render(terminal)?;
                 }
                 Action::Log(log) => {
                     self.pages.logs.enqueue(log);
-                    self.render(&mut terminal)?;
+                    self.render(terminal)?;
                 }
                 Action::ApplySettings => {
                     self.apply_settings();
-                    self.render(&mut terminal)?;
+                    self.render(terminal)?;
                 }
                 Action::Quit => {
                     self.running = false;
@@ -576,6 +578,8 @@ impl App {
                     self.shortcuts.clear();
                 }
             }
+
+            Ok(())
         })
     }
 
@@ -706,7 +710,7 @@ impl App {
 fn render_navigation(
     line: Rect,
     buf: &mut Buffer,
-    text: &mut TextSegment,
+    text: &mut TextSpan,
     current_route: Route,
     colors: &Colors,
 ) {
@@ -732,7 +736,7 @@ fn render_navigation(
 fn render_playback(
     area: Rect,
     buf: &mut Buffer,
-    text: &mut TextSegment,
+    text: &mut TextSpan,
     audio_position: Duration,
     track: Option<&Track>,
     colors: &Colors,
@@ -858,7 +862,7 @@ fn fill_app_shortcuts(shortcuts: &mut Shortcuts, logs: &LogsPage) {
 // https://github.com/ratatui/ratatui-image/blob/master/examples/thread.rs
 fn load_front_cover(path: PathBuf, picker: Picker) -> FrontCoverHandle {
     std::thread::spawn(move || {
-        let front_cover = database::AudioFrontCover::read(&path)?;
+        let front_cover = crate::database::AudioFrontCover::read(&path)?;
 
         let Some((bytes, mime_type)) = front_cover.bytes_and_mime_type() else {
             return Ok(FrontCover::empty());
@@ -872,8 +876,8 @@ fn load_front_cover(path: PathBuf, picker: Picker) -> FrontCoverHandle {
         };
 
         let image_format = match mime_type {
-            database::MimeType::Jpeg => image::ImageFormat::Jpeg,
-            database::MimeType::Png => image::ImageFormat::Png,
+            crate::database::MimeType::Jpeg => image::ImageFormat::Jpeg,
+            crate::database::MimeType::Png => image::ImageFormat::Png,
             _ => {
                 return Err(format!(
                     "Unable to load front cover from \"{}\" due to unsupported or unknown mime type: {}",

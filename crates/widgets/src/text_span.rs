@@ -1,32 +1,32 @@
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Rect},
+    layout::{HorizontalAlignment, Rect},
     style::Style,
 };
 
-pub struct TextSegment {
+pub struct TextSpan {
     text: String,
     segments: Vec<(usize, Style)>,
-    alignment: Alignment,
+    alignment: HorizontalAlignment,
     total_width: usize,
 }
 
-impl TextSegment {
+impl TextSpan {
     pub const fn new() -> Self {
         Self {
             text: String::new(),
             segments: Vec::new(),
-            alignment: Alignment::Left,
+            alignment: HorizontalAlignment::Left,
             total_width: 0,
         }
     }
 
-    pub const fn with_alignment(mut self, alignment: Alignment) -> Self {
+    pub const fn with_alignment(mut self, alignment: HorizontalAlignment) -> Self {
         self.alignment = alignment;
         self
     }
 
-    pub const fn set_alignment(&mut self, alignment: Alignment) -> &mut Self {
+    pub const fn set_alignment(&mut self, alignment: HorizontalAlignment) -> &mut Self {
         self.alignment = alignment;
         self
     }
@@ -121,20 +121,20 @@ impl TextSegment {
         self.total_width = 0;
     }
 
-    pub fn render(&self, line: Rect, buf: &mut Buffer) {
-        if buf.cell((line.x, line.y)).is_none() {
+    pub fn render(&self, area: Rect, buf: &mut Buffer) {
+        if area.is_empty() || buf.cell(area.as_position()).is_none() {
             return;
         }
 
-        let line = match self.alignment {
-            Alignment::Left => line,
-            Alignment::Center => Rect {
-                x: line.x + (line.width.saturating_sub(self.width())) / 2,
-                ..line
+        let area = match self.alignment {
+            HorizontalAlignment::Left => area,
+            HorizontalAlignment::Center => Rect {
+                x: area.x + (area.width.saturating_sub(self.width())) / 2,
+                ..area
             },
-            Alignment::Right => Rect {
-                x: line.x + line.width.saturating_sub(self.width()),
-                ..line
+            HorizontalAlignment::Right => Rect {
+                x: area.x + area.width.saturating_sub(self.width()),
+                ..area
             },
         };
         let mut start = 0;
@@ -143,7 +143,7 @@ impl TextSegment {
             y,
             mut width,
             ..
-        } = line;
+        } = area;
 
         for (len, style) in self.segments.iter().copied() {
             if width == 0 {

@@ -1,0 +1,11 @@
+[package]
+name = "shared"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+constcat = { workspace = true }
+ratatui = { workspace = true }
+rusqlite = { workspace = true }

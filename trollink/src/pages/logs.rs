@@ -1,29 +1,19 @@
 use ratatui::{
-    buffer::Buffer,
     crossterm::event::{KeyCode, KeyModifiers},
-    layout::Rect,
-    style::{Color, Style},
-    widgets::{Block, Padding, Widget},
+    style::Style,
 };
-use widgets::{List, ListItem, Shortcut, Shortcuts};
+use widgets::{List, ListItem, RectExt, Shortcut, Shortcuts};
 
-use crate::settings::Colors;
-
-// TODO: LogLevel? ERROR/INFO.
-// TODO: Add copy shortcut.
-// TODO: Add dump shortcut.
+use crate::{
+    app::{Action, AppInput, AppRender},
+    settings::Colors,
+};
 
 pub struct LogsPage {
     logs: Vec<Log>,
     queue: u32,
     list: List,
     horizontal_scroll: usize,
-}
-
-pub enum LogsAction {
-    None,
-    Render,
-    Done,
 }
 
 impl LogsPage {
@@ -53,13 +43,9 @@ impl LogsPage {
         self.queue = 0;
     }
 
-    pub fn on_render(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        colors: &Colors,
-        shortcuts: &mut Shortcuts,
-    ) {
+    pub fn on_render(&mut self, render: AppRender, colors: &Colors, shortcuts: &mut Shortcuts) {
+        let (mut area, buf) = render.area_and_buffer();
+
         if self.logs.is_empty() {
             widgets::print_ascii(
                 area,
@@ -71,31 +57,21 @@ impl LogsPage {
             return;
         }
 
-        // Bordered block for logs
-        let block = Block::bordered()
-            .border_style(colors.secondary)
-            .padding(Padding::horizontal(1));
-        let logs_area = block.inner(area);
-        block.render(area, buf);
-
-        // Title for bordered logs
-        utils::format_int(self.logs.len(), |len| {
+        utils::format_int(self.logs.len(), |logs_len| {
             widgets::print_asciis(
-                Rect {
-                    y: area.y,
-                    height: 1,
-                    ..logs_area
-                },
+                area,
                 buf,
-                [" Logs (", len, ") "],
-                Color::Reset,
+                ["Logs (", logs_len, ")"],
+                colors.neutral,
                 Some(widgets::Alignment::CenterHorizontal),
             );
         });
 
+        area.shrink_down(2);
+
         // Render logs
         self.list.set_colors(colors.list()).render(
-            logs_area,
+            area,
             buf,
             self.logs.iter(),
             |line, buf, log, item| {
@@ -118,35 +94,36 @@ impl LogsPage {
         shortcuts.push(Shortcut::new("Clear", "c"));
     }
 
-    pub fn on_input(&mut self, key: KeyCode, _modifiers: KeyModifiers) -> LogsAction {
+    pub fn on_input(&mut self, input: AppInput) -> Action {
         if self.logs.is_empty() {
-            return LogsAction::None;
+            return Action::None;
         }
 
+        let key = input.key_pressed();
         match key {
             KeyCode::Right => {
                 self.horizontal_scroll += 1;
-                return LogsAction::Render;
+                return Action::Render;
             }
             KeyCode::Left => {
                 self.horizontal_scroll = self.horizontal_scroll.saturating_sub(1);
-                return LogsAction::Render;
+                return Action::Render;
             }
             KeyCode::Char('c') => {
                 self.logs.clear();
                 self.horizontal_scroll = 0;
                 self.list.set_index(0);
-                return LogsAction::Done;
+                return Action::ToggleLogs;
             }
             _ => {
                 if self.list.input(key, KeyModifiers::empty()) {
                     self.horizontal_scroll = 0;
-                    return LogsAction::Render;
+                    return Action::Render;
                 }
             }
         }
 
-        LogsAction::None
+        Action::None
     }
 
     pub fn on_exit(&self) {}

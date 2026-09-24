@@ -1,13 +1,18 @@
-use database::{Database, TrackId};
-use jukebox::Jukebox;
 use ratatui::{
+    buffer::Buffer,
     crossterm::event::{KeyCode, KeyModifiers},
-    prelude::*,
-    widgets::{Block, Padding},
+    layout::{Constraint, Rect},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Padding, Widget},
 };
+use shared::symbols;
 use widgets::{List, ListItem, Shortcut, Shortcuts, TextInput, TextInputColors};
 
-use crate::{settings::Colors, symbols};
+use crate::{
+    database::{Database, TrackId},
+    jukebox::Jukebox,
+    settings::Colors,
+};
 
 // TODO: Add timer for searching?
 // Currently searching on every input, but should probably be a small timeout.
@@ -40,7 +45,9 @@ impl SearchPage {
             search_input: TextInput::new().with_placeholder("Search..."),
             search_results: Vec::new(),
             include_path: false,
-            list: List::new(),
+            list: List::new()
+                .with_padding(Padding::horizontal(1))
+                .with_scrollbar(0),
             is_dirty: false,
         }
     }
@@ -117,9 +124,7 @@ impl SearchPage {
             height: area.height.saturating_sub(search_line.height + 1),
             ..area
         };
-        let results_block = Block::bordered()
-            .border_style(border_style)
-            .padding(Padding::horizontal(1));
+        let results_block = Block::bordered().border_style(border_style);
         let results_inner = results_block.inner(results_area);
         results_block.render(results_area, buf);
 
@@ -138,7 +143,7 @@ impl SearchPage {
             );
         });
 
-        self.list.set_colors(colors.neutral, None).render(
+        self.list.set_colors(colors.list()).render(
             results_inner,
             buf,
             self.search_results.iter().copied(),

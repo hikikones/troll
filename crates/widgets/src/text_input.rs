@@ -8,7 +8,7 @@ use ratatui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::utils;
+use crate::{CursorDelete, CursorMove, ScrollData, ScrollMargins, Scrollbar};
 
 pub struct TextInput {
     input: String,
@@ -16,25 +16,10 @@ pub struct TextInput {
     cursor: usize,
     selector: Option<usize>,
     scroll: usize,
+    margins: u16,
     disabled: bool,
-    margin_top: usize,
-    margin_bottom: usize,
     colors: TextInputColors,
-}
-
-pub enum CursorMove {
-    Forward,
-    Back,
-    Up,
-    Down,
-    Start,
-    End,
-}
-
-pub enum CursorDelete {
-    Forward,
-    Back,
-    Selection,
+    last_width: u16,
 }
 
 impl TextInput {
@@ -49,10 +34,10 @@ impl TextInput {
             cursor: 0,
             selector: None,
             scroll: 0,
+            margins: 0,
             disabled: false,
-            margin_top: 0,
-            margin_bottom: 0,
             colors: TextInputColors::new(),
+            last_width: 0,
         }
     }
 
@@ -66,9 +51,8 @@ impl TextInput {
         self
     }
 
-    pub const fn with_margins(mut self, top: usize, bottom: usize) -> Self {
-        self.margin_top = top;
-        self.margin_bottom = bottom;
+    pub const fn with_margins(mut self, horizontal: u16) -> Self {
+        self.margins = horizontal;
         self
     }
 
@@ -108,11 +92,11 @@ impl TextInput {
     }
 
     pub fn hash(&self) -> u64 {
-        seahash::hash(self.input.as_str().as_bytes())
+        utils::hash_fast(self.input.as_str())
     }
 
     pub fn hash_trim(&self) -> u64 {
-        seahash::hash(self.input.as_str().trim().as_bytes())
+        utils::hash_fast(self.input.as_str().trim())
     }
 
     pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {
@@ -260,6 +244,10 @@ impl TextInput {
     }
 
     pub fn render(&mut self, line: Rect, buf: &mut Buffer) {
+        if line.is_empty() || buf.cell(line.as_position()).is_none() {
+            return;
+        }
+
         if self.disabled {
             let Rect { x, y, .. } = line;
             let s = if self.input.is_empty() {
@@ -267,28 +255,47 @@ impl TextInput {
             } else {
                 self.input.as_str()
             };
-            buf.set_string(x, y, s, self.colors.disabled);
+            buf.set_stringn(x, y, s, line.width as usize, self.colors.disabled);
             return;
         }
+
+        let cursor_style = Style::new().fg(self.colors.cursor).reversed();
+        let selection_style = Style::new().fg(self.colors.selector).reversed();
+        let normal_style = Style::new().fg(self.colors.normal);
 
         if self.input.is_empty() {
             let Rect { x, y, .. } = line;
-            buf.set_string(x, y, self.placeholder, self.colors.placeholder);
-            buf[(x, y)].set_style(Style::new().fg(self.colors.cursor).reversed());
+            buf.set_stringn(
+                x,
+                y,
+                self.placeholder,
+                line.width as usize,
+                self.colors.placeholder,
+            );
+            buf[(x, y)].set_style(cursor_style);
             return;
         }
 
-        // Get total input width and update scroll
+        // Get total input width
         let total_width = unicode_width::UnicodeWidthStr::width(self.input.as_str());
-        self.scroll = utils::calculate_scroll(
-            total_width,
-            line.width,
-            self.cursor,
-            self.scroll,
-            self.margin_top,
-            self.margin_bottom,
-            0,
+
+        // Determine scroll
+        let scroll = if self.last_width != line.width {
+            // Refresh scroll on window resize
+            0
+        } else {
+            self.scroll
+        };
+        self.scroll = Scrollbar::calculate_scroll_with_margins(
+            ScrollData {
+                current_index: self.cursor,
+                current_scroll: scroll,
+                total_lines: total_width + 1,
+                viewport_height: line.width,
+            },
+            ScrollMargins::vertical(self.margins),
         );
+        self.last_width = line.width;
 
         // Render
         let selection = self.try_selection().unwrap_or(self.cursor..self.cursor);
@@ -306,11 +313,11 @@ impl TextInput {
                 let is_cursor = i == self.cursor;
                 let is_selected = selection.contains(&i);
                 let style = if is_cursor {
-                    Style::new().fg(self.colors.cursor).reversed()
+                    cursor_style
                 } else if is_selected {
-                    Style::new().fg(self.colors.selector).reversed()
+                    selection_style
                 } else {
-                    Style::new().fg(self.colors.normal)
+                    normal_style
                 };
                 (x, _) = buf.set_stringn(x, y, g, grapheme_width, style);
             }
@@ -319,7 +326,7 @@ impl TextInput {
         if self.cursor == self.input.len()
             && let Some(cell) = buf.cell_mut((x, y))
         {
-            cell.set_style(Style::new().fg(self.colors.cursor).reversed());
+            cell.set_style(cursor_style);
         }
     }
 

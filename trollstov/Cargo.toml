@@ -1,52 +1,45 @@
 [package]
 name = "trollstov"
-version.workspace = true
+version = "0.2.0-dev"
 edition.workspace = true
 rust-version.workspace = true
 description = "A music player for the terminal where your files and their metadata are all you need."
-homepage.workspace = true
-repository.workspace = true
+homepage = "https://github.com/hikikones/troll/trollstov"
+repository = "https://github.com/hikikones/troll/trollstov"
 license.workspace = true
-keywords = [
-  "cli",
-  "music",
-  "music-player",
-  "ratatui",
-  "terminal",
-  "terminal-app",
-  "tui"
-]
-categories = ["audio", "command-line-utilities", "multimedia"]
+keywords = ["audio", "music", "player", "terminal", "tui"]
+categories = ["command-line-utilities", "multimedia::audio"]
 
 [dependencies]
 clap = { workspace = true }
 clap-cargo = { workspace = true }
-constcat = { workspace = true }
-database = { workspace = true }
 directories = { workspace = true }
+fastrand = { workspace = true }
+ignore = { workspace = true }
 image = { workspace = true }
-jukebox = { workspace = true }
+indexmap = { workspace = true }
+lofty = { workspace = true }
+nucleo-matcher = { workspace = true }
 ratatui = { workspace = true }
 ratatui-image = { workspace = true }
+rodio = { workspace = true }
 seahash = { workspace = true }
 serde = { workspace = true }
+serde_repr = { workspace = true }
+shared = { workspace = true }
 souvlaki = { workspace = true }
 terminal-colorsaurus = { workspace = true }
 toml = { workspace = true }
 unicode-segmentation = { workspace = true }
 unicode-width = { workspace = true }
 utils = { workspace = true }
+walkdir = { workspace = true }
 widgets = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies.windows]
 version = "0.44"
-features = [
-  "Win32_Foundation",
-  "Win32_Graphics_Gdi",
-  "Win32_System_LibraryLoader",
-  "Win32_UI_WindowsAndMessaging"
-]
+features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"]
 
 [features]
 default = []
-opus = ["database/opus", "jukebox/opus"]
+opus = ["rodio/symphonia-libopus"]
