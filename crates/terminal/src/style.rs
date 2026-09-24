@@ -2,12 +2,7 @@ use std::fmt::Display;
 
 use crossterm::{
     Command,
-    style::{Attributes, ContentStyle, SetStyle},
-};
-
-pub use crossterm::style::{
-    Attribute, Color, ResetColor as Reset, SetAttribute, SetBackgroundColor, SetColors,
-    SetForegroundColor,
+    style::{Attribute, Attributes, Color, ContentStyle, ResetColor, SetStyle},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -109,6 +104,6 @@ impl<D: Display> Display for Styled<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.style.fmt(f)?;
         self.text.fmt(f)?;
-        Reset.write_ansi(f)
+        ResetColor.write_ansi(f)
     }
 }

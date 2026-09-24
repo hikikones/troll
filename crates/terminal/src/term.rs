@@ -6,13 +6,12 @@ use std::{
 use crossterm::{
     Command,
     cursor::{Hide, MoveTo, Show},
+    event::Event,
     execute,
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-pub use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
-
-use super::*;
+use crate::{CellDims, HorizontalAlignment, Pos, Rect, Size};
 
 pub struct Terminal {
     stdout: Stdout,
