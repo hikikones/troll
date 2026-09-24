@@ -4302,6 +4302,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminal"
+version = "0.1.0"
+dependencies = [
+ "crossterm 0.29.0",
+ "utils",
+]
+
+[[package]]
 name = "terminal-colorsaurus"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4769,7 +4777,9 @@ dependencies = [
  "ahash",
  "itoa",
  "seahash",
+ "textwrap",
  "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]
