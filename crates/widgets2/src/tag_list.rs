@@ -139,51 +139,53 @@ impl TagList {
     }
 
     pub fn move_down(&mut self, tags: impl IntoIterator<Item = impl TagItem>) -> bool {
+        let last_row = self.total_lines.saturating_sub(1);
+
+        if self.index_row == last_row {
+            return false;
+        }
+
         let old_index = self.index;
 
-        self.index = if self.index_row == self.total_lines.saturating_sub(1) {
-            self.total_items.saturating_sub(1)
-        } else {
-            let (mut next_index, mut distance) = (0, u16::MAX);
-            for (i, x, y, _) in
-                iter_items_in_col_row(self.list_width, self.options.gap, tags).skip(self.index + 1)
-            {
-                if y == self.index_row + 1 {
-                    let d = self.index_col.abs_diff(x);
-                    if d <= distance {
-                        next_index = i;
-                        distance = d;
-                    }
-                } else if y > self.index_row + 1 {
-                    break;
+        let (mut next_index, mut distance) = (0, u16::MAX);
+        for (i, x, y, _) in
+            iter_items_in_col_row(self.list_width, self.options.gap, tags).skip(self.index + 1)
+        {
+            if y == self.index_row + 1 {
+                let d = self.index_col.abs_diff(x);
+                if d <= distance {
+                    next_index = i;
+                    distance = d;
                 }
+            } else if y > self.index_row + 1 {
+                break;
             }
-            next_index
-        };
+        }
+        self.index = next_index;
 
         self.index != old_index
     }
 
     pub fn move_up(&mut self, items: impl IntoIterator<Item = impl TagItem>) -> bool {
+        if self.index_row == 0 {
+            return false;
+        }
+
         let old_index = self.index;
 
-        self.index = if self.index_row == 0 {
-            0
-        } else {
-            let (mut next_index, mut distance) = (0, u16::MAX);
-            for (i, x, y, _) in iter_items_in_col_row(self.list_width, self.options.gap, items) {
-                if y == self.index_row.saturating_sub(1) {
-                    let d = self.index_col.abs_diff(x);
-                    if d <= distance {
-                        next_index = i;
-                        distance = d;
-                    }
-                } else if y >= self.index_row {
-                    break;
+        let (mut next_index, mut distance) = (0, u16::MAX);
+        for (i, x, y, _) in iter_items_in_col_row(self.list_width, self.options.gap, items) {
+            if y == self.index_row.saturating_sub(1) {
+                let d = self.index_col.abs_diff(x);
+                if d <= distance {
+                    next_index = i;
+                    distance = d;
                 }
+            } else if y >= self.index_row {
+                break;
             }
-            next_index
-        };
+        }
+        self.index = next_index;
 
         self.index != old_index
     }
