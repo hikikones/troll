@@ -71,16 +71,16 @@ impl Rect {
         self.pos.row = v;
     }
 
+    pub const fn set_size(&mut self, s: Size) {
+        self.size = s;
+    }
+
     pub const fn set_cols(&mut self, v: u16) {
         self.size.cols = v;
     }
 
     pub const fn set_rows(&mut self, v: u16) {
         self.size.rows = v;
-    }
-
-    pub const fn set_size(&mut self, s: Size) {
-        self.size = s;
     }
 
     pub const fn add_pos(&mut self, p: Pos) {
@@ -157,37 +157,33 @@ impl Rect {
     }
 
     pub const fn inner(self, margin: Margin) -> Self {
-        Self {
-            pos: Pos {
-                col: self.pos.col + margin.left,
-                row: self.pos.row + margin.top,
-            },
-            size: Size {
-                cols: self.size.cols.saturating_sub(margin.left + margin.right),
-                rows: self.size.rows.saturating_sub(margin.top + margin.bottom),
-            },
-        }
+        let pos = Pos::new(self.pos.col + margin.left, self.pos.row + margin.top);
+        let size = Size::new(
+            self.size.cols.saturating_sub(margin.left + margin.right),
+            self.size.rows.saturating_sub(margin.top + margin.bottom),
+        );
+        Self { pos, size }
     }
 
     pub const fn align(
-        mut self,
+        self,
         outer: Self,
-        horz: HorizontalAlignment,
-        vert: VerticalAlignment,
+        horizontal: HorizontalAlignment,
+        vertical: VerticalAlignment,
     ) -> Self {
-        self.pos.col = horz.calc(outer.pos.col, outer.size.cols, self.size.cols);
-        self.pos.row = vert.calc(outer.pos.row, outer.size.rows, self.size.rows);
-        self
+        let col = horizontal.calc(outer.pos.col, outer.size.cols, self.size.cols);
+        let row = vertical.calc(outer.pos.row, outer.size.rows, self.size.rows);
+        self.with_pos(Pos { col, row })
     }
 
-    pub const fn align_horz(mut self, outer: Self, alignment: HorizontalAlignment) -> Self {
-        self.pos.col = alignment.calc(outer.pos.col, outer.size.cols, self.size.cols);
-        self
+    pub const fn align_horizontal(self, outer: Self, alignment: HorizontalAlignment) -> Self {
+        let col = alignment.calc(outer.pos.col, outer.size.cols, self.size.cols);
+        self.with_col(col)
     }
 
-    pub const fn align_vert(mut self, outer: Self, alignment: VerticalAlignment) -> Self {
-        self.pos.row = alignment.calc(outer.pos.row, outer.size.rows, self.size.rows);
-        self
+    pub const fn align_vertical(self, outer: Self, alignment: VerticalAlignment) -> Self {
+        let row = alignment.calc(outer.pos.row, outer.size.rows, self.size.rows);
+        self.with_row(row)
     }
 
     pub const fn center(self, outer: Self) -> Self {
@@ -198,12 +194,12 @@ impl Rect {
         )
     }
 
-    pub const fn center_horz(self, outer: Self) -> Self {
-        self.align_horz(outer, HorizontalAlignment::Center)
+    pub const fn center_horizontal(self, outer: Self) -> Self {
+        self.align_horizontal(outer, HorizontalAlignment::Center)
     }
 
-    pub const fn center_vert(self, outer: Self) -> Self {
-        self.align_vert(outer, VerticalAlignment::Center)
+    pub const fn center_vertical(self, outer: Self) -> Self {
+        self.align_vertical(outer, VerticalAlignment::Center)
     }
 
     pub const fn split_horizontally(self) -> (Self, Self) {
