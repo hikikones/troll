@@ -32,8 +32,8 @@ pub struct EditorColors {
 impl EditorColors {
     pub const fn new() -> Self {
         Self {
-            placeholder: Color::AnsiValue(240),
-            disabled: Color::AnsiValue(238),
+            placeholder: Color::Indexed(240),
+            disabled: Color::Indexed(238),
         }
     }
 
@@ -295,15 +295,15 @@ impl Editor {
     }
 
     fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
-        frame.push_fmt(SetForegroundColor(color));
+        frame.push_fmt(Sgr::Fg(color));
         frame.push_str(self.placeholder);
-        frame.push_fmt(SetForegroundColor(Color::Reset));
+        frame.push_fmt(Sgr::Fg(Color::Default));
         frame.render(area, TextOptions::span());
     }
 
     fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Option<Color>) {
         if let Some(color) = color {
-            frame.print_fmt(SetForegroundColor(color));
+            frame.print_fmt(Sgr::Fg(color));
         }
 
         for (i, line) in self
@@ -320,7 +320,7 @@ impl Editor {
         }
 
         if color.is_some() {
-            frame.print_fmt(SetForegroundColor(Color::Reset));
+            frame.print_fmt(Sgr::Fg(Color::Default));
         }
     }
 
@@ -346,10 +346,10 @@ impl Editor {
 
             for g in utils::graphemes(self.wrapped.slice(line.range())) {
                 if index >= selector.start && !found_selector {
-                    frame.print_fmt(SetAttribute(Attribute::Reverse));
+                    frame.print_fmt(Sgr::Reverse);
                     found_selector = true
                 } else if index >= selector.end && found_selector {
-                    frame.print_fmt(SetAttribute(Attribute::NoReverse));
+                    frame.print_fmt(Sgr::NotReverse);
                     has_reset_selector = true;
                 }
 
@@ -360,7 +360,7 @@ impl Editor {
         }
 
         if !has_reset_selector && found_selector {
-            frame.print_fmt(SetAttribute(Attribute::NoReverse));
+            frame.print_fmt(Sgr::NotReverse);
         }
     }
 

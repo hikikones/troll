@@ -168,7 +168,7 @@ fn main() -> std::io::Result<()> {
                                     true
                                 }
                                 ListIndex::Selection => {
-                                    frame.push_fmt(Style::fg(Color::AnsiValue(245)).with_reverse());
+                                    frame.push_fmt(Style::fg(Color::Indexed(245)).with_reverse());
                                     true
                                 }
                                 ListIndex::Normal => false,
@@ -186,7 +186,7 @@ fn main() -> std::io::Result<()> {
                             );
 
                             if reset {
-                                frame.print_fmt(Reset);
+                                frame.print_fmt(Sgr::Reset);
                             }
                         },
                     );
@@ -219,8 +219,7 @@ fn main() -> std::io::Result<()> {
                                     true
                                 }
                                 ListIndex::Selection => {
-                                    frame
-                                        .print_fmt(Style::fg(Color::AnsiValue(245)).with_reverse());
+                                    frame.print_fmt(Style::fg(Color::Indexed(245)).with_reverse());
                                     true
                                 }
                                 ListIndex::Normal => false,
@@ -240,7 +239,7 @@ fn main() -> std::io::Result<()> {
                             frame.print_ch_repeat(' ', line.right_out() - c.right_out());
 
                             if reset {
-                                frame.print_fmt(Reset);
+                                frame.print_fmt(Sgr::Reset);
                             }
                         },
                     );

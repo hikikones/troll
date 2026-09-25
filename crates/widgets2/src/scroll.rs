@@ -13,7 +13,7 @@ pub struct ScrollbarColors {
 
 impl ScrollbarColors {
     pub const DEFAULT: Self = Self {
-        thumb: Color::AnsiValue(240),
+        thumb: Color::Indexed(240),
         track: None,
     };
 
@@ -86,17 +86,17 @@ impl Scrollbar {
                     };
 
                     frame.cursor_move(pos);
-                    frame.print_fmt(SetForegroundColor(color));
+                    frame.print_fmt(Sgr::Fg(color));
                     frame.print_ch(ch);
 
                     pos.row += 1;
                 }
 
-                frame.print_fmt(SetForegroundColor(Color::Reset));
+                frame.print_fmt(Sgr::Fg(Color::Default));
             }
             // Render only thumb
             None => {
-                frame.print_fmt(SetForegroundColor(self.colors.thumb));
+                frame.print_fmt(Sgr::Fg(self.colors.thumb));
 
                 for i in 0..area.size.rows {
                     let is_thumb = i >= start && i < end;
@@ -109,7 +109,7 @@ impl Scrollbar {
                     pos.row += 1;
                 }
 
-                frame.print_fmt(SetForegroundColor(Color::Reset));
+                frame.print_fmt(Sgr::Fg(Color::Default));
             }
         }
     }

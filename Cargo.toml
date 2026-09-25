@@ -13,6 +13,7 @@ license = "MIT"
 [workspace.dependencies]
 ahash = { version = "0.8", default-features = false, features = ["runtime-rng", "std"] }
 base64 = { version = "0.23", default-features = false, features = ["alloc", "simd-unsafe", "std"] }
+bitflags = { version = "2.13", default-features = false, features = ["std"] }
 clap = { version = "4.6", default-features = false, features = ["color", "derive", "error-context", "help", "std", "usage"] }
 clap-cargo = { version = "0.18", default-features = false }
 constcat = { version = "0.6", default-features = false }

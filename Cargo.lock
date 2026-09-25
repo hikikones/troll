@@ -4305,6 +4305,7 @@ dependencies = [
 name = "terminal"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.1",
  "crossterm 0.29.0",
  "utils",
 ]

@@ -88,9 +88,9 @@ impl Block {
                 }
 
                 if let Some(color) = self.color {
-                    frame.print_fmt(SetForegroundColor(color));
+                    frame.print_fmt(Sgr::Fg(color));
                     draw_line_horizontal(area.pos, area.size.cols, frame);
-                    frame.print_fmt(SetForegroundColor(Color::Reset));
+                    frame.print_fmt(Sgr::Fg(Color::Default));
                 } else {
                     draw_line_horizontal(area.pos, area.size.cols, frame);
                 }
@@ -101,9 +101,9 @@ impl Block {
                 }
 
                 if let Some(color) = self.color {
-                    frame.print_fmt(SetForegroundColor(color));
+                    frame.print_fmt(Sgr::Fg(color));
                     draw_line_vertical(area.pos, area.size.rows, frame);
-                    frame.print_fmt(SetForegroundColor(Color::Reset));
+                    frame.print_fmt(Sgr::Fg(Color::Default));
                 } else {
                     draw_line_vertical(area.pos, area.size.rows, frame);
                 }
@@ -117,18 +117,18 @@ impl Block {
                     0 => return,
                     1 => {
                         if let Some(color) = self.color {
-                            frame.print_fmt(SetForegroundColor(color));
+                            frame.print_fmt(Sgr::Fg(color));
                             draw_line_horizontal(area.pos, area.size.cols, frame);
-                            frame.print_fmt(SetForegroundColor(Color::Reset));
+                            frame.print_fmt(Sgr::Fg(Color::Default));
                         } else {
                             draw_line_horizontal(area.pos, area.size.cols, frame);
                         }
                     }
                     _ => {
                         if let Some(color) = self.color {
-                            frame.print_fmt(SetForegroundColor(color));
+                            frame.print_fmt(Sgr::Fg(color));
                             draw_horizontals(area, frame);
-                            frame.print_fmt(SetForegroundColor(Color::Reset));
+                            frame.print_fmt(Sgr::Fg(Color::Default));
                         } else {
                             draw_horizontals(area, frame);
                         }
@@ -144,18 +144,18 @@ impl Block {
                     0 => return,
                     1 => {
                         if let Some(color) = self.color {
-                            frame.print_fmt(SetForegroundColor(color));
+                            frame.print_fmt(Sgr::Fg(color));
                             draw_line_vertical(area.pos, area.size.rows, frame);
-                            frame.print_fmt(SetForegroundColor(Color::Reset));
+                            frame.print_fmt(Sgr::Fg(Color::Default));
                         } else {
                             draw_line_vertical(area.pos, area.size.rows, frame);
                         }
                     }
                     _ => {
                         if let Some(color) = self.color {
-                            frame.print_fmt(SetForegroundColor(color));
+                            frame.print_fmt(Sgr::Fg(color));
                             draw_verticals(area, frame);
-                            frame.print_fmt(SetForegroundColor(Color::Reset));
+                            frame.print_fmt(Sgr::Fg(Color::Default));
                         } else {
                             draw_verticals(area, frame);
                         }
@@ -168,9 +168,9 @@ impl Block {
                 }
 
                 if let Some(color) = self.color {
-                    frame.print_fmt(SetForegroundColor(color));
+                    frame.print_fmt(Sgr::Fg(color));
                     draw_rectangle(area, frame);
-                    frame.print_fmt(SetForegroundColor(Color::Reset));
+                    frame.print_fmt(Sgr::Fg(Color::Default));
                 } else {
                     draw_rectangle(area, frame);
                 }
@@ -181,9 +181,9 @@ impl Block {
                 }
 
                 if let Some(color) = self.color {
-                    frame.print_fmt(SetForegroundColor(color));
+                    frame.print_fmt(Sgr::Fg(color));
                     draw_corners(area, frame);
-                    frame.print_fmt(SetForegroundColor(Color::Reset));
+                    frame.print_fmt(Sgr::Fg(Color::Default));
                 } else {
                     draw_corners(area, frame);
                 }
@@ -193,7 +193,7 @@ impl Block {
                     return;
                 }
 
-                fill(area, frame, self.color.unwrap_or(Color::Reset));
+                fill(area, frame, self.color.unwrap_or(Color::Default));
             }
         }
     }
@@ -276,13 +276,13 @@ fn draw_corners(area: Rect, frame: &mut Framebuffer) {
     frame.print_ch('┘');
 }
 
-fn fill(area: Rect, frame: &mut Framebuffer, bg: Color) {
-    frame.print_fmt(SetBackgroundColor(bg));
+fn fill(area: Rect, frame: &mut Framebuffer, color: Color) {
+    frame.print_fmt(Sgr::Bg(color));
 
     for i in 0..area.size.rows {
         frame.cursor_move(area.pos.with_row(area.pos.row + i));
         frame.print_ch_repeat(' ', area.size.cols);
     }
 
-    frame.print_fmt(SetBackgroundColor(Color::Reset));
+    frame.print_fmt(Sgr::Bg(Color::Default));
 }

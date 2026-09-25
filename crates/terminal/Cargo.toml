@@ -6,5 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+bitflags = { workspace = true }
 crossterm = { workspace = true }
 utils = { workspace = true }
