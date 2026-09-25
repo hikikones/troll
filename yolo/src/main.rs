@@ -5,6 +5,7 @@ fn main() -> std::io::Result<()> {
     let mut terminal = Terminal::enter_tui()?;
     let mut kitty = KittyGraphics::new();
 
+    // List
     struct Yolo;
     impl Yolo {
         const fn yolo(&self) -> &'static str {
@@ -22,12 +23,45 @@ fn main() -> std::io::Result<()> {
         .with_padding(Margin::horizontal(1));
     let items = Vec::from_iter((0..200).map(|_| Yolo));
 
+    // Tags
+    let mut taglist = TagList::new()
+        .with_scrollbar(0)
+        .with_padding(Margin::horizontal(1));
+    struct Tag(&'static str);
+    impl TagItem for &Tag {
+        fn width(&self) -> u16 {
+            utils::str_width(self.0)
+        }
+    }
+    let tags = [
+        Tag("tag"),
+        Tag("tag2"),
+        Tag("tag3"),
+        Tag("abigasslongtagname"),
+        Tag("yolo"),
+        Tag("rust"),
+        Tag("image"),
+        Tag("compsci"),
+        Tag("anotherbigasslongtagnamehereyolo"),
+        Tag("music"),
+        Tag("quote"),
+        Tag("joke"),
+        Tag("math"),
+        Tag("recipe"),
+        Tag("gaming"),
+        Tag("science"),
+        Tag("#metoo"),
+    ];
+
+    // Image
     let id = 1;
     let mut image = Image::new(id);
     image.load_from_path("meow.png", &mut kitty).unwrap();
 
+    // Prompt
     let mut prompt = Prompt::new().with_placeholder("Search...");
 
+    // Editor
     let mut editor = Editor::new().with_placeholder("Content...");
     editor.push_str("yoyo\there\tare\tsome\ttabs\nnew line down here wut");
 
@@ -35,6 +69,7 @@ fn main() -> std::io::Result<()> {
     enum Page {
         Demo,
         List,
+        Tags,
         Image,
         Prompt,
         Editor,
@@ -244,6 +279,29 @@ fn main() -> std::io::Result<()> {
                         },
                     );
                 }
+                Page::Tags => {
+                    let tags_area = area.with_size(area.size / 2).center(area);
+                    Block::rectangle().render(tags_area, frame);
+                    frame.push_str(" TAGS ");
+                    frame.render(tags_area, TextOptions::span_center());
+
+                    taglist.render(
+                        tags_area.inner(Margin::all(1)),
+                        frame,
+                        tags.iter(),
+                        |tag_area, frame, tag, is_selected| {
+                            if is_selected {
+                                frame.push_fmt(Sgr::Fg(Color::Yellow));
+                                frame.push_str(tag.0);
+                                frame.push_fmt(Sgr::reset_fg());
+                                frame.render(tag_area, TextOptions::span());
+                            } else {
+                                frame.push_str(tag.0);
+                                frame.render(tag_area, TextOptions::span());
+                            }
+                        },
+                    );
+                }
                 Page::Image => {
                     image.render(
                         area.with_size(area.size / 4).center(area),
@@ -289,7 +347,8 @@ fn main() -> std::io::Result<()> {
                 KeyCode::Tab => {
                     page = match page {
                         Page::Demo => Page::List,
-                        Page::List => Page::Image,
+                        Page::List => Page::Tags,
+                        Page::Tags => Page::Image,
                         Page::Image => {
                             terminal.frame().cursor_show();
                             Page::Prompt
@@ -308,7 +367,8 @@ fn main() -> std::io::Result<()> {
                             Page::Editor
                         }
                         Page::List => Page::Demo,
-                        Page::Image => Page::List,
+                        Page::Tags => Page::List,
+                        Page::Image => Page::Tags,
                         Page::Prompt => {
                             terminal.frame().cursor_hide();
                             Page::Image
@@ -320,6 +380,9 @@ fn main() -> std::io::Result<()> {
                     Page::Demo => {}
                     Page::List => {
                         list.input(key.code, key.modifiers);
+                    }
+                    Page::Tags => {
+                        taglist.input(key.code, tags.iter());
                     }
                     Page::Image => {}
                     Page::Prompt => {

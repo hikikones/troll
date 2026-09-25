@@ -7,4 +7,5 @@ license.workspace = true
 
 [dependencies]
 terminal = { workspace = true }
+utils = { workspace = true }
 widgets2 = { workspace = true }

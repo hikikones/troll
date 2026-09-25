@@ -5553,6 +5553,7 @@ name = "yolo"
 version = "0.1.0"
 dependencies = [
  "terminal",
+ "utils",
  "widgets2",
 ]
 

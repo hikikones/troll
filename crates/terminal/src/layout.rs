@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
     pub pos: Pos,
     pub size: Size,
@@ -357,7 +357,7 @@ const fn split<const N: usize>(width: u16, gap: u16, constraints: [Constraint; N
     widths
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pos {
     pub col: u16,
     pub row: u16,
@@ -436,7 +436,7 @@ impl std::ops::Add<u16> for Pos {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Size {
     pub cols: u16,
     pub rows: u16,
@@ -460,11 +460,15 @@ impl Size {
     }
 
     pub const fn is_empty(&self) -> bool {
-        self.rows == 0 || self.cols == 0
+        self.cols == 0 || self.rows == 0
     }
 
     pub const fn is_less(&self, v: u16) -> bool {
-        self.rows < v || self.cols < v
+        self.cols < v || self.rows < v
+    }
+
+    pub const fn eq(&self, other: Self) -> bool {
+        self.cols == other.cols && self.rows == other.rows
     }
 
     pub const fn add(self, rhs: Self) -> Self {
