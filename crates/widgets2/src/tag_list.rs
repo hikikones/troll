@@ -114,69 +114,98 @@ impl TagList {
         self
     }
 
-    pub fn input<T: TagItem>(&mut self, key: KeyCode, items: impl IntoIterator<Item = T>) -> bool {
+    pub fn input(&mut self, key: KeyCode, items: impl IntoIterator<Item = impl TagItem>) -> bool {
+        match key {
+            KeyCode::Right => self.move_forward(),
+            KeyCode::Left => self.move_backward(),
+            KeyCode::Down => self.move_down(items),
+            KeyCode::Up => self.move_up(items),
+            KeyCode::Home => self.move_to_start(),
+            KeyCode::End => self.move_to_end(),
+            _ => false,
+        }
+    }
+
+    pub fn move_forward(&mut self) -> bool {
+        let old_index = self.index;
+        self.index = (self.index + 1).min(self.total_items.saturating_sub(1));
+        self.index != old_index
+    }
+
+    pub fn move_backward(&mut self) -> bool {
+        let old_index = self.index;
+        self.index = self.index.saturating_sub(1);
+        self.index != old_index
+    }
+
+    pub fn move_down(&mut self, tags: impl IntoIterator<Item = impl TagItem>) -> bool {
         let old_index = self.index;
 
-        match key {
-            KeyCode::Right => {
-                self.index = (self.index + 1).min(self.total_items.saturating_sub(1));
-            }
-            KeyCode::Left => {
-                self.index = self.index.saturating_sub(1);
-            }
-            KeyCode::Down => {
-                self.index = if self.index_row == self.total_lines.saturating_sub(1) {
-                    self.total_items.saturating_sub(1)
-                } else {
-                    let (mut next_index, mut distance) = (0, u16::MAX);
-                    for (i, x, y, _) in
-                        iter_items_in_col_row(self.list_width, self.options.gap, items)
-                            .skip(self.index + 1)
-                    {
-                        if y == self.index_row + 1 {
-                            let d = self.index_col.abs_diff(x);
-                            if d <= distance {
-                                next_index = i;
-                                distance = d;
-                            }
-                        } else if y > self.index_row + 1 {
-                            break;
-                        }
+        self.index = if self.index_row == self.total_lines.saturating_sub(1) {
+            self.total_items.saturating_sub(1)
+        } else {
+            let (mut next_index, mut distance) = (0, u16::MAX);
+            for (i, x, y, _) in
+                iter_items_in_col_row(self.list_width, self.options.gap, tags).skip(self.index + 1)
+            {
+                if y == self.index_row + 1 {
+                    let d = self.index_col.abs_diff(x);
+                    if d <= distance {
+                        next_index = i;
+                        distance = d;
                     }
-                    next_index
-                };
+                } else if y > self.index_row + 1 {
+                    break;
+                }
             }
-            KeyCode::Up => {
-                self.index = if self.index_row == 0 {
-                    0
-                } else {
-                    let (mut next_index, mut distance) = (0, u16::MAX);
-                    for (i, x, y, _) in
-                        iter_items_in_col_row(self.list_width, self.options.gap, items)
-                    {
-                        if y == self.index_row.saturating_sub(1) {
-                            let d = self.index_col.abs_diff(x);
-                            if d <= distance {
-                                next_index = i;
-                                distance = d;
-                            }
-                        } else if y >= self.index_row {
-                            break;
-                        }
-                    }
-                    next_index
-                };
-            }
-            KeyCode::Home => {
-                self.index = 0;
-            }
-            KeyCode::End => {
-                self.index = self.total_items.saturating_sub(1);
-            }
-            _ => {}
-        }
+            next_index
+        };
 
         self.index != old_index
+    }
+
+    pub fn move_up(&mut self, items: impl IntoIterator<Item = impl TagItem>) -> bool {
+        let old_index = self.index;
+
+        self.index = if self.index_row == 0 {
+            0
+        } else {
+            let (mut next_index, mut distance) = (0, u16::MAX);
+            for (i, x, y, _) in iter_items_in_col_row(self.list_width, self.options.gap, items) {
+                if y == self.index_row.saturating_sub(1) {
+                    let d = self.index_col.abs_diff(x);
+                    if d <= distance {
+                        next_index = i;
+                        distance = d;
+                    }
+                } else if y >= self.index_row {
+                    break;
+                }
+            }
+            next_index
+        };
+
+        self.index != old_index
+    }
+
+    pub fn move_to_start(&mut self) -> bool {
+        if self.index == 0 {
+            return false;
+        }
+
+        self.index = 0;
+        true
+    }
+
+    pub fn move_to_end(&mut self) -> bool {
+        let last_index = self.total_items.saturating_sub(1);
+
+        if self.index == last_index {
+            return false;
+        }
+
+        self.index = last_index;
+        true
     }
 
     pub fn render<T: TagItem>(
@@ -271,8 +300,8 @@ impl TagList {
         self.options.scrollbar && Scroll::is_scrollable(self.total_lines as usize, list_size, 10)
     }
 
-    fn update_scroll(&mut self, area_size: Size, list_height: u16) {
-        let scroll = if self.last_size != area_size {
+    const fn update_scroll(&mut self, area_size: Size, list_height: u16) {
+        let scroll = if self.last_size.neq(area_size) {
             // Refresh scroll on window resize
             0
         } else {
@@ -291,12 +320,12 @@ impl TagList {
 fn iter_items_in_col_row<T: TagItem>(
     max_width: u16,
     item_gap: u16,
-    items: impl IntoIterator<Item = T>,
+    tags: impl IntoIterator<Item = T>,
 ) -> impl Iterator<Item = (usize, u16, u16, T)> {
     let (mut x, mut y) = (0, 0);
-    items.into_iter().enumerate().map(move |(i, item)| {
-        let item_width = item.width();
-        if x + item_width > max_width {
+    tags.into_iter().enumerate().map(move |(i, item)| {
+        let tag_width = item.width();
+        if x + tag_width > max_width {
             x = 0;
             if i > 0 {
                 y += 1;
@@ -305,7 +334,7 @@ fn iter_items_in_col_row<T: TagItem>(
 
         let (col, row) = (x, y);
 
-        x += item_width + item_gap;
+        x += tag_width + item_gap;
 
         (i, col, row, item)
     })

@@ -471,6 +471,10 @@ impl Size {
         self.cols == other.cols && self.rows == other.rows
     }
 
+    pub const fn neq(&self, other: Self) -> bool {
+        self.cols != other.cols || self.rows != other.rows
+    }
+
     pub const fn add(self, rhs: Self) -> Self {
         Self {
             cols: self.cols + rhs.cols,
