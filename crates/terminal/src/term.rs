@@ -11,7 +11,7 @@ use crossterm::{
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{CellDims, HorizontalAlignment, Pos, Rect, Size};
+use crate::{HorizontalAlignment, Pos, Rect, Size};
 
 pub struct Terminal {
     stdout: Stdout,
@@ -20,7 +20,7 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn enter_tui() -> std::io::Result<Self> {
-        let size = TermSize::from(crossterm::terminal::window_size()?);
+        let size = TermSize::query()?;
 
         Self::set_panic_hook();
 
@@ -65,7 +65,7 @@ impl Terminal {
         &mut self,
         f: impl FnOnce(&mut Framebuffer) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
-        self.buffer.size = TermSize::from(crossterm::terminal::window_size()?);
+        self.buffer.size = TermSize::query()?;
 
         f(&mut self.buffer)?;
 
@@ -301,39 +301,6 @@ impl Framebuffer {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct TermSize {
-    cols: u16,
-    rows: u16,
-    width: u16,
-    height: u16,
-}
-
-impl TermSize {
-    const fn from(win_size: crossterm::terminal::WindowSize) -> Self {
-        Self {
-            cols: win_size.columns,
-            rows: win_size.rows,
-            width: win_size.width,
-            height: win_size.height,
-        }
-    }
-
-    pub const fn window_size(&self) -> Size {
-        Size {
-            cols: self.cols,
-            rows: self.rows,
-        }
-    }
-
-    pub const fn cell_dims(&self) -> CellDims {
-        CellDims {
-            width: self.width / self.cols,
-            height: self.height / self.rows,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum TextMode {
     Span { fill: bool },
     Paragraph { center_vertical: bool },
@@ -405,5 +372,170 @@ impl TextOptions {
 impl Default for TextOptions {
     fn default() -> Self {
         Self::span()
+    }
+}
+
+struct TermSize {
+    cols: u16,
+    rows: u16,
+    width: u16,
+    height: u16,
+}
+
+impl TermSize {
+    fn query() -> std::io::Result<Self> {
+        let win_size = crossterm::terminal::window_size()?;
+
+        // TODO: Should also error out when pixel dimensions are zero.
+
+        Ok(Self {
+            cols: win_size.columns,
+            rows: win_size.rows,
+            width: win_size.width,
+            height: win_size.height,
+        })
+    }
+
+    const fn window_size(&self) -> Size {
+        Size {
+            cols: self.cols,
+            rows: self.rows,
+        }
+    }
+
+    const fn cell_dims(&self) -> CellDims {
+        CellDims {
+            width: self.width / self.cols,
+            height: self.height / self.rows,
+        }
+    }
+}
+
+/// The pixel dimensions of a single cell in the terminal.
+#[derive(Debug, Clone, Copy)]
+pub struct CellDims {
+    pub width: u16,
+    pub height: u16,
+}
+
+impl CellDims {
+    pub const DEFAULT: Self = Self {
+        width: 10,
+        height: 20,
+    };
+
+    pub const fn width(&self, cols: u16) -> u16 {
+        self.width * cols
+    }
+
+    pub const fn height(&self, rows: u16) -> u16 {
+        self.height * rows
+    }
+
+    pub const fn cols(&self, width: u16) -> u16 {
+        width.div_ceil(self.width)
+    }
+
+    pub const fn rows(&self, height: u16) -> u16 {
+        height.div_ceil(self.height)
+    }
+
+    pub const fn size(&self, dims: ImageDims) -> Size {
+        Size {
+            cols: self.cols(dims.width),
+            rows: self.rows(dims.height),
+        }
+    }
+
+    pub const fn dims(&self, size: Size) -> ImageDims {
+        ImageDims {
+            width: self.width(size.cols),
+            height: self.height(size.rows),
+        }
+    }
+}
+
+/// The pixel dimensions of an image.
+#[derive(Debug, Clone, Copy)]
+pub struct ImageDims {
+    pub width: u16,
+    pub height: u16,
+}
+
+impl ImageDims {
+    pub const ZERO: Self = Self {
+        width: 0,
+        height: 0,
+    };
+
+    pub const fn new(width: u16, height: u16) -> Self {
+        Self { width, height }
+    }
+
+    pub const fn with_width(mut self, width: u16) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub const fn with_height(mut self, height: u16) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub fn resize(self, max: ImageDims) -> Self {
+        // https://docs.rs/image/0.25.10/src/image/math/utils.rs.html
+        fn resize_dimensions(
+            width: u32,
+            height: u32,
+            nwidth: u32,
+            nheight: u32,
+            fill: bool,
+        ) -> (u32, u32) {
+            use std::cmp::max;
+
+            let wratio = f64::from(nwidth) / f64::from(width);
+            let hratio = f64::from(nheight) / f64::from(height);
+
+            let ratio = if fill {
+                f64::max(wratio, hratio)
+            } else {
+                f64::min(wratio, hratio)
+            };
+
+            let nw = max((f64::from(width) * ratio).round() as u64, 1);
+            let nh = max((f64::from(height) * ratio).round() as u64, 1);
+
+            if nw > u64::from(u32::MAX) {
+                let ratio = f64::from(u32::MAX) / f64::from(width);
+                (u32::MAX, max((f64::from(height) * ratio).round() as u32, 1))
+            } else if nh > u64::from(u32::MAX) {
+                let ratio = f64::from(u32::MAX) / f64::from(height);
+                (max((f64::from(width) * ratio).round() as u32, 1), u32::MAX)
+            } else {
+                (nw as u32, nh as u32)
+            }
+        }
+
+        let (rw, rh) = resize_dimensions(
+            self.width as u32,
+            self.height as u32,
+            max.width as u32,
+            max.height as u32,
+            false,
+        );
+
+        Self {
+            width: rw as u16,
+            height: rh as u16,
+        }
+    }
+}
+
+impl From<(u32, u32)> for ImageDims {
+    fn from((w, h): (u32, u32)) -> Self {
+        Self {
+            width: w as u16,
+            height: h as u16,
+        }
     }
 }
