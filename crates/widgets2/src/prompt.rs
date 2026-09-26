@@ -15,6 +15,7 @@ pub struct Prompt {
     margins: u16,
     disabled: bool,
     colors: PromptColors,
+    area_pos: Pos,
     last_width: u16,
 }
 
@@ -60,6 +61,7 @@ impl Prompt {
             margins: 0,
             disabled: false,
             colors: PromptColors::new(),
+            area_pos: Pos::ZERO,
             last_width: 0,
         }
     }
@@ -102,6 +104,10 @@ impl Prompt {
         self.input.as_str().trim().is_empty()
     }
 
+    pub const fn has_selection(&self) -> bool {
+        self.selector.is_some()
+    }
+
     pub const fn as_str(&self) -> &str {
         self.input.as_str()
     }
@@ -118,10 +124,13 @@ impl Prompt {
         utils::hash_fast(self.input.as_str().trim())
     }
 
-    pub fn get_cursor_pos(&self, area_pos: Pos) -> Pos {
-        let mut col = area_pos.col + self.cursor_col();
-        col = col.saturating_sub(self.scroll).max(area_pos.col);
-        area_pos.with_col(col)
+    pub fn get_cursor_pos(&self) -> Pos {
+        let cpos = self.cursor_render_pos();
+        cpos.with_col(cpos.col.max(self.area_pos.col))
+    }
+
+    pub const fn get_render_pos(&self) -> Pos {
+        self.area_pos
     }
 
     pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {
@@ -236,6 +245,8 @@ impl Prompt {
     }
 
     pub fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
+        self.area_pos = area.pos;
+
         if area.is_empty() {
             return;
         }
@@ -269,7 +280,7 @@ impl Prompt {
             Some(range) => self.render_text_with_selection(area, frame, range),
             None => self.render_text(area, frame, None),
         }
-        self.render_cursor(area.pos, frame);
+        frame.cursor_move(self.cursor_render_pos());
     }
 
     fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
@@ -339,10 +350,10 @@ impl Prompt {
             })
     }
 
-    fn render_cursor(&self, area_pos: Pos, frame: &mut Framebuffer) {
-        let mut col = area_pos.col + self.cursor_col();
+    fn cursor_render_pos(&self) -> Pos {
+        let mut col = self.area_pos.col + self.cursor_col();
         col = col.saturating_sub(self.scroll);
-        frame.cursor_move(area_pos.with_col(col));
+        self.area_pos.with_col(col)
     }
 
     const fn update_scroll(&mut self, last_width: u16, width: u16, input_width: u16) {

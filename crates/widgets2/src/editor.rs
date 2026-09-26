@@ -20,6 +20,7 @@ pub struct Editor {
     margins: u16,
     disabled: bool,
     colors: EditorColors,
+    area_pos: Pos,
     last_size: Size,
     last_hash: u64,
 }
@@ -65,6 +66,7 @@ impl Editor {
             margins: 0,
             disabled: false,
             colors: EditorColors::new(),
+            area_pos: Pos::ZERO,
             last_size: Size::ZERO,
             last_hash: 0,
         }
@@ -108,6 +110,10 @@ impl Editor {
         self.disabled
     }
 
+    pub const fn has_selection(&self) -> bool {
+        self.selector.is_some()
+    }
+
     pub const fn as_str(&self) -> &str {
         self.input.as_str()
     }
@@ -116,10 +122,17 @@ impl Editor {
         self.scroll
     }
 
-    pub fn get_cursor_pos(&self, area_pos: Pos) -> Pos {
-        let mut cpos = area_pos + self.cursor_pos();
-        cpos.row = cpos.row.saturating_sub(self.scroll).max(area_pos.row);
-        cpos
+    pub fn get_cursor_pos(&self) -> Pos {
+        let cpos = self.cursor_render_pos();
+        cpos.with_row(cpos.row.max(self.area_pos.row))
+    }
+
+    pub const fn get_render_pos(&self) -> Pos {
+        self.area_pos
+    }
+
+    pub fn is_cursor_on_first_row(&self) -> bool {
+        self.scroll == 0 && self.area_pos.row == self.get_cursor_pos().row
     }
 
     pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {
@@ -251,6 +264,8 @@ impl Editor {
     }
 
     pub fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
+        self.area_pos = area.pos;
+
         if area.is_empty() {
             return;
         }
@@ -285,7 +300,7 @@ impl Editor {
             Some(range) => self.render_text_with_selection(area, frame, range),
             None => self.render_text(area, frame, None),
         }
-        self.render_cursor(area.pos, frame);
+        frame.cursor_move(self.cursor_render_pos());
     }
 
     pub fn clear(&mut self) {
@@ -370,10 +385,10 @@ impl Editor {
         }
     }
 
-    fn render_cursor(&self, area_pos: Pos, frame: &mut Framebuffer) {
-        let mut cpos = self.cursor_pos() + area_pos;
+    fn cursor_render_pos(&self) -> Pos {
+        let mut cpos = self.area_pos + self.cursor_pos();
         cpos.row = cpos.row.saturating_sub(self.scroll);
-        frame.cursor_move(cpos);
+        cpos
     }
 
     fn update_scroll(&mut self, last_height: u16, height: u16) {

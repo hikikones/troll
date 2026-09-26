@@ -5,6 +5,11 @@ pub struct Rect {
 }
 
 impl Rect {
+    pub const ZERO: Self = Self {
+        pos: Pos::ZERO,
+        size: Size::ZERO,
+    };
+
     pub const fn new(pos: Pos, size: Size) -> Self {
         Self { pos, size }
     }

@@ -475,7 +475,6 @@ struct EditorPage {
     state: EditorPageState,
     prompt: Prompt,
     editor: Editor,
-    editor_pos: Pos,
 }
 
 enum EditorPageState {
@@ -489,7 +488,6 @@ impl EditorPage {
             state: EditorPageState::Prompt,
             prompt: Prompt::new().with_placeholder("Search..."),
             editor: Editor::new().with_placeholder("Content...").with_disabled(),
-            editor_pos: Pos::ZERO,
         }
     }
 
@@ -531,31 +529,32 @@ impl EditorPage {
         frame.push_str(" EDITOR ");
         frame.render(editor_area, TextOptions::span_center());
         self.editor.render(editor_inner, frame);
-        self.editor_pos = editor_inner.pos;
 
-        let cpos = self.get_cursor_pos(prompt_inner.pos, editor_inner.pos);
+        let cpos = self.get_cursor_pos();
         frame.set_cursor_at_end(cpos);
     }
 
     fn input(&mut self, key: KeyEvent) -> Action {
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+
         let render = match key.code {
             KeyCode::Up => {
-                if let EditorPageState::Editor = self.state {
-                    let cpos = self.editor.get_cursor_pos(self.editor_pos);
-                    if self.editor.get_scroll() == 0 && cpos.row == self.editor_pos.row {
-                        self.state = EditorPageState::Prompt;
-                        self.editor.set_disabled(true);
-                        self.prompt.set_disabled(false);
-                        true
-                    } else {
-                        self.editor.input(key.code, key.modifiers)
-                    }
+                if let EditorPageState::Editor = self.state
+                    && self.editor.is_cursor_on_first_row()
+                    && !shift
+                {
+                    self.state = EditorPageState::Prompt;
+                    self.editor.set_disabled(true);
+                    self.prompt.set_disabled(false);
+                    true
                 } else {
-                    false
+                    self.prompt.input(key.code, key.modifiers)
                 }
             }
             KeyCode::Down => {
-                if let EditorPageState::Prompt = self.state {
+                if let EditorPageState::Prompt = self.state
+                    && !shift
+                {
                     self.state = EditorPageState::Editor;
                     self.prompt.set_disabled(true);
                     self.editor.set_disabled(false);
@@ -577,10 +576,10 @@ impl EditorPage {
         Action::None
     }
 
-    fn get_cursor_pos(&self, prompt_pos: Pos, editor_pos: Pos) -> Pos {
+    fn get_cursor_pos(&self) -> Pos {
         match self.state {
-            EditorPageState::Prompt => self.prompt.get_cursor_pos(prompt_pos),
-            EditorPageState::Editor => self.editor.get_cursor_pos(editor_pos),
+            EditorPageState::Prompt => self.prompt.get_cursor_pos(),
+            EditorPageState::Editor => self.editor.get_cursor_pos(),
         }
     }
 }
