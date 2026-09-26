@@ -312,6 +312,22 @@ impl Rect {
 
         rects
     }
+
+    pub const fn split_sides(self, left: u16, right: u16) -> (Self, Self, Self) {
+        (
+            self.inner(Margin::right(self.cols().saturating_sub(left))),
+            self.inner(Margin::sides(left, right)),
+            self.inner(Margin::left(self.cols().saturating_sub(right))),
+        )
+    }
+
+    pub const fn split_ends(self, top: u16, bottom: u16) -> (Self, Self, Self) {
+        (
+            self.inner(Margin::bottom(self.rows().saturating_sub(top))),
+            self.inner(Margin::ends(top, bottom)),
+            self.inner(Margin::top(self.rows().saturating_sub(bottom))),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -704,6 +720,24 @@ impl Margin {
 
     pub const fn proportional(value: u16) -> Self {
         Self::symmetric(value * 2, value)
+    }
+
+    pub const fn sides(left: u16, right: u16) -> Self {
+        Self {
+            left,
+            right,
+            top: 0,
+            bottom: 0,
+        }
+    }
+
+    pub const fn ends(top: u16, bottom: u16) -> Self {
+        Self {
+            left: 0,
+            right: 0,
+            top,
+            bottom,
+        }
     }
 
     pub const fn left(value: u16) -> Self {

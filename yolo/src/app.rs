@@ -93,14 +93,7 @@ impl App {
 
             frame.print_fmt(KittyDeleteAll);
 
-            let [top, body, bottom] = area.split_vertical(
-                0,
-                [
-                    Constraint::Fixed(1),
-                    Constraint::Percent(100),
-                    Constraint::Fixed(1),
-                ],
-            );
+            let (top, body, bottom) = area.split_ends(1, 1);
 
             self.pages.render_navigation(top, frame);
 
