@@ -112,9 +112,13 @@ impl Editor {
         self.input.as_str()
     }
 
+    pub const fn get_scroll(&self) -> u16 {
+        self.scroll
+    }
+
     pub fn get_cursor_pos(&self, area_pos: Pos) -> Pos {
         let mut cpos = area_pos + self.cursor_pos();
-        cpos.row = cpos.row.saturating_sub(self.scroll);
+        cpos.row = cpos.row.saturating_sub(self.scroll).max(area_pos.row);
         cpos
     }
 
@@ -432,6 +436,10 @@ impl Editor {
     }
 
     fn move_cursor(&mut self, cm: CursorMove, shift: bool) -> bool {
+        if self.input.is_empty() {
+            return false;
+        }
+
         let (old_cursor, old_selector) = (self.cursor, self.selector);
 
         if shift {

@@ -542,7 +542,7 @@ impl EditorPage {
             KeyCode::Up => {
                 if let EditorPageState::Editor = self.state {
                     let cpos = self.editor.get_cursor_pos(self.editor_pos);
-                    if cpos.row == self.editor_pos.row {
+                    if self.editor.get_scroll() == 0 && cpos.row == self.editor_pos.row {
                         self.state = EditorPageState::Prompt;
                         self.editor.set_disabled(true);
                         self.prompt.set_disabled(false);

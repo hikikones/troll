@@ -120,7 +120,7 @@ impl Prompt {
 
     pub fn get_cursor_pos(&self, area_pos: Pos) -> Pos {
         let mut col = area_pos.col + self.cursor_col();
-        col = col.saturating_sub(self.scroll);
+        col = col.saturating_sub(self.scroll).max(area_pos.col);
         area_pos.with_col(col)
     }
 
