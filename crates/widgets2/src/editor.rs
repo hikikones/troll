@@ -76,7 +76,7 @@ impl Editor {
     }
 
     pub const fn with_colors(mut self, colors: EditorColors) -> Self {
-        self.set_colors(colors);
+        self.colors = colors;
         self
     }
 
@@ -100,10 +100,6 @@ impl Editor {
         self
     }
 
-    pub const fn toggle_disabled(&mut self) -> &mut Self {
-        self.set_disabled(!self.disabled)
-    }
-
     pub const fn is_empty(&self) -> bool {
         self.input.is_empty()
     }
@@ -114,6 +110,12 @@ impl Editor {
 
     pub const fn as_str(&self) -> &str {
         self.input.as_str()
+    }
+
+    pub fn get_cursor_pos(&self, area_pos: Pos) -> Pos {
+        let mut cpos = area_pos + self.cursor_pos();
+        cpos.row = cpos.row.saturating_sub(self.scroll);
+        cpos
     }
 
     pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {
@@ -519,6 +521,10 @@ impl Editor {
     }
 
     fn index_to_pos(&self, index: usize) -> Pos {
+        if self.lines.is_empty() {
+            return Pos::ZERO;
+        };
+
         let row = self.index_to_row(index);
         let line = &self.lines[row as usize];
         let text = self.wrapped.slice(line.range());

@@ -70,7 +70,7 @@ impl Prompt {
     }
 
     pub const fn with_colors(mut self, colors: PromptColors) -> Self {
-        self.set_colors(colors);
+        self.colors = colors;
         self
     }
 
@@ -92,10 +92,6 @@ impl Prompt {
     pub const fn set_disabled(&mut self, value: bool) -> &mut Self {
         self.disabled = value;
         self
-    }
-
-    pub const fn set_enabled(&mut self, value: bool) -> &mut Self {
-        self.set_disabled(!value)
     }
 
     pub const fn is_empty(&self) -> bool {
@@ -120,6 +116,12 @@ impl Prompt {
 
     pub fn hash_trim(&self) -> u64 {
         utils::hash_fast(self.input.as_str().trim())
+    }
+
+    pub fn get_cursor_pos(&self, area_pos: Pos) -> Pos {
+        let mut col = area_pos.col + self.cursor_col();
+        col = col.saturating_sub(self.scroll);
+        area_pos.with_col(col)
     }
 
     pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {

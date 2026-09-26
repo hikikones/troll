@@ -30,11 +30,7 @@ impl Terminal {
 
         Ok(Self {
             stdout,
-            buffer: Framebuffer {
-                buf: String::new(),
-                text: String::new(),
-                size,
-            },
+            buffer: Framebuffer::new(size),
         })
     }
 
@@ -96,9 +92,19 @@ pub struct Framebuffer {
     buf: String,
     text: String,
     size: TermSize,
+    cursor: Option<Pos>,
 }
 
 impl Framebuffer {
+    const fn new(size: TermSize) -> Self {
+        Self {
+            buf: String::new(),
+            text: String::new(),
+            size,
+            cursor: None,
+        }
+    }
+
     pub const fn area(&self) -> Rect {
         Rect::new(Pos::ZERO, self.size.window_size())
     }
@@ -122,6 +128,10 @@ impl Framebuffer {
     pub fn cursor_move(&mut self, pos: impl Into<Pos>) {
         let Pos { col, row } = pos.into();
         let _ = MoveTo(col, row).write_ansi(&mut self.buf);
+    }
+
+    pub const fn set_cursor_at_end(&mut self, pos: Pos) {
+        self.cursor = Some(pos);
     }
 
     pub fn print_ch(&mut self, ch: char) {
@@ -153,6 +163,11 @@ impl Framebuffer {
                 .queue(MoveTo(0, i))?
                 .queue(Clear(ClearType::CurrentLine))?;
         }
+
+        if let Some(cpos) = self.cursor.take() {
+            self.cursor_move(cpos);
+        }
+
         writer.write_all(self.buf.as_bytes())?;
         writer.flush()?;
 
@@ -164,6 +179,7 @@ impl Framebuffer {
     fn clear(&mut self) {
         self.buf.clear();
         self.text.clear();
+        self.cursor = None;
     }
 
     pub fn push_ch(&mut self, ch: char) {

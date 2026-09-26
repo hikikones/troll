@@ -114,12 +114,12 @@ impl TagList {
         self
     }
 
-    pub fn input(&mut self, key: KeyCode, items: impl IntoIterator<Item = impl TagItem>) -> bool {
+    pub fn input(&mut self, key: KeyCode, tags: impl IntoIterator<Item = impl TagItem>) -> bool {
         match key {
             KeyCode::Right => self.move_forward(),
             KeyCode::Left => self.move_backward(),
-            KeyCode::Down => self.move_down(items),
-            KeyCode::Up => self.move_up(items),
+            KeyCode::Down => self.move_down(tags),
+            KeyCode::Up => self.move_up(tags),
             KeyCode::Home => self.move_to_start(),
             KeyCode::End => self.move_to_end(),
             _ => false,
