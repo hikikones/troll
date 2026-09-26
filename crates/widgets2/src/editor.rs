@@ -123,8 +123,7 @@ impl Editor {
     }
 
     pub fn get_cursor_pos(&self) -> Pos {
-        let cpos = self.cursor_render_pos();
-        cpos.with_row(cpos.row.max(self.area_pos.row))
+        self.cursor_render_pos()
     }
 
     pub const fn get_render_pos(&self) -> Pos {
@@ -275,6 +274,7 @@ impl Editor {
         // Disabled
         if self.disabled {
             if self.input.is_empty() {
+                self.scroll = 0;
                 self.render_placeholder(area, frame, self.colors.disabled);
             } else {
                 self.process_input(last_size, area.size);
@@ -286,6 +286,7 @@ impl Editor {
 
         // Placeholder
         if self.input.is_empty() {
+            self.scroll = 0;
             self.render_placeholder(area, frame, self.colors.placeholder);
             frame.cursor_move(area.pos);
             return;

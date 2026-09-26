@@ -125,8 +125,7 @@ impl Prompt {
     }
 
     pub fn get_cursor_pos(&self) -> Pos {
-        let cpos = self.cursor_render_pos();
-        cpos.with_col(cpos.col.max(self.area_pos.col))
+        self.cursor_render_pos()
     }
 
     pub const fn get_render_pos(&self) -> Pos {
@@ -256,6 +255,7 @@ impl Prompt {
         // Disabled
         if self.disabled {
             if self.input.is_empty() {
+                self.scroll = 0;
                 self.render_placeholder(area, frame, self.colors.disabled);
             } else {
                 self.update_scroll(last_width, area.size.cols, self.input_width());
@@ -266,6 +266,7 @@ impl Prompt {
 
         // Placeholder
         if self.input.is_empty() {
+            self.scroll = 0;
             self.render_placeholder(area, frame, self.colors.placeholder);
             frame.cursor_move(area.pos);
             return;
