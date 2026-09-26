@@ -326,6 +326,7 @@ pub enum TextMode {
 pub struct TextOptions {
     pub mode: TextMode,
     pub align: HorizontalAlignment,
+    // TODO: Add VerticalAlignment here also.
 }
 
 impl TextOptions {

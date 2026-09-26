@@ -458,12 +458,11 @@ impl ImagePage {
     fn on_exit(&self) {}
 
     fn render(&mut self, area: Rect, frame: &mut Framebuffer, kitty: &KittyGraphics) {
-        self.image.render(
-            area.with_size(area.size / 4).center(area),
-            frame,
-            &kitty,
-            ImageOptions::fit_and_center(),
-        );
+        let image_area = area.with_size(area.size / 4).center(area);
+        self.image
+            .render(image_area, frame, &kitty, ImageOptions::fit_and_center());
+
+        // Block::fill(Color::Yellow).render(image_area, frame);
     }
 
     fn input(&mut self, _key: KeyEvent) -> Action {

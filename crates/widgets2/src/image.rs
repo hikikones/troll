@@ -267,10 +267,11 @@ struct KittyRender {
 impl std::fmt::Display for KittyRender {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
-            "{KITTY_START}{},{},{},{},{}",
+            "{KITTY_START}{},{},{},{},{},{}",
             KittyAction::Display,
             KittyId(self.id),
             KittyPlacement(self.id),
+            KittyLayer::BEHIND_ALL,
             KittyCursorMovement::NoMovement,
             KittyVerbosity::Silent,
         ))?;
@@ -684,6 +685,21 @@ impl std::fmt::Display for KittyCrop {
             "x={},y={},w={},h={}",
             self.x, self.y, self.width, self.height
         ))
+    }
+}
+/// The z-index vertical stacking order of the image.
+#[derive(Debug, Clone, Copy)]
+struct KittyLayer(i32);
+
+impl KittyLayer {
+    // const DEFAULT: Self = Self(0);
+    // const BEHIND_TEXT: Self = Self(-1);
+    const BEHIND_ALL: Self = Self(i32::MIN);
+}
+
+impl std::fmt::Display for KittyLayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("z={}", self.0))
     }
 }
 
