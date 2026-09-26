@@ -288,7 +288,7 @@ impl Editor {
         if self.input.is_empty() {
             self.scroll = 0;
             self.render_placeholder(area, frame, self.colors.placeholder);
-            frame.cursor_move(area.pos);
+            frame.cursor(area.pos);
             return;
         }
 
@@ -301,7 +301,7 @@ impl Editor {
             Some(range) => self.render_text_with_selection(area, frame, range),
             None => self.render_text(area, frame, None),
         }
-        frame.cursor_move(self.cursor_render_pos());
+        frame.cursor(self.cursor_render_pos());
     }
 
     pub fn clear(&mut self) {
@@ -335,7 +335,7 @@ impl Editor {
             .take(area.size.rows as usize)
             .enumerate()
         {
-            frame.cursor_move(Pos::new(area.pos.col, area.pos.row + i as u16));
+            frame.cursor(Pos::new(area.pos.col, area.pos.row + i as u16));
             for g in utils::graphemes(self.wrapped.slice(line.range())) {
                 frame.print_str(grapheme_render(g));
             }
@@ -362,7 +362,7 @@ impl Editor {
             .take(area.size.rows as usize)
             .enumerate()
         {
-            frame.cursor_move(Pos::new(area.pos.col, area.pos.row + i as u16));
+            frame.cursor(Pos::new(area.pos.col, area.pos.row + i as u16));
 
             let mut index = line.start;
 

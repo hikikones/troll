@@ -85,7 +85,7 @@ impl Scrollbar {
                         ('│', track_color)
                     };
 
-                    frame.cursor_move(pos);
+                    frame.cursor(pos);
                     frame.print_fmt(Sgr::Fg(color));
                     frame.print_ch(ch);
 
@@ -102,7 +102,7 @@ impl Scrollbar {
                     let is_thumb = i >= start && i < end;
 
                     if is_thumb {
-                        frame.cursor_move(pos);
+                        frame.cursor(pos);
                         frame.print_ch('│');
                     }
 

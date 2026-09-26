@@ -129,25 +129,25 @@ impl DemoPage {
     fn on_exit(&self) {}
 
     fn render(&self, area: Rect, frame: &mut Framebuffer) {
-        frame.cursor_move((2, 3));
+        frame.cursor((2, 3));
         frame.print_str("Hello from my TUI!");
 
-        frame.cursor_move((2, 4));
+        frame.cursor((2, 4));
         frame.print_fmt(format_args!("Press {} to quit.", 'q'));
 
-        frame.cursor_move((2, 6));
+        frame.cursor((2, 6));
         frame.print_str("----------------------------------------------");
-        frame.cursor_move((10, 6));
+        frame.cursor((10, 6));
         frame.print_str(" yolo ");
 
-        frame.cursor_move((10, 8));
+        frame.cursor((10, 8));
         frame.print_fmt(Style::bg(Color::Red).text(" "));
 
         let center = (area.size.cols / 2, area.size.rows / 2);
-        frame.cursor_move(center);
+        frame.cursor(center);
         frame.print_str("X");
 
-        frame.cursor_move((center.0, center.1 + 2));
+        frame.cursor((center.0, center.1 + 2));
         frame.print_fmt(Styled::new("yoyoyo", Style::fg(Color::Red)));
         frame.print_str("_👻_yo?");
 
@@ -491,11 +491,11 @@ impl EditorPage {
     }
 
     fn on_enter(&self, frame: &mut Framebuffer) {
-        frame.cursor_show();
+        frame.cursor(Cursor::Show);
     }
 
     fn on_exit(&self, frame: &mut Framebuffer) {
-        frame.cursor_hide();
+        frame.cursor(Cursor::Hide);
     }
 
     fn render(&mut self, area: Rect, frame: &mut Framebuffer) {

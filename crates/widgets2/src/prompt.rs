@@ -268,7 +268,7 @@ impl Prompt {
         if self.input.is_empty() {
             self.scroll = 0;
             self.render_placeholder(area, frame, self.colors.placeholder);
-            frame.cursor_move(area.pos);
+            frame.cursor(area.pos);
             return;
         }
 
@@ -281,7 +281,7 @@ impl Prompt {
             Some(range) => self.render_text_with_selection(area, frame, range),
             None => self.render_text(area, frame, None),
         }
-        frame.cursor_move(self.cursor_render_pos());
+        frame.cursor(self.cursor_render_pos());
     }
 
     fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
@@ -296,7 +296,7 @@ impl Prompt {
             frame.print_fmt(Sgr::Fg(color));
         }
 
-        frame.cursor_move(area.pos);
+        frame.cursor(area.pos);
         for (_, g) in self.render_iter(area.size.cols) {
             frame.print_str(g);
         }
@@ -315,7 +315,7 @@ impl Prompt {
         let mut found_selector = false;
         let mut has_reset_selector = false;
 
-        frame.cursor_move(area.pos);
+        frame.cursor(area.pos);
         for (i, g) in self.render_iter(area.size.cols) {
             if i > selector.start && !found_selector {
                 frame.print_fmt(Sgr::Reverse);

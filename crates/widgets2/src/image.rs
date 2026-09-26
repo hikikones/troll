@@ -535,7 +535,7 @@ impl KittyGraphics {
         }
 
         // Render
-        frame.cursor_move(pos);
+        frame.cursor(pos);
         frame.print_fmt(kitty);
     }
 

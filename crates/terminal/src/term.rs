@@ -4,14 +4,13 @@ use std::{
 };
 
 use crossterm::{
-    Command,
     cursor::{Hide, MoveTo, Show},
     event::Event,
     execute,
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{HorizontalAlignment, Pos, Rect, Size};
+use crate::{Cursor, HorizontalAlignment, Pos, Rect, Size};
 
 pub struct Terminal {
     stdout: Stdout,
@@ -117,17 +116,8 @@ impl Framebuffer {
         self.size.cell_dims()
     }
 
-    pub fn cursor_hide(&mut self) {
-        let _ = Hide.write_ansi(&mut self.buf);
-    }
-
-    pub fn cursor_show(&mut self) {
-        let _ = Show.write_ansi(&mut self.buf);
-    }
-
-    pub fn cursor_move(&mut self, pos: impl Into<Pos>) {
-        let Pos { col, row } = pos.into();
-        let _ = MoveTo(col, row).write_ansi(&mut self.buf);
+    pub fn cursor(&mut self, cursor: impl Into<Cursor>) {
+        let _ = write!(self.buf, "{}", cursor.into());
     }
 
     pub const fn set_cursor_at_end(&mut self, pos: Pos) {
@@ -165,7 +155,7 @@ impl Framebuffer {
         }
 
         if let Some(cpos) = self.cursor.take() {
-            self.cursor_move(cpos);
+            self.cursor(cpos);
         }
 
         writer.write_all(self.buf.as_bytes())?;
@@ -200,12 +190,12 @@ impl Framebuffer {
 
     pub fn render(&mut self, area: Rect, options: TextOptions) {
         if self.text.is_empty() {
-            self.cursor_move(area.pos);
+            self.cursor(area.pos);
             return;
         }
 
         if area.is_empty() {
-            self.cursor_move(area.pos);
+            self.cursor(area.pos);
             self.text.clear();
             return;
         }
@@ -265,7 +255,7 @@ impl Framebuffer {
 
                 if fill {
                     // Fill remaining empty cells with spaces
-                    self.cursor_move(pos);
+                    self.cursor(pos);
 
                     let empty_left_count = start_text_col - pos.col;
                     self.print_ch_repeat(' ', empty_left_count);
@@ -275,18 +265,18 @@ impl Framebuffer {
                     let empty_right_count = max_width - (empty_left_count + display_width);
                     self.print_ch_repeat(' ', empty_right_count);
                 } else {
-                    self.cursor_move(pos.with_col(start_text_col));
+                    self.cursor(pos.with_col(start_text_col));
                     self.print_str(text);
                 }
             }
             Ordering::Equal => {
                 // Perfect fit, just print
-                self.cursor_move(pos);
+                self.cursor(pos);
                 self.print_str(text);
             }
             Ordering::Greater => {
                 // No fit, print what we can and keep ansi codes
-                self.cursor_move(pos);
+                self.cursor(pos);
 
                 let mut width = 0;
                 for g in utils::GraphemeAnsiIter::new(text) {

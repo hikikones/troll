@@ -200,13 +200,13 @@ impl Block {
 }
 
 fn draw_line_horizontal(pos: Pos, width: u16, frame: &mut Framebuffer) {
-    frame.cursor_move(pos);
+    frame.cursor(pos);
     frame.print_ch_repeat('─', width);
 }
 
 fn draw_line_vertical(mut pos: Pos, height: u16, frame: &mut Framebuffer) {
     for _ in 0..height {
-        frame.cursor_move(pos);
+        frame.cursor(pos);
         frame.print_ch('│');
         pos.row += 1;
     }
@@ -232,7 +232,7 @@ fn draw_rectangle(area: Rect, frame: &mut Framebuffer) {
     let horizontals = cols - 2;
 
     // Top line
-    frame.cursor_move(area.pos);
+    frame.cursor(area.pos);
     frame.print_ch('┌');
     frame.print_ch_repeat('─', horizontals);
     frame.print_ch('┐');
@@ -241,11 +241,11 @@ fn draw_rectangle(area: Rect, frame: &mut Framebuffer) {
 
     // Middle lines
     for _ in 0..rows - 2 {
-        frame.cursor_move(pos);
+        frame.cursor(pos);
 
         frame.print_ch('│');
         pos.col += cols - 1;
-        frame.cursor_move(pos);
+        frame.cursor(pos);
         frame.print_ch('│');
 
         pos.col = area.pos.col;
@@ -253,7 +253,7 @@ fn draw_rectangle(area: Rect, frame: &mut Framebuffer) {
     }
 
     // Bottom line
-    frame.cursor_move(pos);
+    frame.cursor(pos);
     frame.print_ch('└');
     frame.print_ch_repeat('─', horizontals);
     frame.print_ch('┘');
@@ -263,16 +263,16 @@ fn draw_corners(area: Rect, frame: &mut Framebuffer) {
     let right = area.pos.col + area.size.cols - 1;
     let bottom = area.pos.row + area.size.rows - 1;
 
-    frame.cursor_move(area.pos);
+    frame.cursor(area.pos);
     frame.print_ch('┌');
 
-    frame.cursor_move(area.pos.with_col(right));
+    frame.cursor(area.pos.with_col(right));
     frame.print_ch('┐');
 
-    frame.cursor_move(area.pos.with_row(bottom));
+    frame.cursor(area.pos.with_row(bottom));
     frame.print_ch('└');
 
-    frame.cursor_move(Pos::new(right, bottom));
+    frame.cursor(Pos::new(right, bottom));
     frame.print_ch('┘');
 }
 
@@ -280,7 +280,7 @@ fn fill(area: Rect, frame: &mut Framebuffer, color: Color) {
     frame.print_fmt(Sgr::Bg(color));
 
     for i in 0..area.size.rows {
-        frame.cursor_move(area.pos.with_row(area.pos.row + i));
+        frame.cursor(area.pos.with_row(area.pos.row + i));
         frame.print_ch_repeat(' ', area.size.cols);
     }
 
