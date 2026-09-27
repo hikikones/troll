@@ -1,7 +1,10 @@
 use terminal::*;
 use widgets2::*;
 
-use crate::app::Action;
+use crate::{
+    app::Action,
+    modals::{Modal, ModalAction},
+};
 
 pub struct Pages {
     route: Route,
@@ -91,7 +94,7 @@ impl Pages {
         }
     }
 
-    pub fn on_render(&mut self, area: Rect, frame: &mut Framebuffer, kitty: &KittyGraphics) {
+    pub fn render_page(&mut self, area: Rect, frame: &mut Framebuffer, kitty: &KittyGraphics) {
         match self.route {
             Route::Demo => self.demo.render(area, frame),
             Route::List => self.list.render(area, frame),
@@ -101,13 +104,33 @@ impl Pages {
         }
     }
 
-    pub fn on_input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
+    pub fn input_page(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
         match self.route {
             Route::Demo => self.demo.input(key),
             Route::List => self.list.input(key),
             Route::Tags => self.tags.input(key),
             Route::Image => self.image.input(key, terminal),
             Route::Editor => self.editor.input(key),
+        }
+    }
+
+    pub fn render_modal(&mut self, area: Rect, frame: &mut Framebuffer) {
+        match self.route {
+            Route::Demo => self.demo.render_modal(area, frame),
+            Route::List => todo!(),
+            Route::Tags => todo!(),
+            Route::Image => todo!(),
+            Route::Editor => todo!(),
+        }
+    }
+
+    pub fn input_modal(&mut self, key: KeyEvent) -> ModalAction {
+        match self.route {
+            Route::Demo => self.demo.input_modal(key),
+            Route::List => todo!(),
+            Route::Tags => todo!(),
+            Route::Image => todo!(),
+            Route::Editor => todo!(),
         }
     }
 
@@ -213,8 +236,28 @@ impl DemoPage {
         }
     }
 
-    fn input(&self, _key: KeyEvent) -> Action {
+    fn input(&self, key: KeyEvent) -> Action {
+        if let KeyCode::Char('m') = key.code {
+            return Action::Modal(Modal::Custom);
+        }
+
         Action::None
+    }
+
+    fn render_modal(&self, area: Rect, frame: &mut Framebuffer) {
+        let area = area.with_size(area.size / 3).center(area);
+        Block::clear().render(area, frame);
+        Block::rectangle().render(area, frame);
+        frame.push_str(" Custom Modal ");
+        frame.render(area, TextOptions::span_center());
+    }
+
+    fn input_modal(&self, key: KeyEvent) -> ModalAction {
+        if let KeyCode::Enter = key.code {
+            return ModalAction::Confirm;
+        }
+
+        ModalAction::None
     }
 }
 
@@ -458,21 +501,28 @@ impl ImagePage {
     fn on_exit(&self) {}
 
     fn render(&mut self, area: Rect, frame: &mut Framebuffer, kitty: &KittyGraphics) {
-        let image_area = area.with_size(area.size / 4).center(area);
-        self.image
-            .render(image_area, frame, &kitty, ImageOptions::fit_and_center());
-
-        // Block::fill(Color::Yellow).render(image_area, frame);
+        self.image.render(
+            area.with_size(area.size / 4).center(area),
+            frame,
+            &kitty,
+            ImageOptions::fit_and_center(),
+        );
     }
 
     fn input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
-        if let KeyCode::Char('e') = key.code {
-            terminal
-                .temp_leave(|| {
-                    edit::edit_with_builder("# Hello", edit::Builder::new().suffix(".md"))
-                })
-                .unwrap();
-            return Action::Clear;
+        match key.code {
+            KeyCode::Char('e') => {
+                terminal
+                    .temp_leave(|| {
+                        edit::edit_with_builder("# Hello", edit::Builder::new().suffix(".md"))
+                    })
+                    .unwrap();
+                return Action::Clear;
+            }
+            KeyCode::Char('m') => {
+                return Action::Modal(Modal::Confirm);
+            }
+            _ => {}
         }
 
         Action::None

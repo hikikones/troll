@@ -1,9 +1,5 @@
-mod app;
-mod pages;
-
 use terminal::Terminal;
-
-use crate::app::App;
+use yolo::app::App;
 
 fn main() -> std::io::Result<()> {
     let terminal = Terminal::new()?;
