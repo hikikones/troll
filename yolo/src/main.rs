@@ -5,13 +5,9 @@ use terminal::Terminal;
 
 use crate::app::App;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut terminal = Terminal::enter_tui()?;
-
+fn main() -> std::io::Result<()> {
+    let terminal = Terminal::new()?;
     let mut app = App::new();
-    let res = app.run(&mut terminal);
 
-    terminal.leave_tui()?;
-
-    res
+    terminal.enter(|term| app.run(term))
 }

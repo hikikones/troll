@@ -1,9 +1,5 @@
 use terminal::*;
 
-// TODO: Remove generation stuff?
-// Since terminal no longer clears entire buffer when window resizes,
-// images do not need to be retransmitted anymore.
-
 pub struct Image {
     id: u32,
     dims: ImageDims,

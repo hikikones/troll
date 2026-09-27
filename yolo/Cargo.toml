@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+edit = { workspace = true }
 terminal = { workspace = true }
 utils = { workspace = true }
 widgets2 = { workspace = true }

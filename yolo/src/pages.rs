@@ -101,12 +101,12 @@ impl Pages {
         }
     }
 
-    pub fn on_input(&mut self, key: KeyEvent) -> Action {
+    pub fn on_input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
         match self.route {
             Route::Demo => self.demo.input(key),
             Route::List => self.list.input(key),
             Route::Tags => self.tags.input(key),
-            Route::Image => self.image.input(key),
+            Route::Image => self.image.input(key, terminal),
             Route::Editor => self.editor.input(key),
         }
     }
@@ -465,7 +465,16 @@ impl ImagePage {
         // Block::fill(Color::Yellow).render(image_area, frame);
     }
 
-    fn input(&mut self, _key: KeyEvent) -> Action {
+    fn input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
+        if let KeyCode::Char('e') = key.code {
+            terminal
+                .temp_leave(|| {
+                    edit::edit_with_builder("# Hello", edit::Builder::new().suffix(".md"))
+                })
+                .unwrap();
+            return Action::Clear;
+        }
+
         Action::None
     }
 }

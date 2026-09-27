@@ -14,6 +14,7 @@ pub enum Action {
     Render,
     Forward,
     Backward,
+    Clear,
     Quit,
 }
 
@@ -28,13 +29,13 @@ impl App {
         }
     }
 
-    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         // Render default page
         self.render(terminal)?;
 
         // Run event loop
         while self.is_running {
-            let event = Terminal::read_event()?;
+            let event = Terminal::read()?;
             let action = self.read_event(event, terminal);
             self.apply_action(action, terminal)?;
         }
@@ -42,7 +43,7 @@ impl App {
         Ok(())
     }
 
-    fn read_event(&mut self, event: Event, _terminal: &mut Terminal) -> Action {
+    fn read_event(&mut self, event: Event, terminal: &mut Terminal) -> Action {
         match event {
             Event::Key(key) => {
                 if key.kind != KeyEventKind::Press {
@@ -53,7 +54,7 @@ impl App {
                     KeyCode::Esc => Action::Quit,
                     KeyCode::Tab => Action::Forward,
                     KeyCode::BackTab => Action::Backward,
-                    _ => self.on_input(key),
+                    _ => self.on_input(key, terminal),
                 }
             }
             Event::Resize(_, _) => Action::Render,
@@ -61,11 +62,7 @@ impl App {
         }
     }
 
-    fn apply_action(
-        &mut self,
-        action: Action,
-        terminal: &mut Terminal,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn apply_action(&mut self, action: Action, terminal: &mut Terminal) -> std::io::Result<()> {
         match action {
             Action::None => {}
             Action::Render => {
@@ -77,6 +74,10 @@ impl App {
             }
             Action::Backward => {
                 self.pages.backward(terminal.frame());
+                self.render(terminal)?;
+            }
+            Action::Clear => {
+                self.kitty.increase_generation();
                 self.render(terminal)?;
             }
             Action::Quit => {
@@ -110,7 +111,7 @@ impl App {
         self.pages.on_render(area, frame, &self.kitty);
     }
 
-    fn on_input(&mut self, key: KeyEvent) -> Action {
-        self.pages.on_input(key)
+    fn on_input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
+        self.pages.on_input(key, terminal)
     }
 }

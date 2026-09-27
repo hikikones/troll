@@ -4,7 +4,7 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
+    cursor::{Hide, MoveTo},
     event::Event,
     execute,
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
@@ -13,38 +13,40 @@ use crossterm::{
 use crate::{Cursor, HorizontalAlignment, Pos, Rect, Size};
 
 pub struct Terminal {
-    stdout: Stdout,
+    backend: Stdout,
     buffer: Framebuffer,
 }
 
 impl Terminal {
-    pub fn enter_tui() -> std::io::Result<Self> {
+    pub fn new() -> std::io::Result<Self> {
         let size = TermSize::query()?;
 
-        Self::set_panic_hook();
-
-        let mut stdout = std::io::stdout();
-        crossterm::terminal::enable_raw_mode()?;
-        execute!(stdout, EnterAlternateScreen, Hide, DisableLineWrap)?;
-
         Ok(Self {
-            stdout,
+            backend: std::io::stdout(),
             buffer: Framebuffer::new(size),
         })
     }
 
-    pub fn leave_tui(mut self) -> std::io::Result<()> {
-        execute!(self.stdout, Show, LeaveAlternateScreen)?;
-        crossterm::terminal::disable_raw_mode()
+    pub fn enter<T>(
+        mut self,
+        f: impl FnOnce(&mut Self) -> std::io::Result<T>,
+    ) -> std::io::Result<T> {
+        Self::set_panic_hook();
+
+        Self::enter_alternate_screen(&mut self.backend)?;
+        let res = f(&mut self);
+        Self::leave_alternate_screen(&mut self.backend)?;
+
+        res
     }
 
     /// Reads a terminal event in a blocking manner.
-    pub fn read_event() -> std::io::Result<Event> {
+    pub fn read() -> std::io::Result<Event> {
         crossterm::event::read()
     }
 
     /// Polls and reads a terminal event in a non-blocking manner.
-    pub fn poll_event(timeout: std::time::Duration) -> std::io::Result<Option<Event>> {
+    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<Event>> {
         match crossterm::event::poll(timeout) {
             Ok(true) => crossterm::event::read().map(|ev| Some(ev)),
             Ok(false) => Ok(None),
@@ -52,7 +54,7 @@ impl Terminal {
         }
     }
 
-    pub fn frame(&mut self) -> &mut Framebuffer {
+    pub const fn frame(&mut self) -> &mut Framebuffer {
         &mut self.buffer
     }
 
@@ -64,26 +66,34 @@ impl Terminal {
 
         f(&mut self.buffer)?;
 
-        self.buffer.flush(&mut self.stdout.lock())
+        self.buffer.flush(&mut self.backend.lock())
+    }
+
+    pub fn temp_leave<T>(&mut self, f: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+        Self::leave_alternate_screen(&mut self.backend)?;
+        let t = f();
+        Self::enter_alternate_screen(&mut self.backend)?;
+        t
+    }
+
+    fn enter_alternate_screen(backend: &mut impl std::io::Write) -> std::io::Result<()> {
+        crossterm::terminal::enable_raw_mode()?;
+        execute!(backend, EnterAlternateScreen, Hide, DisableLineWrap)
+    }
+
+    fn leave_alternate_screen(backend: &mut impl std::io::Write) -> std::io::Result<()> {
+        crossterm::terminal::disable_raw_mode()?;
+        execute!(backend, LeaveAlternateScreen)
     }
 
     fn set_panic_hook() {
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            Self::restore();
+            if let Err(err) = Self::leave_alternate_screen(&mut std::io::stdout()) {
+                std::eprintln!("Failed to restore terminal: {err}");
+            }
             hook(info);
         }));
-    }
-
-    fn restore() {
-        fn try_restore() -> std::io::Result<()> {
-            crossterm::terminal::disable_raw_mode()?;
-            execute!(std::io::stdout(), LeaveAlternateScreen)
-        }
-
-        if let Err(err) = try_restore() {
-            std::eprintln!("Failed to restore terminal: {err}");
-        }
     }
 }
 
