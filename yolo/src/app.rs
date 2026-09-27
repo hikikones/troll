@@ -163,7 +163,8 @@ impl App {
         match modal {
             Modal::Confirm => {
                 let area = area.inner(Margin::symmetric(area.cols() / 4, area.rows() / 4));
-                Block::fill(Color::Rgb(0, 0, 0)).render(area, frame);
+                let bg = frame.palette().background().slight_offset().as_color();
+                Block::fill(bg).render(area, frame);
                 Block::rectangle().render(area, frame);
                 frame.push_str(" Confirm ");
                 frame.render(area, TextOptions::span_center());

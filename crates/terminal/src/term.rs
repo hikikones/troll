@@ -336,6 +336,10 @@ impl Rgb {
         Color::Rgb(r, g, b)
     }
 
+    pub const fn slight_offset(self) -> Self {
+        Self(self.0, self.1, if self.2 == 255 { 254 } else { self.2 + 1 })
+    }
+
     fn query(
         osc: &str,
         writer: &mut impl std::io::Write,
