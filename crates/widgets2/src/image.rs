@@ -2,7 +2,7 @@ use terminal::*;
 
 pub struct Image {
     id: u32,
-    dims: ImageDims,
+    dims: Dims,
     encoded: String,
     generation: u32,
 }
@@ -11,13 +11,13 @@ impl Image {
     pub const fn new(id: u32) -> Self {
         Self {
             id,
-            dims: ImageDims::ZERO,
+            dims: Dims::ZERO,
             encoded: String::new(),
             generation: 0,
         }
     }
 
-    pub const fn dims(&self) -> ImageDims {
+    pub const fn dims(&self) -> Dims {
         self.dims
     }
 
@@ -48,7 +48,7 @@ impl Image {
         kitty: &KittyGraphics,
         options: ImageOptions,
     ) {
-        let cell_dims = frame.cell_dims();
+        let cell_dims = frame.size().cell_dims();
         let ResizeResult { size, render } = options
             .resize
             .map(|r| r.calc(self.id, self.dims, area.size, cell_dims))
@@ -81,7 +81,7 @@ impl Image {
     }
 
     fn clear(&mut self) {
-        self.dims = ImageDims::ZERO;
+        self.dims = Dims::ZERO;
         self.encoded.clear();
         self.generation = 0;
     }
@@ -98,7 +98,7 @@ impl ResizeMode {
     fn calc(
         self,
         image_id: u32,
-        image_dims: ImageDims,
+        image_dims: Dims,
         image_size: Size,
         cell_dims: CellDims,
     ) -> ResizeResult {
@@ -391,14 +391,14 @@ impl KittyGraphics {
         image.clear();
 
         let rgba = self.frames[0].buffer();
-        let dims = ImageDims::from(rgba.dimensions());
+        let dims = Dims::from(rgba.dimensions());
         let compressed = self.deflate.compress(rgba.as_raw())?;
         let b64 = self.base64.encode(compressed);
 
         // Encode first frame
         struct StaticRoot {
             id: u32,
-            dims: ImageDims,
+            dims: Dims,
             verbosity: KittyVerbosity,
         }
 
@@ -446,13 +446,13 @@ impl KittyGraphics {
             for i in 1..self.frames.len() {
                 let delay = self.frames[i].delay().numer_denom_ms().0 as i32;
                 let rgba = self.frames[i].buffer();
-                let dims = ImageDims::from(rgba.dimensions());
+                let dims = Dims::from(rgba.dimensions());
                 let compressed = self.deflate.compress(rgba.as_raw())?;
                 let b64 = self.base64.encode(compressed);
 
                 struct AnimatedRoot {
                     id: u32,
-                    dims: ImageDims,
+                    dims: Dims,
                     delay: i32,
                     verbosity: KittyVerbosity,
                 }
@@ -578,7 +578,7 @@ impl KittyGraphics {
 #[derive(Debug, Clone, Copy)]
 enum KittyImageFormat {
     // Rgb24(Dimensions),
-    Rgba32(ImageDims),
+    Rgba32(Dims),
     // Png,
 }
 

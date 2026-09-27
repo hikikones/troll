@@ -10,7 +10,7 @@ use crossterm::{
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{Cursor, HorizontalAlignment, Pos, Rect, Size};
+use crate::{Color, Cursor, HorizontalAlignment, Pos, Rect, Size};
 
 pub struct Terminal {
     backend: Stdout,
@@ -19,11 +19,14 @@ pub struct Terminal {
 
 impl Terminal {
     pub fn new() -> std::io::Result<Self> {
-        let size = TermSize::query()?;
+        let size = TerminalSize::query()?;
+
+        let mut backend = std::io::stdout();
+        let palette = TerminalPalette::query(&mut backend, &mut std::io::stdin())?;
 
         Ok(Self {
-            backend: std::io::stdout(),
-            buffer: Framebuffer::new(size),
+            backend,
+            buffer: Framebuffer::new(size, palette),
         })
     }
 
@@ -62,7 +65,7 @@ impl Terminal {
         &mut self,
         f: impl FnOnce(&mut Framebuffer) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
-        self.buffer.size = TermSize::query()?;
+        self.buffer.size = TerminalSize::query()?;
 
         f(&mut self.buffer)?;
 
@@ -97,33 +100,363 @@ impl Terminal {
     }
 }
 
+#[derive(Debug)]
+pub struct TerminalSize {
+    cols: u16,
+    rows: u16,
+    width: u16,
+    height: u16,
+}
+
+impl TerminalSize {
+    fn query() -> std::io::Result<Self> {
+        let win_size = crossterm::terminal::window_size()?;
+
+        if win_size.width == 0 || win_size.height == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "terminal does not support query for window size in pixel dimensions",
+            ));
+        }
+
+        Ok(Self {
+            cols: win_size.columns,
+            rows: win_size.rows,
+            width: win_size.width,
+            height: win_size.height,
+        })
+    }
+
+    pub const fn window_size(&self) -> Size {
+        Size {
+            cols: self.cols,
+            rows: self.rows,
+        }
+    }
+
+    pub const fn window_dims(&self) -> Dims {
+        Dims {
+            width: self.width,
+            height: self.height,
+        }
+    }
+
+    pub const fn cell_dims(&self) -> CellDims {
+        CellDims {
+            width: self.width / self.cols,
+            height: self.height / self.rows,
+        }
+    }
+}
+
+/// Pixel dimensions.
+#[derive(Debug, Clone, Copy)]
+pub struct Dims {
+    pub width: u16,
+    pub height: u16,
+}
+
+impl Dims {
+    pub const ZERO: Self = Self {
+        width: 0,
+        height: 0,
+    };
+
+    pub const fn new(width: u16, height: u16) -> Self {
+        Self { width, height }
+    }
+
+    pub const fn with_width(mut self, width: u16) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub const fn with_height(mut self, height: u16) -> Self {
+        self.height = height;
+        self
+    }
+
+    pub fn resize(self, max: Dims) -> Self {
+        // https://docs.rs/image/0.25.10/src/image/math/utils.rs.html
+        fn resize_dimensions(
+            width: u32,
+            height: u32,
+            nwidth: u32,
+            nheight: u32,
+            fill: bool,
+        ) -> (u32, u32) {
+            use std::cmp::max;
+
+            let wratio = f64::from(nwidth) / f64::from(width);
+            let hratio = f64::from(nheight) / f64::from(height);
+
+            let ratio = if fill {
+                f64::max(wratio, hratio)
+            } else {
+                f64::min(wratio, hratio)
+            };
+
+            let nw = max((f64::from(width) * ratio).round() as u64, 1);
+            let nh = max((f64::from(height) * ratio).round() as u64, 1);
+
+            if nw > u64::from(u32::MAX) {
+                let ratio = f64::from(u32::MAX) / f64::from(width);
+                (u32::MAX, max((f64::from(height) * ratio).round() as u32, 1))
+            } else if nh > u64::from(u32::MAX) {
+                let ratio = f64::from(u32::MAX) / f64::from(height);
+                (max((f64::from(width) * ratio).round() as u32, 1), u32::MAX)
+            } else {
+                (nw as u32, nh as u32)
+            }
+        }
+
+        let (rw, rh) = resize_dimensions(
+            self.width as u32,
+            self.height as u32,
+            max.width as u32,
+            max.height as u32,
+            false,
+        );
+
+        Self {
+            width: rw as u16,
+            height: rh as u16,
+        }
+    }
+}
+
+impl From<(u32, u32)> for Dims {
+    fn from((w, h): (u32, u32)) -> Self {
+        Self {
+            width: w as u16,
+            height: h as u16,
+        }
+    }
+}
+
+/// The pixel dimensions of a single cell in the terminal.
+#[derive(Debug, Clone, Copy)]
+pub struct CellDims {
+    pub width: u16,
+    pub height: u16,
+}
+
+impl CellDims {
+    pub const DEFAULT: Self = Self {
+        width: 10,
+        height: 20,
+    };
+
+    pub const fn width(&self, cols: u16) -> u16 {
+        self.width * cols
+    }
+
+    pub const fn height(&self, rows: u16) -> u16 {
+        self.height * rows
+    }
+
+    pub const fn cols(&self, width: u16) -> u16 {
+        width.div_ceil(self.width)
+    }
+
+    pub const fn rows(&self, height: u16) -> u16 {
+        height.div_ceil(self.height)
+    }
+
+    pub const fn size(&self, dims: Dims) -> Size {
+        Size {
+            cols: self.cols(dims.width),
+            rows: self.rows(dims.height),
+        }
+    }
+
+    pub const fn dims(&self, size: Size) -> Dims {
+        Dims {
+            width: self.width(size.cols),
+            height: self.height(size.rows),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Rgb(u8, u8, u8);
+
+impl Rgb {
+    pub const BLACK: Self = Self(0, 0, 0);
+    pub const WHITE: Self = Self(255, 255, 255);
+
+    fn query_fg(
+        writer: &mut impl std::io::Write,
+        reader: &mut impl std::io::Read,
+    ) -> std::io::Result<Self> {
+        let Some(fg) = Self::query("\x1b]10;?\x07", writer, reader)? else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "terminal does not support OSC 10 color query",
+            ));
+        };
+        Ok(fg)
+    }
+
+    fn query_bg(
+        writer: &mut impl std::io::Write,
+        reader: &mut impl std::io::Read,
+    ) -> std::io::Result<Self> {
+        let Some(bg) = Self::query("\x1b]11;?\x07", writer, reader)? else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "terminal does not support OSC 11 color query",
+            ));
+        };
+        Ok(bg)
+    }
+
+    fn query_cursor(
+        writer: &mut impl std::io::Write,
+        reader: &mut impl std::io::Read,
+    ) -> std::io::Result<Self> {
+        let Some(cursor) = Self::query("\x1b]12;?\x07", writer, reader)? else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "terminal does not support OSC 12 color query",
+            ));
+        };
+        Ok(cursor)
+    }
+
+    /// Returns true if the color is perceived as dark.
+    pub const fn is_dark(self) -> bool {
+        let Self(r, g, b) = self;
+        let brightness = 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+        brightness < 128.0
+    }
+
+    pub const fn as_color(self) -> Color {
+        let Self(r, g, b) = self;
+        Color::Rgb(r, g, b)
+    }
+
+    fn query(
+        osc: &str,
+        writer: &mut impl std::io::Write,
+        reader: &mut impl std::io::Read,
+    ) -> std::io::Result<Option<Self>> {
+        /// Device Status Report control sequence that most terminals implement.
+        /// Makes sure that stdin responds.
+        const DEVICE_STATUS_REPORT: &str = "\x1b[5n";
+
+        crossterm::terminal::enable_raw_mode()?;
+
+        // Write query
+        writer.write_fmt(format_args!("{osc}{DEVICE_STATUS_REPORT}"))?;
+        writer.flush()?;
+
+        // Read response
+        let mut buffer = [0; 32];
+        let n = reader.read(&mut buffer)?;
+
+        crossterm::terminal::disable_raw_mode()?;
+
+        let response = String::from_utf8_lossy(&buffer[..n]);
+        Ok(Self::parse(&response))
+    }
+
+    fn parse(response: &str) -> Option<Self> {
+        // Parse response of pattern "\u{1b}]10;rgb:c4c4/c4c4/b5b5\u{1b}\\\u{1b}"
+        let start = response.find(':')? + 1;
+        let end = response[start..].find('\x1b')?;
+        let payload = &response[start..start + end];
+        let mut parts = payload.split('/');
+
+        let parse_channel = |s: &str| match s.len() {
+            2 => u8::from_str_radix(s, 16).ok(),
+            4 => Some((u16::from_str_radix(s, 16).ok()? >> 8) as u8),
+            _ => None,
+        };
+
+        let r = parse_channel(parts.next()?)?;
+        let g = parse_channel(parts.next()?)?;
+        let b = parse_channel(parts.next()?)?;
+
+        Some(Self(r, g, b))
+    }
+}
+
+#[derive(Debug)]
+pub struct TerminalPalette {
+    fg: Rgb,
+    bg: Rgb,
+    cursor: Rgb,
+}
+
+impl TerminalPalette {
+    fn query(
+        writer: &mut impl std::io::Write,
+        reader: &mut impl std::io::Read,
+    ) -> std::io::Result<Self> {
+        Ok(Self {
+            fg: Rgb::query_fg(writer, reader)?,
+            bg: Rgb::query_bg(writer, reader)?,
+            cursor: Rgb::query_cursor(writer, reader)?,
+        })
+    }
+
+    pub const fn foreground(&self) -> Rgb {
+        self.fg
+    }
+
+    pub const fn background(&self) -> Rgb {
+        self.bg
+    }
+
+    pub const fn cursor(&self) -> Rgb {
+        self.cursor
+    }
+
+    pub const fn theme(&self) -> TerminalTheme {
+        if self.bg.is_dark() {
+            TerminalTheme::Dark
+        } else {
+            TerminalTheme::Light
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TerminalTheme {
+    Dark,
+    Light,
+}
+
 pub struct Framebuffer {
     buf: String,
     text: String,
-    size: TermSize,
+    size: TerminalSize,
+    palette: TerminalPalette,
     cursor: Option<Pos>,
 }
 
 impl Framebuffer {
-    const fn new(size: TermSize) -> Self {
+    const fn new(size: TerminalSize, palette: TerminalPalette) -> Self {
         Self {
             buf: String::new(),
             text: String::new(),
             size,
+            palette,
             cursor: None,
         }
     }
 
+    pub const fn size(&self) -> &TerminalSize {
+        &self.size
+    }
+
+    pub const fn palette(&self) -> &TerminalPalette {
+        &self.palette
+    }
+
     pub const fn area(&self) -> Rect {
         Rect::new(Pos::ZERO, self.size.window_size())
-    }
-
-    pub const fn window_size(&self) -> Size {
-        self.size.window_size()
-    }
-
-    pub const fn cell_dims(&self) -> CellDims {
-        self.size.cell_dims()
     }
 
     pub fn cursor(&mut self, cursor: impl Into<Cursor>) {
@@ -389,170 +722,5 @@ impl TextOptions {
 impl Default for TextOptions {
     fn default() -> Self {
         Self::span()
-    }
-}
-
-struct TermSize {
-    cols: u16,
-    rows: u16,
-    width: u16,
-    height: u16,
-}
-
-impl TermSize {
-    fn query() -> std::io::Result<Self> {
-        let win_size = crossterm::terminal::window_size()?;
-
-        // TODO: Should also error out when pixel dimensions are zero.
-
-        Ok(Self {
-            cols: win_size.columns,
-            rows: win_size.rows,
-            width: win_size.width,
-            height: win_size.height,
-        })
-    }
-
-    const fn window_size(&self) -> Size {
-        Size {
-            cols: self.cols,
-            rows: self.rows,
-        }
-    }
-
-    const fn cell_dims(&self) -> CellDims {
-        CellDims {
-            width: self.width / self.cols,
-            height: self.height / self.rows,
-        }
-    }
-}
-
-/// The pixel dimensions of a single cell in the terminal.
-#[derive(Debug, Clone, Copy)]
-pub struct CellDims {
-    pub width: u16,
-    pub height: u16,
-}
-
-impl CellDims {
-    pub const DEFAULT: Self = Self {
-        width: 10,
-        height: 20,
-    };
-
-    pub const fn width(&self, cols: u16) -> u16 {
-        self.width * cols
-    }
-
-    pub const fn height(&self, rows: u16) -> u16 {
-        self.height * rows
-    }
-
-    pub const fn cols(&self, width: u16) -> u16 {
-        width.div_ceil(self.width)
-    }
-
-    pub const fn rows(&self, height: u16) -> u16 {
-        height.div_ceil(self.height)
-    }
-
-    pub const fn size(&self, dims: ImageDims) -> Size {
-        Size {
-            cols: self.cols(dims.width),
-            rows: self.rows(dims.height),
-        }
-    }
-
-    pub const fn dims(&self, size: Size) -> ImageDims {
-        ImageDims {
-            width: self.width(size.cols),
-            height: self.height(size.rows),
-        }
-    }
-}
-
-/// The pixel dimensions of an image.
-#[derive(Debug, Clone, Copy)]
-pub struct ImageDims {
-    pub width: u16,
-    pub height: u16,
-}
-
-impl ImageDims {
-    pub const ZERO: Self = Self {
-        width: 0,
-        height: 0,
-    };
-
-    pub const fn new(width: u16, height: u16) -> Self {
-        Self { width, height }
-    }
-
-    pub const fn with_width(mut self, width: u16) -> Self {
-        self.width = width;
-        self
-    }
-
-    pub const fn with_height(mut self, height: u16) -> Self {
-        self.height = height;
-        self
-    }
-
-    pub fn resize(self, max: ImageDims) -> Self {
-        // https://docs.rs/image/0.25.10/src/image/math/utils.rs.html
-        fn resize_dimensions(
-            width: u32,
-            height: u32,
-            nwidth: u32,
-            nheight: u32,
-            fill: bool,
-        ) -> (u32, u32) {
-            use std::cmp::max;
-
-            let wratio = f64::from(nwidth) / f64::from(width);
-            let hratio = f64::from(nheight) / f64::from(height);
-
-            let ratio = if fill {
-                f64::max(wratio, hratio)
-            } else {
-                f64::min(wratio, hratio)
-            };
-
-            let nw = max((f64::from(width) * ratio).round() as u64, 1);
-            let nh = max((f64::from(height) * ratio).round() as u64, 1);
-
-            if nw > u64::from(u32::MAX) {
-                let ratio = f64::from(u32::MAX) / f64::from(width);
-                (u32::MAX, max((f64::from(height) * ratio).round() as u32, 1))
-            } else if nh > u64::from(u32::MAX) {
-                let ratio = f64::from(u32::MAX) / f64::from(height);
-                (max((f64::from(width) * ratio).round() as u32, 1), u32::MAX)
-            } else {
-                (nw as u32, nh as u32)
-            }
-        }
-
-        let (rw, rh) = resize_dimensions(
-            self.width as u32,
-            self.height as u32,
-            max.width as u32,
-            max.height as u32,
-            false,
-        );
-
-        Self {
-            width: rw as u16,
-            height: rh as u16,
-        }
-    }
-}
-
-impl From<(u32, u32)> for ImageDims {
-    fn from((w, h): (u32, u32)) -> Self {
-        Self {
-            width: w as u16,
-            height: h as u16,
-        }
     }
 }
