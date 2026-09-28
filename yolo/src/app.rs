@@ -114,7 +114,7 @@ impl App {
             self.on_page_render(body.inner(Margin::proportional(1)), frame);
 
             frame.push_str("TODO BOTTOM");
-            frame.render(bottom, TextOptions::span_center());
+            frame.render(bottom, TextOptions::span_center_top());
 
             if let Some(modal) = self.modal {
                 self.on_modal_render(area, frame, modal);
@@ -167,7 +167,15 @@ impl App {
                 Block::fill(bg).render(area, frame);
                 Block::rectangle().render(area, frame);
                 frame.push_str(" Confirm ");
-                frame.render(area, TextOptions::span_center());
+                frame.render(area, TextOptions::span_center_top());
+
+                frame.print_fmt(SetSgr([Sgr::Fg(Color::Yellow), Sgr::Bold, Sgr::Reverse]));
+                frame.push_str("YOLO");
+                frame.render(
+                    area.inner(Margin::proportional(1)),
+                    TextOptions::span_center().with_fill(),
+                );
+                frame.print_fmt(Sgr::Reset);
             }
             Modal::Custom => {
                 self.pages.render_modal(area, frame);

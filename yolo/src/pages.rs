@@ -136,7 +136,7 @@ impl Pages {
 
     pub fn render_navigation(&self, area: Rect, frame: &mut Framebuffer) {
         frame.push_str("TODO TOP");
-        frame.render(area, TextOptions::span_center());
+        frame.render(area, TextOptions::span_center_top());
     }
 }
 
@@ -245,11 +245,21 @@ impl DemoPage {
     }
 
     fn render_modal(&self, area: Rect, frame: &mut Framebuffer) {
-        let area = area.with_size(area.size / 3).center(area);
+        let area = area.with_size(area.size / 2).center(area);
         Block::clear().render(area, frame);
         Block::rectangle().render(area, frame);
         frame.push_str(" Custom Modal ");
-        frame.render(area, TextOptions::span_center());
+        frame.render(area, TextOptions::span_center_top());
+
+        frame.push_fmt(format_args!(
+            "Please {}confirm{} your action.\n\nStill waiting...",
+            SetSgr([Sgr::Bold, Sgr::Fg(Color::Yellow)]),
+            Sgr::Reset
+        ));
+        frame.render(
+            area.inner(Margin::proportional(1)),
+            TextOptions::paragraph_center(),
+        );
     }
 
     fn input_modal(&self, key: KeyEvent) -> ModalAction {
@@ -304,9 +314,9 @@ impl ListPage {
         Block::rectangle().render(table_area, frame);
 
         frame.push_str(" LIST ");
-        frame.render(list_area, TextOptions::span_center());
+        frame.render(list_area, TextOptions::span_center_top());
         frame.push_str(" TABLE ");
-        frame.render(table_area, TextOptions::span_center());
+        frame.render(table_area, TextOptions::span_center_top());
 
         let margin = Margin::all(1);
 
@@ -330,13 +340,7 @@ impl ListPage {
                 frame.push_str(item.yolo());
                 frame.push_str(item.yolo2());
                 frame.push_str(item.yolo3());
-                frame.render(
-                    line,
-                    TextOptions {
-                        mode: TextMode::Span { fill: true },
-                        align: HorizontalAlignment::Left,
-                    },
-                );
+                frame.render(line, TextOptions::span().with_fill());
 
                 if reset {
                     frame.print_fmt(Sgr::Reset);
@@ -380,15 +384,15 @@ impl ListPage {
 
                 let [a, b, c] = areas;
                 frame.push_str(item.yolo());
-                frame.render(a, TextOptions::span_fill());
+                frame.render(a, TextOptions::span().with_fill());
                 frame.print_ch_repeat(' ', b.col() - a.right_out());
 
                 frame.push_str(item.yolo2());
-                frame.render(b, TextOptions::span_fill());
+                frame.render(b, TextOptions::span().with_fill());
                 frame.print_ch_repeat(' ', c.col() - b.right_out());
 
                 frame.push_str(item.yolo3());
-                frame.render(c, TextOptions::span_fill());
+                frame.render(c, TextOptions::span().with_fill());
                 frame.print_ch_repeat(' ', line.right_out() - c.right_out());
 
                 if reset {
@@ -455,7 +459,7 @@ impl TagsPage {
         let tags_area = area.with_size(area.size / 2).center(area);
         Block::rectangle().render(tags_area, frame);
         frame.push_str(" TAGS ");
-        frame.render(tags_area, TextOptions::span_center());
+        frame.render(tags_area, TextOptions::span_center_top());
 
         self.list.render(
             tags_area.inner(Margin::all(1)),
@@ -578,14 +582,14 @@ impl EditorPage {
             .with_color(prompt_color)
             .render(prompt_area, frame);
         frame.push_str(" PROMPT ");
-        frame.render(prompt_area, TextOptions::span_center());
+        frame.render(prompt_area, TextOptions::span_center_top());
         self.prompt.render(prompt_inner, frame);
 
         Block::rectangle()
             .with_color(editor_color)
             .render(editor_area, frame);
         frame.push_str(" EDITOR ");
-        frame.render(editor_area, TextOptions::span_center());
+        frame.render(editor_area, TextOptions::span_center_top());
         self.editor.render(editor_inner, frame);
 
         let cpos = self.get_cursor_pos();

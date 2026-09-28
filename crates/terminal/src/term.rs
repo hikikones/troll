@@ -10,7 +10,7 @@ use crossterm::{
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{Color, Cursor, HorizontalAlignment, Pos, Rect, Size};
+use crate::{Color, Cursor, HorizontalAlignment, Pos, Rect, Size, VerticalAlignment};
 
 pub struct Terminal {
     backend: Stdout,
@@ -535,7 +535,7 @@ impl Framebuffer {
         let _ = write!(self.text, "{content}");
     }
 
-    pub fn render(&mut self, area: Rect, options: TextOptions) {
+    pub fn render(&mut self, area: Rect, opts: TextOptions) {
         if self.text.is_empty() {
             self.cursor(area.pos);
             return;
@@ -549,28 +549,29 @@ impl Framebuffer {
 
         let mut text = std::mem::take(&mut self.text);
 
-        match options.mode {
-            TextMode::Span { fill } => {
-                self.render_span(area.pos, area.size.cols, &text, options.align, fill);
+        match opts.mode {
+            TextMode::Span => {
+                let row = opts.vertical.calc(area.pos.row, area.size.rows, 1);
+                self.render_span(
+                    area.pos.with_row(row),
+                    area.size.cols,
+                    &text,
+                    opts.horizontal,
+                    opts.fill,
+                );
             }
-            TextMode::Paragraph { center_vertical } => {
+            TextMode::Paragraph => {
                 utils::text_wrap(&mut text, area.size.cols);
                 let lines = text.lines().count() as u16;
 
-                let Rect {
-                    mut pos,
-                    size: mut rect,
-                } = area;
+                let Rect { mut pos, mut size } = area;
+                pos.row = opts.vertical.calc(area.pos.row, area.size.rows, lines);
+                size.rows = area.size.rows.min(lines);
 
-                if center_vertical {
-                    rect.rows = area.size.rows.min(lines);
-                    pos.row = area.pos.row + (area.size.rows.saturating_sub(lines)) / 2;
-                }
-
-                let max_row = pos.row + rect.rows;
+                let max_row = pos.row + size.rows;
 
                 for line in text.lines() {
-                    self.render_span(pos, rect.cols, line, options.align, false);
+                    self.render_span(pos, size.cols, line, opts.horizontal, opts.fill);
                     pos.row += 1;
 
                     if pos.row == max_row {
@@ -655,71 +656,85 @@ impl Framebuffer {
 
 #[derive(Debug, Clone, Copy)]
 pub enum TextMode {
-    Span { fill: bool },
-    Paragraph { center_vertical: bool },
+    Span,
+    Paragraph,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct TextOptions {
     pub mode: TextMode,
-    pub align: HorizontalAlignment,
-    // TODO: Add VerticalAlignment here also.
+    pub horizontal: HorizontalAlignment,
+    pub vertical: VerticalAlignment,
+    pub fill: bool,
 }
 
 impl TextOptions {
     pub const fn span() -> Self {
         Self {
-            mode: TextMode::Span { fill: false },
-            align: HorizontalAlignment::Left,
-        }
-    }
-
-    pub const fn span_fill() -> Self {
-        Self {
-            mode: TextMode::Span { fill: true },
-            align: HorizontalAlignment::Left,
+            mode: TextMode::Span,
+            horizontal: HorizontalAlignment::Left,
+            vertical: VerticalAlignment::Top,
+            fill: false,
         }
     }
 
     pub const fn span_center() -> Self {
         Self {
-            mode: TextMode::Span { fill: false },
-            align: HorizontalAlignment::Center,
+            mode: TextMode::Span,
+            horizontal: HorizontalAlignment::Center,
+            vertical: VerticalAlignment::Center,
+            fill: false,
+        }
+    }
+
+    pub const fn span_center_top() -> Self {
+        Self {
+            mode: TextMode::Span,
+            horizontal: HorizontalAlignment::Center,
+            vertical: VerticalAlignment::Top,
+            fill: false,
         }
     }
 
     pub const fn span_right() -> Self {
         Self {
-            mode: TextMode::Span { fill: false },
-            align: HorizontalAlignment::Right,
+            mode: TextMode::Span,
+            horizontal: HorizontalAlignment::Right,
+            vertical: VerticalAlignment::Top,
+            fill: false,
         }
     }
 
     pub const fn paragraph() -> Self {
         Self {
-            mode: TextMode::Paragraph {
-                center_vertical: false,
-            },
-            align: HorizontalAlignment::Left,
+            mode: TextMode::Paragraph,
+            horizontal: HorizontalAlignment::Left,
+            vertical: VerticalAlignment::Top,
+            fill: false,
         }
     }
 
     pub const fn paragraph_center() -> Self {
         Self {
-            mode: TextMode::Paragraph {
-                center_vertical: false,
-            },
-            align: HorizontalAlignment::Center,
+            mode: TextMode::Paragraph,
+            horizontal: HorizontalAlignment::Center,
+            vertical: VerticalAlignment::Center,
+            fill: false,
         }
     }
 
     pub const fn paragraph_right() -> Self {
         Self {
-            mode: TextMode::Paragraph {
-                center_vertical: false,
-            },
-            align: HorizontalAlignment::Right,
+            mode: TextMode::Paragraph,
+            horizontal: HorizontalAlignment::Right,
+            vertical: VerticalAlignment::Top,
+            fill: false,
         }
+    }
+
+    pub const fn with_fill(mut self) -> Self {
+        self.fill = true;
+        self
     }
 }
 
