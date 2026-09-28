@@ -555,7 +555,7 @@ impl Framebuffer {
                 self.render_span(
                     area.pos.with_row(row),
                     area.size.cols,
-                    &text,
+                    &text, // TODO: Newlines should be ignored
                     opts.horizontal,
                     opts.fill,
                 );
@@ -568,15 +568,9 @@ impl Framebuffer {
                 pos.row = opts.vertical.calc(area.pos.row, area.size.rows, lines);
                 size.rows = area.size.rows.min(lines);
 
-                let max_row = pos.row + size.rows;
-
-                for line in text.lines() {
+                for line in text.lines().take(size.rows as usize) {
                     self.render_span(pos, size.cols, line, opts.horizontal, opts.fill);
                     pos.row += 1;
-
-                    if pos.row == max_row {
-                        break;
-                    }
                 }
             }
         }
