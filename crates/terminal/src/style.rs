@@ -102,40 +102,35 @@ impl Style {
         colors: impl IntoIterator<Item = Sgr>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
-        for sgr in colors.into_iter().chain(self.attributes_as_sgr()) {
+        for sgr in colors.into_iter().chain(self.attributes.iter_sgr()) {
             sgr.write_ansi_code(f)?;
             f.write_char(';')?;
         }
 
         Ok(())
     }
+}
 
-    pub fn attributes_as_sgr(&self) -> impl Iterator<Item = Sgr> {
-        self.attributes.iter().map(|a| match a.bits() {
-            1 => Sgr::Reset,
-            2 => Sgr::Bold,
-            4 => Sgr::Faint,
-            8 => Sgr::Italic,
-            16 => Sgr::Underline,
-            // => Sgr::SlowBlink,
-            // => Sgr::RapidBlink,
-            32 => Sgr::Reverse,
-            64 => Sgr::Conceal,
-            128 => Sgr::CrossedOut,
-            // => Sgr::Framed,
-            // => Sgr::Encircled,
-            // => Sgr::Overlined,
-            256 => Sgr::NotBold,
-            512 => Sgr::NotItalic,
-            1024 => Sgr::NotUnderline,
-            // => Sgr::NotBlink,
-            2048 => Sgr::NotReverse,
-            4096 => Sgr::NotConceal,
-            8192 => Sgr::NotCrossedOut,
-            // => Sgr::NotFramedOrEncircled,
-            // => Sgr::NotOverlined,
-            _ => unreachable!(),
-        })
+impl Display for Style {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("\x1b[")?;
+
+        match (self.fg, self.bg) {
+            (None, None) => {
+                self.write_ansi_codes([], f)?;
+            }
+            (Some(fg), None) => {
+                self.write_ansi_codes([Sgr::Fg(fg)], f)?;
+            }
+            (None, Some(bg)) => {
+                self.write_ansi_codes([Sgr::Bg(bg)], f)?;
+            }
+            (Some(fg), Some(bg)) => {
+                self.write_ansi_codes([Sgr::Fg(fg), Sgr::Bg(bg)], f)?;
+            }
+        }
+
+        f.write_char('m')
     }
 }
 
@@ -167,23 +162,43 @@ bitflags::bitflags! {
     }
 }
 
-impl Display for Style {
+impl Attributes {
+    fn iter_sgr(self) -> impl Iterator<Item = Sgr> {
+        self.iter().map(|a| match a.bits() {
+            1 => Sgr::Reset,
+            2 => Sgr::Bold,
+            4 => Sgr::Faint,
+            8 => Sgr::Italic,
+            16 => Sgr::Underline,
+            // => Sgr::SlowBlink,
+            // => Sgr::RapidBlink,
+            32 => Sgr::Reverse,
+            64 => Sgr::Conceal,
+            128 => Sgr::CrossedOut,
+            // => Sgr::Framed,
+            // => Sgr::Encircled,
+            // => Sgr::Overlined,
+            256 => Sgr::NotBold,
+            512 => Sgr::NotItalic,
+            1024 => Sgr::NotUnderline,
+            // => Sgr::NotBlink,
+            2048 => Sgr::NotReverse,
+            4096 => Sgr::NotConceal,
+            8192 => Sgr::NotCrossedOut,
+            // => Sgr::NotFramedOrEncircled,
+            // => Sgr::NotOverlined,
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl Display for Attributes {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("\x1b[")?;
 
-        match (self.fg, self.bg) {
-            (None, None) => {
-                self.write_ansi_codes([], f)?;
-            }
-            (Some(fg), None) => {
-                self.write_ansi_codes([Sgr::Fg(fg)], f)?;
-            }
-            (None, Some(bg)) => {
-                self.write_ansi_codes([Sgr::Bg(bg)], f)?;
-            }
-            (Some(fg), Some(bg)) => {
-                self.write_ansi_codes([Sgr::Fg(fg), Sgr::Bg(bg)], f)?;
-            }
+        for sgr in self.iter_sgr() {
+            sgr.write_ansi_code(f)?;
+            f.write_char(';')?;
         }
 
         f.write_char('m')
