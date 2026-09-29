@@ -350,7 +350,7 @@ impl Prompt {
             })
             .map(move |g| {
                 index += g.len();
-                (index, grapheme_render(g))
+                (index, grapheme_render(g.0))
             })
     }
 
@@ -450,7 +450,7 @@ impl Prompt {
                 return i;
             }
 
-            width += grapheme_width(g);
+            width += grapheme_width(g.0);
             start = i;
         }
 
@@ -466,7 +466,7 @@ enum CursorMove {
 }
 
 fn text_width(s: &str) -> u16 {
-    utils::graphemes(s).map(grapheme_width).sum()
+    utils::graphemes(s).map(|g| grapheme_width(g.0)).sum()
 }
 
 fn grapheme_width(g: &str) -> u16 {

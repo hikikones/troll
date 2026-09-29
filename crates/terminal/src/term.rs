@@ -650,7 +650,7 @@ impl Framebuffer {
                                 continue;
                             }
 
-                            let w = utils::str_width(g);
+                            let w = utils::str_width(g.0);
 
                             if width + w > max_width {
                                 width = max_width;
@@ -658,7 +658,7 @@ impl Framebuffer {
                             }
 
                             width += w;
-                            self.print_str(g);
+                            self.print_str(g.0);
                         }
                         utils::GraphemeOrAnsi::Ansi(s) => {
                             self.print_str(s);

@@ -338,7 +338,7 @@ impl Editor {
         {
             frame.cursor(Pos::new(area.pos.col, area.pos.row + i as u16));
             for g in utils::graphemes(self.wrapped.slice(line.range())) {
-                frame.print_str(grapheme_render(g));
+                frame.print_str(grapheme_render(g.0));
             }
         }
 
@@ -378,7 +378,7 @@ impl Editor {
 
                 index += g.len();
 
-                frame.print_str(grapheme_render(g));
+                frame.print_str(grapheme_render(g.0));
             }
         }
 
@@ -439,7 +439,7 @@ impl Editor {
                 continue;
             }
 
-            let width = grapheme_width(g);
+            let width = grapheme_width(g.0);
             if column + width > max_width {
                 self.lines.push(VisualLine::new(start..i));
 
@@ -566,11 +566,11 @@ impl Editor {
         let mut index = line.start;
 
         for (i, g) in utils::grapheme_indices(self.wrapped.slice(line.range())) {
-            if g.contains('\n') {
+            if g.is_newline() {
                 break;
             }
 
-            let width = grapheme_width(g);
+            let width = grapheme_width(g.0);
             if column + width > target {
                 break;
             }
@@ -611,7 +611,7 @@ impl VisualLine {
 }
 
 fn text_width(s: &str) -> u16 {
-    utils::graphemes(s).map(grapheme_width).sum()
+    utils::graphemes(s).map(|g| grapheme_width(g.0)).sum()
 }
 
 fn grapheme_width(g: &str) -> u16 {
