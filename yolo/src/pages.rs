@@ -270,7 +270,7 @@ impl DemoPage {
 
         frame.push_fmt(format_args!(
             "Please {}confirm{} your action.\n\nStill waiting...",
-            SetSgr([Sgr::Fg(colors.primary), Sgr::Bold]),
+            Sgrs([Sgr::Fg(colors.primary), Sgr::Bold]),
             Sgr::Reset
         ));
         frame.render(
@@ -349,10 +349,10 @@ impl ListPage {
             |line, frame, item, idx| {
                 match idx {
                     ListIndex::Selected => {
-                        frame.push_fmt(SetSgr([Sgr::Fg(colors.primary), Sgr::Reverse]));
+                        frame.push_fmt(Sgrs([Sgr::Fg(colors.primary), Sgr::Reverse]));
                     }
                     ListIndex::Selection => {
-                        frame.push_fmt(SetSgr([Sgr::Fg(colors.neutral), Sgr::Reverse]));
+                        frame.push_fmt(Sgrs([Sgr::Fg(colors.neutral), Sgr::Reverse]));
                     }
                     ListIndex::Normal => {
                         frame.push_fmt(Sgr::Fg(normal));
@@ -393,10 +393,10 @@ impl ListPage {
             |line, frame, areas, item, idx| {
                 match idx {
                     ListIndex::Selected => {
-                        frame.push_fmt(SetSgr([Sgr::Fg(colors.primary), Sgr::Reverse]));
+                        frame.push_fmt(Sgrs([Sgr::Fg(colors.primary), Sgr::Reverse]));
                     }
                     ListIndex::Selection => {
-                        frame.push_fmt(SetSgr([Sgr::Fg(colors.neutral), Sgr::Reverse]));
+                        frame.push_fmt(Sgrs([Sgr::Fg(colors.neutral), Sgr::Reverse]));
                     }
                     ListIndex::Normal => {
                         frame.push_fmt(Sgr::Fg(normal));

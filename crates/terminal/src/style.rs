@@ -344,9 +344,9 @@ impl Display for Sgr {
     }
 }
 
-pub struct SetSgr<T>(pub T);
+pub struct Sgrs<T>(pub T);
 
-impl<T> Display for SetSgr<T>
+impl<T> Display for Sgrs<T>
 where
     for<'a> &'a T: IntoIterator<Item = &'a Sgr>,
 {

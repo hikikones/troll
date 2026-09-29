@@ -53,7 +53,7 @@ impl SearchModal {
         frame.push_str(" Search ");
         frame.render(area, TextOptions::span_center_top());
 
-        frame.print_fmt(SetSgr([Sgr::Fg(colors.secondary), Sgr::Bold, Sgr::Reverse]));
+        frame.print_fmt(Sgrs([Sgr::Fg(colors.secondary), Sgr::Bold, Sgr::Reverse]));
         frame.push_str("YOLO");
         frame.render(
             area.inner(Margin::proportional(1)),
