@@ -12,7 +12,7 @@ pub struct Prompt {
     cursor: usize,
     selector: Option<usize>,
     scroll: u16,
-    margins: u16,
+    scrolloff: u16,
     disabled: bool,
     colors: PromptColors,
     area_pos: Pos,
@@ -20,6 +20,7 @@ pub struct Prompt {
 }
 
 pub struct PromptColors {
+    pub normal: Color,
     pub placeholder: Color,
     pub disabled: Color,
 }
@@ -27,6 +28,7 @@ pub struct PromptColors {
 impl PromptColors {
     pub const fn new() -> Self {
         Self {
+            normal: Color::Default,
             placeholder: Color::Indexed(240),
             disabled: Color::Indexed(238),
         }
@@ -34,6 +36,7 @@ impl PromptColors {
 
     pub const fn all(color: Color) -> Self {
         Self {
+            normal: color,
             placeholder: color,
             disabled: color,
         }
@@ -58,7 +61,7 @@ impl Prompt {
             cursor: 0,
             selector: None,
             scroll: 0,
-            margins: 0,
+            scrolloff: 0,
             disabled: false,
             colors: PromptColors::new(),
             area_pos: Pos::ZERO,
@@ -76,8 +79,8 @@ impl Prompt {
         self
     }
 
-    pub const fn with_margins(mut self, horizontal: u16) -> Self {
-        self.margins = horizontal;
+    pub const fn with_scrolloff(mut self, horizontal: u16) -> Self {
+        self.scrolloff = horizontal;
         self
     }
 
@@ -259,7 +262,7 @@ impl Prompt {
                 self.render_placeholder(area, frame, self.colors.disabled);
             } else {
                 self.update_scroll(last_width, area.size.cols, self.input_width());
-                self.render_text(area, frame, Some(self.colors.disabled));
+                self.render_text(area, frame, self.colors.disabled);
             }
             return;
         }
@@ -279,7 +282,7 @@ impl Prompt {
         // Render
         match self.try_selection() {
             Some(range) => self.render_text_with_selection(area, frame, range),
-            None => self.render_text(area, frame, None),
+            None => self.render_text(area, frame, self.colors.normal),
         }
         frame.cursor(self.cursor_render_pos());
     }
@@ -291,19 +294,15 @@ impl Prompt {
         frame.render(area, TextOptions::span());
     }
 
-    fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Option<Color>) {
-        if let Some(color) = color {
-            frame.print_fmt(Sgr::Fg(color));
-        }
+    fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
+        frame.print_fmt(Sgr::Fg(color));
 
         frame.cursor(area.pos);
         for (_, g) in self.render_iter(area.size.cols) {
             frame.print_str(g);
         }
 
-        if color.is_some() {
-            frame.print_fmt(Sgr::Fg(Color::Default));
-        }
+        frame.print_fmt(Sgr::reset_fg());
     }
 
     fn render_text_with_selection(
@@ -314,6 +313,8 @@ impl Prompt {
     ) {
         let mut found_selector = false;
         let mut has_reset_selector = false;
+
+        frame.print_fmt(Sgr::Fg(self.colors.normal));
 
         frame.cursor(area.pos);
         for (i, g) in self.render_iter(area.size.cols) {
@@ -331,6 +332,8 @@ impl Prompt {
         if !has_reset_selector && found_selector {
             frame.print_fmt(Sgr::NotReverse);
         }
+
+        frame.print_fmt(Sgr::reset_fg());
     }
 
     fn render_iter(&self, max_width: u16) -> impl Iterator<Item = (usize, &str)> {
@@ -369,7 +372,7 @@ impl Prompt {
             current_scroll: scroll as usize,
             total_lines: input_width as usize + 1,
             viewport_height: width,
-            margins: ScrollMargins::ZERO,
+            margins: ScrollMargins::vertical(self.scrolloff),
         }) as u16;
     }
 

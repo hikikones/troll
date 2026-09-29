@@ -1,26 +1,48 @@
 use terminal::*;
-use widgets2::{Block, KittyDeleteAll, KittyGraphics};
+use widgets2::{KittyDeleteAll, KittyGraphics};
 
 use crate::{
-    modals::{Modal, ModalAction},
-    pages::Pages,
+    modals::{Modal, ModalAction, Modals},
+    pages::{Pages, Route},
 };
 
 pub struct App {
     pages: Pages,
-    modal: Option<Modal>,
+    modals: Modals,
     kitty: KittyGraphics,
+    colors: Colors,
     is_running: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum Action {
     None,
     Render,
-    Forward,
-    Backward,
-    Modal(Modal),
+    Route(Route),
+    Modal(Option<Modal>),
     Clear,
     Quit,
+}
+
+#[derive(Debug, Clone)]
+pub struct Colors {
+    pub normal: Color,
+    pub primary: Color,
+    pub secondary: Color,
+    pub neutral: Color,
+    pub red: Color,
+}
+
+impl Colors {
+    const fn all(color: Color) -> Self {
+        Self {
+            normal: color,
+            primary: color,
+            secondary: color,
+            neutral: color,
+            red: color,
+        }
+    }
 }
 
 impl App {
@@ -28,42 +50,57 @@ impl App {
         let mut kitty = KittyGraphics::new();
 
         Self {
-            pages: Pages::new(&mut kitty),
-            modal: None,
+            pages: Pages::new(Route::Demo, &mut kitty),
+            modals: Modals::new(),
             kitty,
+            colors: Colors {
+                normal: Color::Default,
+                primary: Color::BrightYellow,
+                secondary: Color::Yellow,
+                neutral: Color::Indexed(240),
+                red: Color::Red,
+            },
             is_running: true,
         }
     }
 
     pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         // Render default page
+        self.pages.on_enter(self.pages.route, terminal.frame());
         self.render(terminal)?;
 
         // Run event loop
         while self.is_running {
             let event = Terminal::read()?;
-            let action = self.read_event(event, terminal);
+            let action = self.handle_event(event, terminal);
             self.apply_action(action, terminal)?;
         }
 
         Ok(())
     }
 
-    fn read_event(&mut self, event: Event, terminal: &mut Terminal) -> Action {
+    fn handle_event(&mut self, event: Event, terminal: &mut Terminal) -> Action {
         match event {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match self.modal {
-                Some(modal) => {
-                    if let KeyCode::Esc = key.code {
-                        Action::Quit
+            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+                KeyCode::Esc => Action::Quit,
+                KeyCode::Tab | KeyCode::BackTab => {
+                    if self.modals.current.is_some() {
+                        Action::None
                     } else {
-                        self.on_modal_input(key, modal)
+                        let next = if let KeyCode::Tab = key.code {
+                            self.pages.route.next()
+                        } else {
+                            self.pages.route.prev()
+                        };
+                        Action::Route(next)
                     }
                 }
-                None => match key.code {
-                    KeyCode::Esc => Action::Quit,
-                    KeyCode::Tab => Action::Forward,
-                    KeyCode::BackTab => Action::Backward,
-                    _ => self.on_page_input(key, terminal),
+                KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    Action::Modal(Some(Modal::Search))
+                }
+                _ => match self.modals.current {
+                    Some(modal) => self.modal_input(key, modal),
+                    None => self.input_page(key, terminal),
                 },
             },
             Event::Resize(_, _) => Action::Render,
@@ -77,16 +114,12 @@ impl App {
             Action::Render => {
                 self.render(terminal)?;
             }
-            Action::Forward => {
-                self.pages.forward(terminal.frame());
-                self.render(terminal)?;
-            }
-            Action::Backward => {
-                self.pages.backward(terminal.frame());
+            Action::Route(route) => {
+                self.set_route(route, terminal.frame());
                 self.render(terminal)?;
             }
             Action::Modal(modal) => {
-                self.modal = Some(modal);
+                self.set_modal(modal, terminal.frame());
                 self.render(terminal)?;
             }
             Action::Clear => {
@@ -107,40 +140,106 @@ impl App {
 
             frame.print_fmt(KittyDeleteAll);
 
+            let colors = if self.modals.current.is_none() {
+                self.colors.clone()
+            } else {
+                Colors::all(self.colors.neutral)
+            };
+
             let (top, body, bottom) = area.split_ends(1, 1);
 
-            self.pages.render_navigation(top, frame);
+            self.pages.render_navigation(top, frame, &colors);
 
-            self.on_page_render(body.inner(Margin::proportional(1)), frame);
+            self.render_page(body.inner(Margin::proportional(1)), frame, &colors);
 
+            frame.push_fmt(Sgr::Fg(colors.normal));
             frame.push_str("TODO BOTTOM");
+            frame.push_fmt(Sgr::reset_fg());
             frame.render(bottom, TextOptions::span_center_top());
 
-            if let Some(modal) = self.modal {
-                self.on_modal_render(area, frame, modal);
+            if let Some(modal) = self.modals.current {
+                self.modal_render(area, frame, modal);
             }
 
             Ok(())
         })
     }
 
-    fn on_page_render(&mut self, area: Rect, frame: &mut Framebuffer) {
-        self.pages.render_page(area, frame, &self.kitty);
+    fn set_route(&mut self, route: Route, frame: &mut Framebuffer) {
+        self.pages.on_exit(self.pages.route, frame);
+        self.pages.route = route;
+        self.pages.on_enter(route, frame);
     }
 
-    fn on_page_input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
-        self.pages.input_page(key, terminal)
+    fn render_page(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        self.pages.render(area, frame, colors, &self.kitty);
     }
 
-    fn on_modal_input(&mut self, key: KeyEvent, modal: Modal) -> Action {
-        let action = match modal {
-            Modal::Confirm => {
-                if let KeyCode::Enter = key.code {
-                    self.modal = None;
-                    return Action::Render;
-                }
-                return Action::None;
+    fn input_page(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
+        self.pages.input(key, terminal)
+    }
+
+    fn set_modal(&mut self, modal: Option<Modal>, frame: &mut Framebuffer) {
+        match (self.modals.current, modal) {
+            (None, None) => {}
+            (None, Some(modal)) => {
+                self.modal_enter(modal, frame);
             }
+            (Some(current), None) => {
+                self.modal_exit(current, frame);
+            }
+            (Some(current), Some(next)) => match (current, next) {
+                (Modal::Search, Modal::Search) => {
+                    self.modal_exit(current, frame);
+                }
+                (Modal::Custom, _) => {
+                    self.modal_exit(current, frame);
+                    self.modal_enter(next, frame);
+                }
+                (_, Modal::Custom) => {}
+            },
+        }
+    }
+
+    fn modal_enter(&mut self, modal: Modal, frame: &mut Framebuffer) {
+        self.modals.current = Some(modal);
+
+        self.modals.cursor_state = frame.cursor_state();
+        frame.set_cursor_state(CursorState::Hide);
+
+        match modal {
+            Modal::Search => self.modals.search.on_enter(),
+            Modal::Custom => {}
+        }
+    }
+
+    fn modal_exit(&mut self, modal: Modal, frame: &mut Framebuffer) {
+        self.modals.current = None;
+
+        frame.set_cursor_state(self.modals.cursor_state);
+
+        match modal {
+            Modal::Search => self.modals.search.on_exit(),
+            Modal::Custom => {}
+        }
+    }
+
+    fn modal_render(&mut self, area: Rect, frame: &mut Framebuffer, modal: Modal) {
+        let colors = &self.colors;
+
+        match modal {
+            Modal::Search => {
+                self.modals.search.render(area, frame, colors);
+            }
+            Modal::Custom => {
+                self.pages.render_modal(area, frame, colors);
+            }
+        }
+    }
+
+    fn modal_input(&mut self, key: KeyEvent, modal: Modal) -> Action {
+        let action = match modal {
+            Modal::Search => self.modals.search.input(key),
             Modal::Custom => self.pages.input_modal(key),
         };
 
@@ -148,38 +247,10 @@ impl App {
             ModalAction::None => Action::None,
             ModalAction::Render => Action::Render,
             ModalAction::Confirm => {
-                // TODO: refresh page
-                self.modal = None;
-                Action::Render
+                self.pages.update();
+                Action::Modal(None)
             }
-            ModalAction::Cancel => {
-                self.modal = None;
-                Action::Render
-            }
-        }
-    }
-
-    fn on_modal_render(&mut self, area: Rect, frame: &mut Framebuffer, modal: Modal) {
-        match modal {
-            Modal::Confirm => {
-                let area = area.inner(Margin::symmetric(area.cols() / 4, area.rows() / 4));
-                let bg = frame.palette().background().slight_offset().as_color();
-                Block::fill(bg).render(area, frame);
-                Block::rectangle().render(area, frame);
-                frame.push_str(" Confirm ");
-                frame.render(area, TextOptions::span_center_top());
-
-                frame.print_fmt(SetSgr([Sgr::Fg(Color::Yellow), Sgr::Bold, Sgr::Reverse]));
-                frame.push_str("YOLO");
-                frame.render(
-                    area.inner(Margin::proportional(1)),
-                    TextOptions::span_center().with_fill(),
-                );
-                frame.print_fmt(Sgr::Reset);
-            }
-            Modal::Custom => {
-                self.pages.render_modal(area, frame);
-            }
+            ModalAction::Cancel => Action::Modal(None),
         }
     }
 }

@@ -2,12 +2,12 @@ use terminal::*;
 use widgets2::*;
 
 use crate::{
-    app::Action,
+    app::{Action, Colors},
     modals::{Modal, ModalAction},
 };
 
 pub struct Pages {
-    route: Route,
+    pub route: Route,
     demo: DemoPage,
     list: ListPage,
     tags: TagsPage,
@@ -16,7 +16,7 @@ pub struct Pages {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Route {
+pub enum Route {
     Demo,
     List,
     Tags,
@@ -25,9 +25,7 @@ enum Route {
 }
 
 impl Route {
-    const DEFAULT: Self = Self::Demo;
-
-    const fn next(self) -> Self {
+    pub const fn next(self) -> Self {
         match self {
             Self::Demo => Self::List,
             Self::List => Self::Tags,
@@ -37,7 +35,7 @@ impl Route {
         }
     }
 
-    const fn prev(self) -> Self {
+    pub const fn prev(self) -> Self {
         match self {
             Self::Demo => Self::Editor,
             Self::List => Self::Demo,
@@ -49,9 +47,9 @@ impl Route {
 }
 
 impl Pages {
-    pub fn new(kitty: &mut KittyGraphics) -> Self {
+    pub fn new(route: Route, kitty: &mut KittyGraphics) -> Self {
         Self {
-            route: Route::DEFAULT,
+            route,
             demo: DemoPage::new(),
             list: ListPage::new(),
             tags: TagsPage::new(),
@@ -60,21 +58,7 @@ impl Pages {
         }
     }
 
-    pub fn forward(&mut self, frame: &mut Framebuffer) {
-        self.set_route(self.route.next(), frame);
-    }
-
-    pub fn backward(&mut self, frame: &mut Framebuffer) {
-        self.set_route(self.route.prev(), frame);
-    }
-
-    fn set_route(&mut self, route: Route, frame: &mut Framebuffer) {
-        self.on_exit(self.route, frame);
-        self.route = route;
-        self.on_enter(route, frame);
-    }
-
-    fn on_enter(&mut self, route: Route, frame: &mut Framebuffer) {
+    pub fn on_enter(&mut self, route: Route, frame: &mut Framebuffer) {
         match route {
             Route::Demo => self.demo.on_enter(),
             Route::List => self.list.on_enter(),
@@ -84,7 +68,7 @@ impl Pages {
         }
     }
 
-    fn on_exit(&mut self, route: Route, frame: &mut Framebuffer) {
+    pub fn on_exit(&mut self, route: Route, frame: &mut Framebuffer) {
         match route {
             Route::Demo => self.demo.on_exit(),
             Route::List => self.list.on_exit(),
@@ -94,17 +78,33 @@ impl Pages {
         }
     }
 
-    pub fn render_page(&mut self, area: Rect, frame: &mut Framebuffer, kitty: &KittyGraphics) {
+    pub fn update(&self) {
         match self.route {
-            Route::Demo => self.demo.render(area, frame),
-            Route::List => self.list.render(area, frame),
+            Route::Demo => self.demo.on_update(),
+            Route::List => self.list.on_update(),
+            Route::Tags => self.tags.on_update(),
+            Route::Image => self.image.on_update(),
+            Route::Editor => self.editor.on_update(),
+        }
+    }
+
+    pub fn render(
+        &mut self,
+        area: Rect,
+        frame: &mut Framebuffer,
+        colors: &Colors,
+        kitty: &KittyGraphics,
+    ) {
+        match self.route {
+            Route::Demo => self.demo.render(area, frame, colors),
+            Route::List => self.list.render(area, frame, colors),
             Route::Tags => self.tags.render(area, frame),
             Route::Image => self.image.render(area, frame, kitty),
             Route::Editor => self.editor.render(area, frame),
         }
     }
 
-    pub fn input_page(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
+    pub fn input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
         match self.route {
             Route::Demo => self.demo.input(key),
             Route::List => self.list.input(key),
@@ -114,9 +114,9 @@ impl Pages {
         }
     }
 
-    pub fn render_modal(&mut self, area: Rect, frame: &mut Framebuffer) {
+    pub fn render_modal(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         match self.route {
-            Route::Demo => self.demo.render_modal(area, frame),
+            Route::Demo => self.demo.render_modal(area, frame, colors),
             Route::List => todo!(),
             Route::Tags => todo!(),
             Route::Image => todo!(),
@@ -134,9 +134,11 @@ impl Pages {
         }
     }
 
-    pub fn render_navigation(&self, area: Rect, frame: &mut Framebuffer) {
+    pub fn render_navigation(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        frame.print_fmt(Sgr::Fg(colors.normal));
         frame.push_str("TODO TOP");
         frame.render(area, TextOptions::span_center_top());
+        frame.print_fmt(Sgr::reset_fg());
     }
 }
 
@@ -151,7 +153,10 @@ impl DemoPage {
 
     fn on_exit(&self) {}
 
-    fn render(&self, area: Rect, frame: &mut Framebuffer) {
+    fn on_update(&self) {}
+
+    fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        frame.print_fmt(Sgr::Fg(colors.normal));
         frame.cursor((2, 3));
         frame.print_str("Hello from my TUI!");
 
@@ -164,20 +169,24 @@ impl DemoPage {
         frame.print_str(" yolo ");
 
         frame.cursor((10, 8));
-        frame.print_fmt(Style::bg(Color::Red).text(" "));
+        frame.print_fmt(Style::bg(colors.red).text(" "));
+        frame.print_fmt(Sgr::Fg(colors.normal));
 
         let center = (area.size.cols / 2, area.size.rows / 2);
         frame.cursor(center);
         frame.print_str("X");
 
         frame.cursor((center.0, center.1 + 2));
-        frame.print_fmt(Styled::new("yoyoyo", Style::fg(Color::Red)));
+        frame.print_fmt(Styled::new("yoyoyo", Style::fg(colors.red)));
+        frame.print_fmt(Sgr::Fg(colors.normal));
         frame.print_str("_👻_yo?");
 
         frame.push_str("here is some ");
         frame.push_fmt(Styled::new("bold", Style::bold()));
+        frame.push_fmt(Sgr::Fg(colors.normal));
         frame.push_str(" and ");
-        frame.push_fmt(Styled::new("yellow", Style::fg(Color::Yellow)));
+        frame.push_fmt(Styled::new("yellow", Style::fg(colors.primary)));
+        frame.push_fmt(Sgr::Fg(colors.normal));
         frame.push_str(" text that wraps around oh yeah all is good indeed.\n");
         frame.push_str("More text incoming that also wraps again because why not.");
         let text_area = Rect {
@@ -186,7 +195,7 @@ impl DemoPage {
         };
         frame.render(text_area.inner(Margin::all(1)), TextOptions::paragraph());
         Block::new(Shape::Rectangle)
-            .with_color(Color::Cyan)
+            .with_color(colors.secondary)
             .render(text_area, frame);
 
         let mut shape_area = Rect {
@@ -202,13 +211,15 @@ impl DemoPage {
             Shape::Corners,
         ] {
             Block::new(shape)
-                .with_color(Color::Yellow)
+                .with_color(colors.secondary)
                 .render(shape_area, frame);
             shape_area.pos.col += shape_area.size.cols + 2;
         }
 
         let horz_area = area.with_col(area.cols() / 4).with_size(area.size / 6);
-        Block::rectangle().render(horz_area, frame);
+        Block::rectangle()
+            .with_color(colors.normal)
+            .render(horz_area, frame);
         for a in horz_area.split_horizontal(
             1,
             [
@@ -217,13 +228,17 @@ impl DemoPage {
                 Constraint::Fixed(3),
             ],
         ) {
-            Block::rectangle().with_color(Color::Cyan).render(a, frame);
+            Block::rectangle()
+                .with_color(colors.primary)
+                .render(a, frame);
         }
 
         let vert_area = horz_area
             .with_row(area.rows() / 2)
             .with_rows(horz_area.rows() * 3);
-        Block::rectangle().render(vert_area, frame);
+        Block::rectangle()
+            .with_color(colors.normal)
+            .render(vert_area, frame);
         for a in vert_area.split_vertical(
             1,
             [
@@ -232,19 +247,21 @@ impl DemoPage {
                 Constraint::Fixed(3),
             ],
         ) {
-            Block::rectangle().with_color(Color::Cyan).render(a, frame);
+            Block::rectangle()
+                .with_color(colors.primary)
+                .render(a, frame);
         }
     }
 
     fn input(&self, key: KeyEvent) -> Action {
         if let KeyCode::Char('m') = key.code {
-            return Action::Modal(Modal::Custom);
+            return Action::Modal(Some(Modal::Custom));
         }
 
         Action::None
     }
 
-    fn render_modal(&self, area: Rect, frame: &mut Framebuffer) {
+    fn render_modal(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         let area = area.with_size(area.size / 2).center(area);
         Block::clear().render(area, frame);
         Block::rectangle().render(area, frame);
@@ -253,7 +270,7 @@ impl DemoPage {
 
         frame.push_fmt(format_args!(
             "Please {}confirm{} your action.\n\nStill waiting...",
-            SetSgr([Sgr::Bold, Sgr::Fg(Color::Yellow)]),
+            SetSgr([Sgr::Fg(colors.primary), Sgr::Bold]),
             Sgr::Reset
         ));
         frame.render(
@@ -303,12 +320,17 @@ impl ListPage {
 
     fn on_exit(&self) {}
 
-    fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
+    fn on_update(&self) {}
+
+    fn render(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         let (list_area, table_area) = {
             area.with_size(area.size.mul_f32(0.8, 0.6))
                 .center(area)
                 .split_vertically_with_gap(1)
         };
+
+        let normal = colors.normal;
+        frame.print_fmt(Sgr::Fg(normal));
 
         Block::rectangle().render(list_area, frame);
         Block::rectangle().render(table_area, frame);
@@ -325,26 +347,24 @@ impl ListPage {
             frame,
             self.items.iter(),
             |line, frame, item, idx| {
-                let reset = match idx {
+                match idx {
                     ListIndex::Selected => {
-                        frame.push_fmt(Style::fg(Color::Yellow).with_reverse());
-                        true
+                        frame.push_fmt(SetSgr([Sgr::Fg(colors.primary), Sgr::Reverse]));
                     }
                     ListIndex::Selection => {
-                        frame.push_fmt(Style::fg(Color::Indexed(245)).with_reverse());
-                        true
+                        frame.push_fmt(SetSgr([Sgr::Fg(colors.neutral), Sgr::Reverse]));
                     }
-                    ListIndex::Normal => false,
-                };
+                    ListIndex::Normal => {
+                        frame.push_fmt(Sgr::Fg(normal));
+                    }
+                }
 
                 frame.push_str(item.yolo());
                 frame.push_str(item.yolo2());
                 frame.push_str(item.yolo3());
                 frame.render(line, TextOptions::span().with_fill());
 
-                if reset {
-                    frame.print_fmt(Sgr::Reset);
-                }
+                frame.print_fmt(Sgr::Reset);
             },
         );
 
@@ -363,6 +383,7 @@ impl ListPage {
                 ],
             ),
             |_line, frame, areas| {
+                frame.print_fmt(Sgr::Fg(normal));
                 let [a, b, c] = areas;
                 for (a, s) in [(a, "Column 1"), (b, "Column 2"), (c, "Column 3")] {
                     frame.push_str(s);
@@ -370,17 +391,17 @@ impl ListPage {
                 }
             },
             |line, frame, areas, item, idx| {
-                let reset = match idx {
+                match idx {
                     ListIndex::Selected => {
-                        frame.print_fmt(Style::fg(Color::Yellow).with_reverse());
-                        true
+                        frame.push_fmt(SetSgr([Sgr::Fg(colors.primary), Sgr::Reverse]));
                     }
                     ListIndex::Selection => {
-                        frame.print_fmt(Style::fg(Color::Indexed(245)).with_reverse());
-                        true
+                        frame.push_fmt(SetSgr([Sgr::Fg(colors.neutral), Sgr::Reverse]));
                     }
-                    ListIndex::Normal => false,
-                };
+                    ListIndex::Normal => {
+                        frame.push_fmt(Sgr::Fg(normal));
+                    }
+                }
 
                 let [a, b, c] = areas;
                 frame.push_str(item.yolo());
@@ -395,9 +416,7 @@ impl ListPage {
                 frame.render(c, TextOptions::span().with_fill());
                 frame.print_ch_repeat(' ', line.right_out() - c.right_out());
 
-                if reset {
-                    frame.print_fmt(Sgr::Reset);
-                }
+                frame.print_fmt(Sgr::Reset);
             },
         );
     }
@@ -455,6 +474,8 @@ impl TagsPage {
 
     fn on_exit(&self) {}
 
+    fn on_update(&self) {}
+
     fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
         let tags_area = area.with_size(area.size / 2).center(area);
         Block::rectangle().render(tags_area, frame);
@@ -504,6 +525,8 @@ impl ImagePage {
 
     fn on_exit(&self) {}
 
+    fn on_update(&self) {}
+
     fn render(&mut self, area: Rect, frame: &mut Framebuffer, kitty: &KittyGraphics) {
         self.image.render(
             area.with_size(area.size / 4).center(area),
@@ -522,9 +545,6 @@ impl ImagePage {
                     })
                     .unwrap();
                 return Action::Clear;
-            }
-            KeyCode::Char('m') => {
-                return Action::Modal(Modal::Confirm);
             }
             _ => {}
         }
@@ -554,12 +574,14 @@ impl EditorPage {
     }
 
     fn on_enter(&self, frame: &mut Framebuffer) {
-        frame.cursor(Cursor::Show);
+        frame.set_cursor_state(CursorState::Show);
     }
 
     fn on_exit(&self, frame: &mut Framebuffer) {
-        frame.cursor(Cursor::Hide);
+        frame.set_cursor_state(CursorState::Hide);
     }
+
+    fn on_update(&self) {}
 
     fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
         let (prompt_area, editor_area) = {
@@ -593,7 +615,7 @@ impl EditorPage {
         self.editor.render(editor_inner, frame);
 
         let cpos = self.get_cursor_pos();
-        frame.set_cursor_at_end(cpos);
+        frame.set_cursor_pos_at_end(cpos);
     }
 
     fn input(&mut self, key: KeyEvent) -> Action {
@@ -601,26 +623,29 @@ impl EditorPage {
 
         let render = match key.code {
             KeyCode::Up => {
-                if let EditorPageState::Editor = self.state
-                    && self.editor.is_cursor_on_first_row()
-                    && !shift
-                {
-                    self.state = EditorPageState::Prompt;
-                    self.editor.set_disabled(true);
-                    self.prompt.set_disabled(false);
-                    true
+                if let EditorPageState::Editor = self.state {
+                    if self.editor.is_cursor_on_first_row() && !shift {
+                        self.state = EditorPageState::Prompt;
+                        self.editor.set_disabled(true);
+                        self.prompt.set_disabled(false);
+                        true
+                    } else {
+                        self.editor.input(key.code, key.modifiers)
+                    }
                 } else {
                     self.prompt.input(key.code, key.modifiers)
                 }
             }
             KeyCode::Down => {
-                if let EditorPageState::Prompt = self.state
-                    && !shift
-                {
-                    self.state = EditorPageState::Editor;
-                    self.prompt.set_disabled(true);
-                    self.editor.set_disabled(false);
-                    true
+                if let EditorPageState::Prompt = self.state {
+                    if !shift {
+                        self.state = EditorPageState::Editor;
+                        self.prompt.set_disabled(true);
+                        self.editor.set_disabled(false);
+                        true
+                    } else {
+                        self.prompt.input(key.code, key.modifiers)
+                    }
                 } else {
                     self.editor.input(key.code, key.modifiers)
                 }

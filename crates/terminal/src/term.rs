@@ -4,7 +4,8 @@ use std::{
 };
 
 use crossterm::{
-    cursor::{Hide, MoveTo},
+    Command,
+    cursor::{Hide, MoveTo, Show},
     event::Event,
     execute,
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
@@ -437,7 +438,14 @@ pub struct Framebuffer {
     text: String,
     size: TerminalSize,
     palette: TerminalPalette,
-    cursor: Option<Pos>,
+    cursor_state: CursorState,
+    cursor_pos_at_end: Option<Pos>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CursorState {
+    Hide,
+    Show,
 }
 
 impl Framebuffer {
@@ -447,7 +455,8 @@ impl Framebuffer {
             text: String::new(),
             size,
             palette,
-            cursor: None,
+            cursor_state: CursorState::Hide,
+            cursor_pos_at_end: None,
         }
     }
 
@@ -463,12 +472,25 @@ impl Framebuffer {
         Rect::new(Pos::ZERO, self.size.window_size())
     }
 
-    pub fn cursor(&mut self, cursor: impl Into<Cursor>) {
-        let _ = write!(self.buf, "{}", cursor.into());
+    pub const fn cursor_state(&self) -> CursorState {
+        self.cursor_state
     }
 
-    pub const fn set_cursor_at_end(&mut self, pos: Pos) {
-        self.cursor = Some(pos);
+    pub fn set_cursor_state(&mut self, state: CursorState) {
+        let _ = match (self.cursor_state, state) {
+            (CursorState::Hide, CursorState::Show) => Show.write_ansi(&mut self.buf),
+            (CursorState::Show, CursorState::Hide) => Hide.write_ansi(&mut self.buf),
+            (_, _) => Ok(()),
+        };
+        self.cursor_state = state;
+    }
+
+    pub const fn set_cursor_pos_at_end(&mut self, pos: Pos) {
+        self.cursor_pos_at_end = Some(pos);
+    }
+
+    pub fn cursor(&mut self, cursor: impl Into<Cursor>) {
+        let _ = write!(self.buf, "{}", cursor.into());
     }
 
     pub fn print_ch(&mut self, ch: char) {
@@ -501,7 +523,7 @@ impl Framebuffer {
                 .queue(Clear(ClearType::CurrentLine))?;
         }
 
-        if let Some(cpos) = self.cursor.take() {
+        if let Some(cpos) = self.cursor_pos_at_end.take() {
             self.cursor(cpos);
         }
 
@@ -516,7 +538,7 @@ impl Framebuffer {
     fn clear(&mut self) {
         self.buf.clear();
         self.text.clear();
-        self.cursor = None;
+        self.cursor_pos_at_end = None;
     }
 
     pub fn push_ch(&mut self, ch: char) {

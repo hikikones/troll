@@ -17,7 +17,7 @@ pub struct Editor {
     lines: Vec<VisualLine>,
     preferred_column: u16,
     scroll: u16,
-    margins: u16,
+    scrolloff: u16,
     disabled: bool,
     colors: EditorColors,
     area_pos: Pos,
@@ -26,6 +26,7 @@ pub struct Editor {
 }
 
 pub struct EditorColors {
+    pub normal: Color,
     pub placeholder: Color,
     pub disabled: Color,
 }
@@ -33,6 +34,7 @@ pub struct EditorColors {
 impl EditorColors {
     pub const fn new() -> Self {
         Self {
+            normal: Color::Default,
             placeholder: Color::Indexed(240),
             disabled: Color::Indexed(238),
         }
@@ -40,6 +42,7 @@ impl EditorColors {
 
     pub const fn all(color: Color) -> Self {
         Self {
+            normal: color,
             placeholder: color,
             disabled: color,
         }
@@ -63,7 +66,7 @@ impl Editor {
             lines: Vec::new(),
             preferred_column: 0,
             scroll: 0,
-            margins: 0,
+            scrolloff: 0,
             disabled: false,
             colors: EditorColors::new(),
             area_pos: Pos::ZERO,
@@ -82,8 +85,8 @@ impl Editor {
         self
     }
 
-    pub const fn with_margins(mut self, vertical: u16) -> Self {
-        self.margins = vertical;
+    pub const fn with_scrolloff(mut self, vertical: u16) -> Self {
+        self.scrolloff = vertical;
         self
     }
 
@@ -279,7 +282,7 @@ impl Editor {
             } else {
                 self.process_input(last_size, area.size);
                 self.update_scroll(last_size.rows, area.size.rows);
-                self.render_text(area, frame, Some(self.colors.disabled));
+                self.render_text(area, frame, self.colors.disabled);
             }
             return;
         }
@@ -299,7 +302,7 @@ impl Editor {
         // Render
         match self.try_selection() {
             Some(range) => self.render_text_with_selection(area, frame, range),
-            None => self.render_text(area, frame, None),
+            None => self.render_text(area, frame, self.colors.normal),
         }
         frame.cursor(self.cursor_render_pos());
     }
@@ -323,10 +326,8 @@ impl Editor {
         frame.render(area, TextOptions::span());
     }
 
-    fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Option<Color>) {
-        if let Some(color) = color {
-            frame.print_fmt(Sgr::Fg(color));
-        }
+    fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
+        frame.print_fmt(Sgr::Fg(color));
 
         for (i, line) in self
             .lines
@@ -341,9 +342,7 @@ impl Editor {
             }
         }
 
-        if color.is_some() {
-            frame.print_fmt(Sgr::Fg(Color::Default));
-        }
+        frame.print_fmt(Sgr::reset_fg());
     }
 
     fn render_text_with_selection(
@@ -354,6 +353,8 @@ impl Editor {
     ) {
         let mut found_selector = false;
         let mut has_reset_selector = false;
+
+        frame.print_fmt(Sgr::Fg(self.colors.normal));
 
         for (i, line) in self
             .lines
@@ -384,6 +385,8 @@ impl Editor {
         if !has_reset_selector && found_selector {
             frame.print_fmt(Sgr::NotReverse);
         }
+
+        frame.print_fmt(Sgr::reset_fg());
     }
 
     fn cursor_render_pos(&self) -> Pos {
@@ -404,7 +407,7 @@ impl Editor {
             current_scroll: scroll as usize,
             total_lines: self.lines.len(),
             viewport_height: height,
-            margins: ScrollMargins::ZERO,
+            margins: ScrollMargins::vertical(self.scrolloff),
         }) as u16;
     }
 
