@@ -31,6 +31,14 @@ impl Modals {
             cursor_state: CursorState::Hide,
         }
     }
+
+    pub const fn is_none(&self) -> bool {
+        self.current.is_none()
+    }
+
+    pub const fn is_some(&self) -> bool {
+        self.current.is_some()
+    }
 }
 
 pub struct SearchModal;
@@ -62,7 +70,7 @@ impl SearchModal {
         frame.print_fmt(Sgr::Reset);
     }
 
-    pub fn input(&mut self, key: KeyEvent) -> ModalAction {
+    pub fn input(&mut self, key: Key) -> ModalAction {
         match key.code {
             KeyCode::Enter => ModalAction::Confirm,
             _ => ModalAction::None,

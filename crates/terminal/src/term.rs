@@ -6,12 +6,11 @@ use std::{
 use crossterm::{
     Command,
     cursor::{Hide, MoveTo, Show},
-    event::Event,
     execute,
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{Color, Cursor, HorizontalAlignment, Pos, Rect, Size, VerticalAlignment};
+use crate::{Color, Cursor, Event, HorizontalAlignment, Pos, Rect, Size, VerticalAlignment};
 
 pub struct Terminal {
     backend: Stdout,
@@ -45,14 +44,14 @@ impl Terminal {
     }
 
     /// Reads a terminal event in a blocking manner.
-    pub fn read() -> std::io::Result<Event> {
-        crossterm::event::read()
+    pub fn read() -> std::io::Result<Option<Event>> {
+        crossterm::event::read().map(|ev| Event::from(ev))
     }
 
     /// Polls and reads a terminal event in a non-blocking manner.
     pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<Event>> {
         match crossterm::event::poll(timeout) {
-            Ok(true) => crossterm::event::read().map(|ev| Some(ev)),
+            Ok(true) => Self::read(),
             Ok(false) => Ok(None),
             Err(err) => Err(err),
         }

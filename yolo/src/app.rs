@@ -71,7 +71,10 @@ impl App {
 
         // Run event loop
         while self.is_running {
-            let event = Terminal::read()?;
+            let Some(event) = Terminal::read()? else {
+                continue;
+            };
+
             let action = self.handle_event(event, terminal);
             self.apply_action(action, terminal)?;
         }
@@ -81,30 +84,17 @@ impl App {
 
     fn handle_event(&mut self, event: Event, terminal: &mut Terminal) -> Action {
         match event {
-            Event::Key(key) if key.kind == KeyEventKind::Press => match key.code {
+            Event::Key(key) => match key.code {
                 KeyCode::Esc => Action::Quit,
-                KeyCode::Tab | KeyCode::BackTab => {
-                    if self.modals.current.is_some() {
-                        Action::None
-                    } else {
-                        let next = if let KeyCode::Tab = key.code {
-                            self.pages.route.next()
-                        } else {
-                            self.pages.route.prev()
-                        };
-                        Action::Route(next)
-                    }
-                }
-                KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    Action::Modal(Some(Modal::Search))
-                }
+                KeyCode::Tab if self.modals.is_none() => Action::Route(self.pages.next()),
+                KeyCode::BackTab if self.modals.is_none() => Action::Route(self.pages.prev()),
+                KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
                 _ => match self.modals.current {
                     Some(modal) => self.modal_input(key, modal),
                     None => self.input_page(key, terminal),
                 },
             },
-            Event::Resize(_, _) => Action::Render,
-            _ => Action::None,
+            Event::Resize => Action::Render,
         }
     }
 
@@ -175,7 +165,7 @@ impl App {
         self.pages.render(area, frame, colors, &self.kitty);
     }
 
-    fn input_page(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
+    fn input_page(&mut self, key: Key, terminal: &mut Terminal) -> Action {
         self.pages.input(key, terminal)
     }
 
@@ -237,7 +227,7 @@ impl App {
         }
     }
 
-    fn modal_input(&mut self, key: KeyEvent, modal: Modal) -> Action {
+    fn modal_input(&mut self, key: Key, modal: Modal) -> Action {
         let action = match modal {
             Modal::Search => self.modals.search.input(key),
             Modal::Custom => self.pages.input_modal(key),

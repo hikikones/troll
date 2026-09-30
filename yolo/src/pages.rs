@@ -58,6 +58,14 @@ impl Pages {
         }
     }
 
+    pub const fn next(&self) -> Route {
+        self.route.next()
+    }
+
+    pub const fn prev(&self) -> Route {
+        self.route.prev()
+    }
+
     pub fn on_enter(&mut self, route: Route, frame: &mut Framebuffer) {
         match route {
             Route::Demo => self.demo.on_enter(),
@@ -104,7 +112,7 @@ impl Pages {
         }
     }
 
-    pub fn input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
+    pub fn input(&mut self, key: Key, terminal: &mut Terminal) -> Action {
         match self.route {
             Route::Demo => self.demo.input(key),
             Route::List => self.list.input(key),
@@ -124,7 +132,7 @@ impl Pages {
         }
     }
 
-    pub fn input_modal(&mut self, key: KeyEvent) -> ModalAction {
+    pub fn input_modal(&mut self, key: Key) -> ModalAction {
         match self.route {
             Route::Demo => self.demo.input_modal(key),
             Route::List => todo!(),
@@ -253,7 +261,7 @@ impl DemoPage {
         }
     }
 
-    fn input(&self, key: KeyEvent) -> Action {
+    fn input(&self, key: Key) -> Action {
         if let KeyCode::Char('m') = key.code {
             return Action::Modal(Some(Modal::Custom));
         }
@@ -279,7 +287,7 @@ impl DemoPage {
         );
     }
 
-    fn input_modal(&self, key: KeyEvent) -> ModalAction {
+    fn input_modal(&self, key: Key) -> ModalAction {
         if let KeyCode::Enter = key.code {
             return ModalAction::Confirm;
         }
@@ -421,7 +429,7 @@ impl ListPage {
         );
     }
 
-    fn input(&mut self, key: KeyEvent) -> Action {
+    fn input(&mut self, key: Key) -> Action {
         if self.list.input(key.code, key.modifiers) {
             return Action::Render;
         }
@@ -500,7 +508,7 @@ impl TagsPage {
         );
     }
 
-    fn input(&mut self, key: KeyEvent) -> Action {
+    fn input(&mut self, key: Key) -> Action {
         if self.list.input(key.code, self.tags.iter()) {
             return Action::Render;
         }
@@ -536,7 +544,7 @@ impl ImagePage {
         );
     }
 
-    fn input(&mut self, key: KeyEvent, terminal: &mut Terminal) -> Action {
+    fn input(&mut self, key: Key, terminal: &mut Terminal) -> Action {
         match key.code {
             KeyCode::Char('e') => {
                 terminal
@@ -618,7 +626,7 @@ impl EditorPage {
         frame.set_cursor_pos_at_end(cpos);
     }
 
-    fn input(&mut self, key: KeyEvent) -> Action {
+    fn input(&mut self, key: Key) -> Action {
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
         let render = match key.code {
