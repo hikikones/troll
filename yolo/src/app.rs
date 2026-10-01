@@ -64,7 +64,7 @@ impl App {
         }
     }
 
-    pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
         // Render default page
         self.pages.on_enter(self.pages.route, terminal.frame());
         self.render(terminal)?;
@@ -82,9 +82,9 @@ impl App {
         Ok(())
     }
 
-    fn handle_event(&mut self, event: Event, terminal: &mut Terminal) -> Action {
+    fn handle_event(&mut self, event: TerminalEvent, terminal: &mut Terminal) -> Action {
         match event {
-            Event::Key(key) => match key.code {
+            TerminalEvent::Key(key) => match key.code {
                 KeyCode::Esc => Action::Quit,
                 KeyCode::Tab if self.modals.is_none() => Action::Route(self.pages.next()),
                 KeyCode::BackTab if self.modals.is_none() => Action::Route(self.pages.prev()),
@@ -94,7 +94,7 @@ impl App {
                     None => self.input_page(key, terminal),
                 },
             },
-            Event::Resize => Action::Render,
+            TerminalEvent::Resize => Action::Render,
         }
     }
 

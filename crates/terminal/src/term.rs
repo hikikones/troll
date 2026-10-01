@@ -10,7 +10,9 @@ use crossterm::{
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{Color, Cursor, Event, HorizontalAlignment, Pos, Rect, Size, VerticalAlignment};
+use crate::{
+    Color, Cursor, HorizontalAlignment, Pos, Rect, Size, TerminalEvent, VerticalAlignment,
+};
 
 pub struct Terminal {
     backend: Stdout,
@@ -32,8 +34,8 @@ impl Terminal {
 
     pub fn enter<T>(
         mut self,
-        f: impl FnOnce(&mut Self) -> std::io::Result<T>,
-    ) -> std::io::Result<T> {
+        f: impl FnOnce(&mut Self) -> Result<T, Box<dyn std::error::Error>>,
+    ) -> Result<T, Box<dyn std::error::Error>> {
         Self::set_panic_hook();
 
         Self::enter_alternate_screen(&mut self.backend)?;
@@ -44,12 +46,12 @@ impl Terminal {
     }
 
     /// Reads a terminal event in a blocking manner.
-    pub fn read() -> std::io::Result<Option<Event>> {
-        crossterm::event::read().map(|ev| Event::from(ev))
+    pub fn read() -> std::io::Result<Option<TerminalEvent>> {
+        crossterm::event::read().map(|ev| TerminalEvent::from(ev))
     }
 
     /// Polls and reads a terminal event in a non-blocking manner.
-    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<Event>> {
+    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TerminalEvent>> {
         match crossterm::event::poll(timeout) {
             Ok(true) => Self::read(),
             Ok(false) => Ok(None),

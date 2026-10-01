@@ -2,6 +2,8 @@ use terminal::*;
 use widgets2::{KittyDeleteAll, KittyGraphics};
 
 use crate::{
+    database::Database,
+    events::{Event, EventHandler},
     modals::{Modal, ModalAction, Modals},
     pages::{Pages, Route},
 };
@@ -9,6 +11,8 @@ use crate::{
 pub struct App {
     pages: Pages,
     modals: Modals,
+    events: EventHandler,
+    database: Database,
     kitty: KittyGraphics,
     colors: Colors,
     is_running: bool,
@@ -17,6 +21,7 @@ pub struct App {
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
     None,
+    Update,
     Render,
     Route(Route),
     Modal(Option<Modal>),
@@ -52,6 +57,8 @@ impl App {
         Self {
             pages: Pages::new(Route::Demo, &mut kitty),
             modals: Modals::new(),
+            events: EventHandler::new(),
+            database: Database::new(std::path::PathBuf::from("~/Downloads/songs2")),
             kitty,
             colors: Colors {
                 normal: Color::Default,
@@ -64,27 +71,31 @@ impl App {
         }
     }
 
-    pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
         // Render default page
         self.pages.on_enter(self.pages.route, terminal.frame());
         self.render(terminal)?;
 
+        // Start reading events and load music
+        self.events.start();
+        self.database.load();
+
         // Run event loop
         while self.is_running {
-            let Some(event) = Terminal::read()? else {
-                continue;
+            let action = match self.events.next()? {
+                Event::Update => Action::Update,
+                Event::Render => Action::Render,
+                Event::Terminal(event) => self.handle_event(event, terminal),
             };
-
-            let action = self.handle_event(event, terminal);
             self.apply_action(action, terminal)?;
         }
 
         Ok(())
     }
 
-    fn handle_event(&mut self, event: Event, terminal: &mut Terminal) -> Action {
+    fn handle_event(&mut self, event: TerminalEvent, terminal: &mut Terminal) -> Action {
         match event {
-            Event::Key(key) => match key.code {
+            TerminalEvent::Key(key) => match key.code {
                 KeyCode::Esc => Action::Quit,
                 KeyCode::Tab if self.modals.is_none() => Action::Route(self.pages.next()),
                 KeyCode::BackTab if self.modals.is_none() => Action::Route(self.pages.prev()),
@@ -94,13 +105,16 @@ impl App {
                     None => self.input_page(key, terminal),
                 },
             },
-            Event::Resize => Action::Render,
+            TerminalEvent::Resize => Action::Render,
         }
     }
 
     fn apply_action(&mut self, action: Action, terminal: &mut Terminal) -> std::io::Result<()> {
         match action {
             Action::None => {}
+            Action::Update => {
+                //todo
+            }
             Action::Render => {
                 self.render(terminal)?;
             }
