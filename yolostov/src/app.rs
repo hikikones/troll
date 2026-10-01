@@ -74,7 +74,7 @@ impl App {
 
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
         // Render default page
-        self.pages.on_enter(self.pages.route, terminal.frame());
+        self.pages.on_enter(terminal.frame());
         self.render(terminal)?;
 
         // Start reading events and load music
@@ -171,9 +171,9 @@ impl App {
     }
 
     fn set_route(&mut self, route: Route, frame: &mut Framebuffer) {
-        self.pages.on_exit(self.pages.route, frame);
-        self.pages.route = route;
-        self.pages.on_enter(route, frame);
+        self.pages.on_exit(frame);
+        self.pages.set_route(route);
+        self.pages.on_enter(frame);
     }
 
     fn render_page(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {

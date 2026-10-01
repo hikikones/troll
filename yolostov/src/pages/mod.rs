@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub struct Pages {
-    pub route: Route,
+    route: Route,
     tracks: TracksPage,
     playing: PlayingPage,
     settings: SettingsPage,
@@ -57,6 +57,10 @@ impl Pages {
         }
     }
 
+    pub const fn route(&self) -> Route {
+        self.route
+    }
+
     pub const fn next(&self) -> Route {
         self.route.next()
     }
@@ -65,16 +69,20 @@ impl Pages {
         self.route.prev()
     }
 
-    pub fn on_enter(&mut self, route: Route, frame: &mut Framebuffer) {
-        match route {
+    pub const fn set_route(&mut self, route: Route) {
+        self.route = route;
+    }
+
+    pub fn on_enter(&mut self, frame: &mut Framebuffer) {
+        match self.route {
             Route::Tracks(id) => self.tracks.on_enter(id),
             Route::NowPlaying => self.playing.on_enter(),
             Route::Settings => self.settings.on_enter(),
         }
     }
 
-    pub fn on_exit(&mut self, route: Route, frame: &mut Framebuffer) {
-        match route {
+    pub fn on_exit(&mut self, frame: &mut Framebuffer) {
+        match self.route {
             Route::Tracks(id) => self.tracks.on_exit(),
             Route::NowPlaying => self.playing.on_exit(),
             Route::Settings => self.settings.on_exit(),
