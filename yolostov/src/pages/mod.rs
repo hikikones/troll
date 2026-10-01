@@ -139,9 +139,20 @@ impl Pages {
     }
 
     pub fn render_navigation(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        frame.print_fmt(Sgr::Fg(colors.normal));
-        frame.push_str("TODO TOP");
+        for (route, name, gap) in [
+            (Route::Tracks(None), "Tracks", 3),
+            (Route::NowPlaying, "Now Playing", 3),
+            (Route::Settings, "Settings", 0),
+        ] {
+            let is_current = std::mem::discriminant(&self.route) == std::mem::discriminant(&route);
+            if is_current {
+                frame.push_fmt(Styled::new(name, Style::fg(colors.primary).with_bold()));
+            } else {
+                frame.push_str_fg(name, colors.normal);
+            }
+            frame.push_ch_repeat(' ', gap);
+        }
+
         frame.render(area, TextOptions::span_center_top());
-        frame.print_fmt(Sgr::reset_fg());
     }
 }
