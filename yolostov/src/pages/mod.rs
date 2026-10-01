@@ -90,11 +90,19 @@ impl Pages {
         }
     }
 
-    pub fn update(&self) {
+    pub fn update(&mut self, db: &Database, jb: &Jukebox, kitty: &mut KittyGraphics) {
         match self.route {
-            Route::Tracks(id) => self.tracks.on_update(),
-            Route::NowPlaying => self.playing.on_update(),
-            Route::Settings => self.settings.on_update(),
+            Route::Tracks(id) => self.tracks.update(),
+            Route::NowPlaying => self.playing.update(db, jb, kitty),
+            Route::Settings => self.settings.update(),
+        }
+    }
+
+    pub fn refresh(&self) {
+        match self.route {
+            Route::Tracks(id) => self.tracks.refresh(),
+            Route::NowPlaying => self.playing.refresh(),
+            Route::Settings => self.settings.refresh(),
         }
     }
 

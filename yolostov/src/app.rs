@@ -208,6 +208,9 @@ impl App {
         //     }
         // }
 
+        self.pages
+            .update(&self.database, &self.jukebox, &mut self.kitty);
+
         if render { Action::Render } else { Action::None }
     }
 
@@ -331,7 +334,7 @@ impl App {
             ModalAction::None => Action::None,
             ModalAction::Render => Action::Render,
             ModalAction::Confirm => {
-                self.pages.update();
+                self.pages.refresh();
                 Action::Modal(None)
             }
             ModalAction::Cancel => Action::Modal(None),

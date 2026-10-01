@@ -36,7 +36,9 @@ impl TracksPage {
 
     pub fn on_exit(&self) {}
 
-    pub fn on_update(&self) {}
+    pub fn update(&self) {}
+
+    pub fn refresh(&self) {}
 
     pub fn render(
         &mut self,

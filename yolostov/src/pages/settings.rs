@@ -16,7 +16,9 @@ impl SettingsPage {
 
     pub fn on_exit(&self) {}
 
-    pub fn on_update(&self) {}
+    pub fn update(&self) {}
+
+    pub fn refresh(&self) {}
 
     pub fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         frame.push_str_fg("TODO", colors.neutral);

@@ -1,17 +1,34 @@
 use shared::symbols;
 use terminal::*;
-use widgets2::{Block, KittyGraphics, List, ListIndex, ScrollMargins};
+use widgets2::{Block, Image, ImageOptions, KittyGraphics, List, ListIndex, ScrollMargins};
 
 use crate::{
     app::{Action, Colors},
-    database::Database,
+    database::{Database, TrackId},
     jukebox::Jukebox,
     modals::ModalAction,
 };
 
+type LoadImageHandle = std::thread::JoinHandle<Result<Option<Vec<u8>>, String>>;
+
+fn load_front_cover(path: &std::path::Path) -> LoadImageHandle {
+    let path = path.to_path_buf();
+    std::thread::spawn(move || {
+        let front_cover = crate::database::AudioFrontCover::read(path)?;
+        match front_cover.bytes() {
+            Some(bytes) => Ok(Some(bytes.to_vec())),
+            None => Ok(None),
+        }
+    })
+}
+
 pub struct PlayingPage {
     list: List,
+    current_id: Option<TrackId>,
     current_qi: Option<usize>,
+    image: Image,
+    image_handle: Option<LoadImageHandle>,
+    image_loaded: bool,
 }
 
 impl PlayingPage {
@@ -20,7 +37,11 @@ impl PlayingPage {
             list: List::new()
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
+            current_id: None,
             current_qi: None,
+            image: Image::new(1),
+            image_handle: None,
+            image_loaded: false,
         }
     }
 
@@ -28,7 +49,48 @@ impl PlayingPage {
 
     pub fn on_exit(&self) {}
 
-    pub fn on_update(&self) {}
+    pub fn update(&mut self, db: &Database, jb: &Jukebox, kitty: &mut KittyGraphics) {
+        let current_id = jb.current_track_id();
+
+        // Check for new track and start image load if so
+        if self.current_id != current_id {
+            self.current_id = current_id;
+            if let Some(id) = current_id
+                && let Some(path) = db.get(id).map(|t| t.path())
+            {
+                self.image_handle = Some(load_front_cover(path));
+            }
+        }
+
+        // Poll thread for finished image loading
+        if let Some(handle) = self.image_handle.as_ref() {
+            if handle.is_finished() {
+                let handle = self.image_handle.take().unwrap();
+                match handle.join().unwrap() {
+                    Ok(Some(bytes)) => {
+                        // TODO: log error
+                        match self.image.load_from_bytes(bytes, kitty) {
+                            Ok(_) => {
+                                self.image_loaded = true;
+                            }
+                            Err(_) => {
+                                self.image_loaded = false;
+                                // TODO: log error
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        self.image_loaded = false;
+                    }
+                    Err(err) => {
+                        // TODO: log error
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn refresh(&self) {}
 
     pub fn render(
         &mut self,
@@ -42,13 +104,42 @@ impl PlayingPage {
         self.update_scroll_on_new_track(jb);
 
         let (left, right) = area.split_vertically_with_gap(0);
-        self.render_cover(left, frame, colors);
+        self.render_cover(left, frame, colors, db, jb, kitty);
         self.render_queue(right, frame, colors, db, jb);
     }
 
-    fn render_cover(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        frame.push_str_fg("TODO", colors.neutral);
-        frame.render(area, TextOptions::span_center());
+    fn render_cover(
+        &mut self,
+        area: Rect,
+        frame: &mut Framebuffer,
+        colors: &Colors,
+        db: &Database,
+        jb: &Jukebox,
+        kitty: &KittyGraphics,
+    ) {
+        let Some(rating) = self
+            .current_id
+            .and_then(|id| db.get(id).map(|t| t.rating()))
+        else {
+            frame.push_str_fg("No track currently playing", colors.neutral);
+            frame.render(area, TextOptions::span_center());
+            return;
+        };
+
+        let (_, cover_area, stars_area) = area.split_ends(1, 1);
+
+        if self.image_loaded {
+            self.image
+                .render(cover_area, frame, kitty, ImageOptions::fit_and_center());
+        } else {
+            frame.push_str_fg("No image", colors.neutral);
+            frame.render(area, TextOptions::span_center());
+        }
+
+        let (filled_stars, empty_stars) = rating.stars_split();
+        frame.push_str_fg(filled_stars, colors.primary);
+        frame.push_str_fg(empty_stars, colors.neutral);
+        frame.render(stars_area, TextOptions::span_center_top());
     }
 
     fn render_queue(

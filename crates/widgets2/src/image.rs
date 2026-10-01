@@ -1,3 +1,9 @@
+use std::{
+    fs::File,
+    io::{BufRead, BufReader, Seek},
+    path::Path,
+};
+
 use terminal::*;
 
 pub struct Image {
@@ -23,20 +29,20 @@ impl Image {
 
     pub fn load_from_path(
         &mut self,
-        path: impl AsRef<std::path::Path>,
+        path: impl AsRef<Path>,
         kitty: &mut KittyGraphics,
     ) -> Result<(), KittyError> {
-        kitty.load_from_path(path.as_ref())?;
+        kitty.load_from_path(path)?;
         kitty.encode(self)?;
         Ok(())
     }
 
-    pub fn load_from_png_bytes(
+    pub fn load_from_bytes(
         &mut self,
         bytes: impl AsRef<[u8]>,
         kitty: &mut KittyGraphics,
     ) -> Result<(), KittyError> {
-        kitty.load_png_from_bytes(bytes.as_ref())?;
+        kitty.load_from_bytes(bytes)?;
         kitty.encode(self)?;
         Ok(())
     }
@@ -307,78 +313,74 @@ impl KittyGraphics {
         self.generation += 1;
     }
 
-    fn load_from_path(&mut self, path: &std::path::Path) -> Result<(), KittyLoadError> {
-        use image::AnimationDecoder;
+    fn load_from_path(&mut self, path: impl AsRef<Path>) -> Result<(), image::error::ImageError> {
+        self.load_from_reader(BufReader::new(File::open(path)?))
+    }
 
-        let reader = image::ImageReader::open(path)?.with_guessed_format()?;
+    fn load_from_bytes(&mut self, bytes: impl AsRef<[u8]>) -> Result<(), image::error::ImageError> {
+        self.load_from_reader(std::io::Cursor::new(bytes))
+    }
 
-        let Some(image_format) = reader.format() else {
+    fn load_from_reader<R>(&mut self, reader: R) -> Result<(), image::error::ImageError>
+    where
+        R: BufRead + Seek,
+    {
+        self.frames.clear();
+        self.load(reader).inspect_err(|_| {
+            // Clear all loaded frames if any failed
+            self.frames.clear();
+        })
+    }
+
+    fn load<R>(&mut self, reader: R) -> Result<(), image::error::ImageError>
+    where
+        R: BufRead + Seek,
+    {
+        use image::{
+            AnimationDecoder, DynamicImage, Frame, ImageFormat, ImageReader,
+            codecs::{gif::GifDecoder, png::PngDecoder, webp::WebPDecoder},
+        };
+
+        let reader = ImageReader::new(reader).with_guessed_format()?;
+
+        let Some(format) = reader.format() else {
             let image = reader.decode()?.to_rgba8();
-            self.frames.push(image::Frame::new(image));
+            self.frames.push(Frame::new(image));
             return Ok(());
         };
 
-        self.frames.clear();
-
-        match image_format {
-            image::ImageFormat::Png => {
-                let png_decoder = image::codecs::png::PngDecoder::new(reader.into_inner())?;
-                if png_decoder.is_apng()? {
-                    for frame_res in png_decoder.apng()?.into_frames() {
-                        match frame_res {
-                            Ok(frame) => self.frames.push(frame),
-                            Err(err) => {
-                                self.frames.clear();
-                                return Err(err)?;
-                            }
-                        }
+        match format {
+            ImageFormat::Png => {
+                let decoder = PngDecoder::new(reader.into_inner())?;
+                if decoder.is_apng()? {
+                    for frame in decoder.apng()?.into_frames() {
+                        self.frames.push(frame?);
                     }
                 } else {
-                    let mut reader = image::ImageReader::open(path)?;
-                    reader.set_format(image::ImageFormat::Png);
-                    let image = reader.decode()?.to_rgba8();
-                    self.frames.push(image::Frame::new(image));
+                    let image = DynamicImage::from_decoder(decoder)?.to_rgba8();
+                    self.frames.push(Frame::new(image));
                 }
             }
-            image::ImageFormat::Gif => {
-                for frame_res in
-                    image::codecs::gif::GifDecoder::new(reader.into_inner())?.into_frames()
-                {
-                    match frame_res {
-                        Ok(frame) => self.frames.push(frame),
-                        Err(err) => {
-                            self.frames.clear();
-                            return Err(err)?;
-                        }
-                    }
+
+            ImageFormat::Gif => {
+                let decoder = GifDecoder::new(reader.into_inner())?;
+                for frame in decoder.into_frames() {
+                    self.frames.push(frame?);
                 }
             }
-            image::ImageFormat::WebP => {
-                for frame_res in
-                    image::codecs::webp::WebPDecoder::new(reader.into_inner())?.into_frames()
-                {
-                    match frame_res {
-                        Ok(frame) => self.frames.push(frame),
-                        Err(err) => {
-                            self.frames.clear();
-                            return Err(err)?;
-                        }
-                    }
+
+            ImageFormat::WebP => {
+                let decoder = WebPDecoder::new(reader.into_inner())?;
+                for frame in decoder.into_frames() {
+                    self.frames.push(frame?);
                 }
             }
+
             _ => {
                 let image = reader.decode()?.to_rgba8();
-                self.frames.push(image::Frame::new(image));
+                self.frames.push(Frame::new(image));
             }
         }
-
-        Ok(())
-    }
-
-    fn load_png_from_bytes(&mut self, bytes: &[u8]) -> Result<(), image::error::ImageError> {
-        let image = image::load_from_memory_with_format(bytes, image::ImageFormat::Png)?;
-        self.frames.clear();
-        self.frames.push(image::Frame::new(image.to_rgba8()));
 
         Ok(())
     }

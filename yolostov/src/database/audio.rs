@@ -524,6 +524,14 @@ impl AudioFrontCover {
         Ok(Self(tagged_file))
     }
 
+    pub fn bytes(&self) -> Option<&[u8]> {
+        self.0
+            .primary_tag()
+            .or_else(|| self.0.first_tag())
+            .and_then(|tag| tag.get_picture_type(PictureType::CoverFront))
+            .map(|pic| pic.data())
+    }
+
     pub fn bytes_and_mime_type<'a>(&'a self) -> Option<(&'a [u8], Option<MimeType<'a>>)> {
         self.0
             .primary_tag()
