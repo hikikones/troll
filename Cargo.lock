@@ -5563,8 +5563,17 @@ name = "yolostov"
 version = "0.1.0"
 dependencies = [
  "edit",
+ "fastrand 2.5.0",
+ "indexmap",
+ "lofty",
+ "nucleo-matcher",
+ "rodio",
+ "serde",
+ "serde_repr",
+ "shared",
  "terminal",
  "utils",
+ "walkdir",
  "widgets2",
 ]
 

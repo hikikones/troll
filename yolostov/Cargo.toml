@@ -7,6 +7,19 @@ license.workspace = true
 
 [dependencies]
 edit = { workspace = true }
+fastrand = { workspace = true }
+indexmap = { workspace = true }
+lofty = { workspace = true }
+nucleo-matcher = { workspace = true }
+rodio = { workspace = true }
+serde = { workspace = true }
+serde_repr = { workspace = true }
+shared = { workspace = true }
 terminal = { workspace = true }
 utils = { workspace = true }
+walkdir = { workspace = true }
 widgets2 = { workspace = true }
+
+[features]
+default = []
+opus = ["rodio/symphonia-libopus"]
