@@ -5559,6 +5559,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "yolostov"
+version = "0.1.0"
+dependencies = [
+ "edit",
+ "terminal",
+ "utils",
+ "widgets2",
+]
+
+[[package]]
 name = "zbus"
 version = "3.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

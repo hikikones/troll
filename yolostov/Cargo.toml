@@ -1,0 +1,12 @@
+[package]
+name = "yolostov"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+edit = { workspace = true }
+terminal = { workspace = true }
+utils = { workspace = true }
+widgets2 = { workspace = true }
