@@ -11,7 +11,8 @@ use tracks::*;
 
 use crate::{
     app::{Action, Colors},
-    database::TrackId,
+    database::{Database, TrackId},
+    jukebox::Jukebox,
     modals::ModalAction,
 };
 
@@ -73,9 +74,9 @@ impl Pages {
         self.route = route;
     }
 
-    pub fn on_enter(&mut self, frame: &mut Framebuffer) {
+    pub fn on_enter(&mut self, frame: &mut Framebuffer, db: &Database) {
         match self.route {
-            Route::Tracks(id) => self.tracks.on_enter(id),
+            Route::Tracks(id) => self.tracks.on_enter(id, db),
             Route::NowPlaying => self.playing.on_enter(),
             Route::Settings => self.settings.on_enter(),
         }
@@ -102,10 +103,12 @@ impl Pages {
         area: Rect,
         frame: &mut Framebuffer,
         colors: &Colors,
+        db: &Database,
+        jb: &Jukebox,
         kitty: &KittyGraphics,
     ) {
         match self.route {
-            Route::Tracks(id) => self.tracks.render(area, frame, colors),
+            Route::Tracks(id) => self.tracks.render(area, frame, colors, db, jb),
             Route::NowPlaying => self.playing.render(area, frame, colors),
             Route::Settings => self.settings.render(area, frame, colors),
         }

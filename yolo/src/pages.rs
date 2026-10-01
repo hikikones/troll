@@ -430,7 +430,7 @@ impl ListPage {
     }
 
     fn input(&mut self, key: Key) -> Action {
-        if self.list.input(key.code, key.modifiers) {
+        if self.list.input(key) {
             return Action::Render;
         }
 

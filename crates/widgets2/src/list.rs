@@ -166,19 +166,16 @@ impl List {
         self
     }
 
-    pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {
-        let ctrl = key_modifiers.contains(KeyModifiers::CONTROL);
-        let shift = key_modifiers.contains(KeyModifiers::SHIFT);
-
-        match key_pressed {
-            KeyCode::Down => self.move_down(1, shift),
-            KeyCode::Up => self.move_up(1, shift),
-            KeyCode::PageDown => self.move_down(self.list_height as usize, shift),
-            KeyCode::PageUp => self.move_up(self.list_height as usize, shift),
-            KeyCode::End => self.move_to_end(shift),
-            KeyCode::Home => self.move_to_start(shift),
+    pub fn input(&mut self, key: Key) -> bool {
+        match key.code {
+            KeyCode::Down => self.move_down(1, key.shift()),
+            KeyCode::Up => self.move_up(1, key.shift()),
+            KeyCode::PageDown => self.move_down(self.list_height as usize, key.shift()),
+            KeyCode::PageUp => self.move_up(self.list_height as usize, key.shift()),
+            KeyCode::End => self.move_to_end(key.shift()),
+            KeyCode::Home => self.move_to_start(key.shift()),
             KeyCode::Char('a') => {
-                if ctrl {
+                if key.ctrl() {
                     self.select_all()
                 } else {
                     false

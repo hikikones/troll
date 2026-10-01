@@ -97,6 +97,10 @@ impl Style {
         Styled::new(text, self)
     }
 
+    pub fn insert(&mut self, attr: Attributes) {
+        self.attributes.insert(attr);
+    }
+
     fn write_ansi_codes(
         &self,
         colors: impl IntoIterator<Item = Sgr>,

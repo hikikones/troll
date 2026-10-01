@@ -11,7 +11,7 @@ use crossterm::{
 };
 
 use crate::{
-    Color, Cursor, HorizontalAlignment, Pos, Rect, Size, TerminalEvent, VerticalAlignment,
+    Color, Cursor, HorizontalAlignment, Pos, Rect, Sgr, Size, TerminalEvent, VerticalAlignment,
 };
 
 pub struct Terminal {
@@ -506,8 +506,16 @@ impl Framebuffer {
         self.buf.push_str(s);
     }
 
+    pub fn print_str_fg(&mut self, s: &str, fg: Color) {
+        let _ = write!(self.buf, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    }
+
     pub fn print_fmt(&mut self, content: impl Display) {
         let _ = write!(self.buf, "{content}");
+    }
+
+    pub fn print_fmt_fg(&mut self, content: impl Display, fg: Color) {
+        let _ = write!(self.buf, "{}{content}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
     fn flush(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
@@ -554,16 +562,19 @@ impl Framebuffer {
         self.text.push_str(s);
     }
 
+    pub fn push_str_fg(&mut self, s: &str, fg: Color) {
+        let _ = write!(self.text, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    }
+
     pub fn push_fmt(&mut self, content: impl Display) {
         let _ = write!(self.text, "{content}");
     }
 
-    pub fn render(&mut self, area: Rect, opts: TextOptions) {
-        if self.text.is_empty() {
-            self.cursor(area.pos);
-            return;
-        }
+    pub fn push_fmt_fg(&mut self, content: impl Display, fg: Color) {
+        let _ = write!(self.text, "{}{content}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    }
 
+    pub fn render(&mut self, area: Rect, opts: TextOptions) {
         if area.is_empty() {
             self.cursor(area.pos);
             self.text.clear();

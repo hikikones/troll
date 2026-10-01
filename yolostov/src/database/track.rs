@@ -145,6 +145,10 @@ impl TrackSort {
         }
     }
 
+    pub const fn equals(self, other: Self) -> bool {
+        self as u8 == other as u8
+    }
+
     // TODO: What about albums with same name?
     // Also, title should be sorted by cd/track listing for each album.
     pub(crate) fn cmp(self, t1: &Track, t2: &Track) -> Ordering {

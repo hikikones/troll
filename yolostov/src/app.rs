@@ -2,9 +2,9 @@ use terminal::*;
 use widgets2::{KittyDeleteAll, KittyGraphics};
 
 use crate::{
-    database::Database,
+    database::{Database, DatabaseEvent},
     events::{Event, EventHandler},
-    jukebox::Jukebox,
+    jukebox::{Jukebox, JukeboxEvent},
     modals::{Modal, ModalAction, Modals},
     pages::{Pages, Route},
 };
@@ -23,7 +23,6 @@ pub struct App {
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
     None,
-    Update,
     Render,
     Route(Route),
     Modal(Option<Modal>),
@@ -58,7 +57,7 @@ impl App {
             pages: Pages::new(Route::Tracks(None)),
             modals: Modals::new(),
             events: EventHandler::new(),
-            database: Database::new(std::path::PathBuf::from("~/Downloads/songs2")),
+            database: Database::new(std::path::PathBuf::from("/home/danny/Downloads/songs2")),
             jukebox,
             kitty: KittyGraphics::new(),
             colors: Colors {
@@ -74,7 +73,7 @@ impl App {
 
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
         // Render default page
-        self.pages.on_enter(terminal.frame());
+        self.pages.on_enter(terminal.frame(), &self.database);
         self.render(terminal)?;
 
         // Start reading events and load music
@@ -84,7 +83,7 @@ impl App {
         // Run event loop
         while self.is_running {
             let action = match self.events.next()? {
-                Event::Update => Action::Update,
+                Event::Update => self.update(),
                 Event::Render => Action::Render,
                 Event::Terminal(event) => self.handle_event(event, terminal),
             };
@@ -113,9 +112,6 @@ impl App {
     fn apply_action(&mut self, action: Action, terminal: &mut Terminal) -> std::io::Result<()> {
         match action {
             Action::None => {}
-            Action::Update => {
-                //todo
-            }
             Action::Render => {
                 self.render(terminal)?;
             }
@@ -137,6 +133,82 @@ impl App {
         }
 
         Ok(())
+    }
+
+    fn update(&mut self) -> Action {
+        let mut render = false;
+
+        // Update database
+        self.database.update(|event| {
+            render = true;
+            match event {
+                DatabaseEvent::Rating(_) => {}
+                DatabaseEvent::Error(err) => {
+                    // self.pages.logs.enqueue(Log::new(err)); //TODO
+                }
+            }
+        });
+
+        // Update jukebox
+        self.jukebox.update(&self.database, |event| {
+            render = true;
+            match event {
+                JukeboxEvent::Play(id) => {
+                    match id.and_then(|id| self.database.get(id)) {
+                        Some(track) => {
+                            //TODO
+                            // // Start loading front cover
+                            // let path = track.path().to_path_buf();
+                            // let picker = self.picker.clone();
+                            // let handle = load_front_cover(path, picker);
+                            // self.front_cover_handle = Some(handle);
+
+                            // // Update metadata and playback status for system media
+                            // self.events.set_media(
+                            //     track.title(),
+                            //     track.artist(),
+                            //     MediaPlayback::Playing,
+                            // );
+                        }
+                        None => {
+                            // Update only playback status for system media
+                            // TODO
+                            // self.events.set_playback(MediaPlayback::Playing);
+                        }
+                    }
+                }
+                JukeboxEvent::Pause => {
+                    // self.events.set_playback(MediaPlayback::Paused);
+                }
+                JukeboxEvent::Stop => {
+                    // self.front_cover = FrontCover::default();
+                    // self.front_cover_handle = None;
+                    // self.events.reset_media();
+                }
+                JukeboxEvent::Error(err) => {
+                    // self.pages.logs.enqueue(Log::new(err));
+                }
+            }
+        });
+
+        // Poll thread for finished image loading
+        // if let Some(handle) = self.front_cover_handle.as_ref() {
+        //     if handle.is_finished() {
+        //         render = true;
+        //         let handle = self.front_cover_handle.take().unwrap();
+        //         match handle.join().unwrap() {
+        //             Ok(cover) => {
+        //                 self.front_cover = cover;
+        //             }
+        //             Err(err) => {
+        //                 self.front_cover = FrontCover::empty();
+        //                 self.pages.logs.enqueue(Log::new(err));
+        //             }
+        //         }
+        //     }
+        // }
+
+        if render { Action::Render } else { Action::None }
     }
 
     fn render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
@@ -173,11 +245,18 @@ impl App {
     fn set_route(&mut self, route: Route, frame: &mut Framebuffer) {
         self.pages.on_exit(frame);
         self.pages.set_route(route);
-        self.pages.on_enter(frame);
+        self.pages.on_enter(frame, &self.database);
     }
 
     fn render_page(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        self.pages.render(area, frame, colors, &self.kitty);
+        self.pages.render(
+            area,
+            frame,
+            colors,
+            &self.database,
+            &self.jukebox,
+            &self.kitty,
+        );
     }
 
     fn input_page(&mut self, key: Key, terminal: &mut Terminal) -> Action {
