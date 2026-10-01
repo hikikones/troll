@@ -4,6 +4,7 @@ use widgets2::{KittyDeleteAll, KittyGraphics};
 use crate::{
     database::Database,
     events::{Event, EventHandler},
+    jukebox::Jukebox,
     modals::{Modal, ModalAction, Modals},
     pages::{Pages, Route},
 };
@@ -13,6 +14,7 @@ pub struct App {
     modals: Modals,
     events: EventHandler,
     database: Database,
+    jukebox: Jukebox,
     kitty: KittyGraphics,
     colors: Colors,
     is_running: bool,
@@ -51,15 +53,14 @@ impl Colors {
 }
 
 impl App {
-    pub fn new() -> Self {
-        let mut kitty = KittyGraphics::new();
-
+    pub fn new(jukebox: Jukebox) -> Self {
         Self {
-            pages: Pages::new(Route::Demo, &mut kitty),
+            pages: Pages::new(Route::Tracks(None)),
             modals: Modals::new(),
             events: EventHandler::new(),
             database: Database::new(std::path::PathBuf::from("~/Downloads/songs2")),
-            kitty,
+            jukebox,
+            kitty: KittyGraphics::new(),
             colors: Colors {
                 normal: Color::Default,
                 primary: Color::BrightYellow,
