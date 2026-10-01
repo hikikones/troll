@@ -102,7 +102,7 @@ impl App {
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
                 _ => match self.modals.current {
                     Some(modal) => self.modal_input(key, modal),
-                    None => self.input_page(key, terminal),
+                    None => self.input_page(key),
                 },
             },
             TerminalEvent::Resize => Action::Render,
@@ -259,8 +259,8 @@ impl App {
         );
     }
 
-    fn input_page(&mut self, key: Key, terminal: &mut Terminal) -> Action {
-        self.pages.input(key, terminal)
+    fn input_page(&mut self, key: Key) -> Action {
+        self.pages.input(key, &mut self.database, &mut self.jukebox)
     }
 
     fn set_modal(&mut self, modal: Option<Modal>, frame: &mut Framebuffer) {

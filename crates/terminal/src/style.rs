@@ -2,11 +2,11 @@ use std::fmt::{Display, Write};
 
 use crate::{Color, Sgr};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Style {
-    fg: Option<Color>,
-    bg: Option<Color>,
-    attributes: Attributes,
+    pub fg: Option<Color>,
+    pub bg: Option<Color>,
+    pub attributes: Attributes,
 }
 
 impl Style {
@@ -81,6 +81,10 @@ impl Style {
         self.with_attribute(Attributes::REVERSE)
     }
 
+    pub const fn with_crossed_out(self) -> Self {
+        self.with_attribute(Attributes::CROSSED_OUT)
+    }
+
     pub const fn with_no_bold(self) -> Self {
         self.with_attribute(Attributes::NOT_BOLD)
     }
@@ -93,12 +97,20 @@ impl Style {
         self.with_attribute(Attributes::NOT_REVERSE)
     }
 
+    pub const fn with_no_crossed_out(self) -> Self {
+        self.with_attribute(Attributes::NOT_CROSSED_OUT)
+    }
+
     pub const fn text<D: Display>(self, text: D) -> Styled<D> {
         Styled::new(text, self)
     }
 
     pub fn insert(&mut self, attr: Attributes) {
         self.attributes.insert(attr);
+    }
+
+    pub fn remove(&mut self, attr: Attributes) {
+        self.attributes.remove(attr);
     }
 
     fn write_ansi_codes(
@@ -139,7 +151,7 @@ impl Display for Style {
 }
 
 bitflags::bitflags! {
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Attributes: u16 {
         const RESET = 1;
         const BOLD = 2;

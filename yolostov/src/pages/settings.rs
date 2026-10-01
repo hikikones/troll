@@ -19,7 +19,8 @@ impl SettingsPage {
     pub fn on_update(&self) {}
 
     pub fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        // TODO
+        frame.push_str_fg("TODO", colors.neutral);
+        frame.render(area, TextOptions::span_center());
     }
 
     pub fn input(&self, key: Key) -> Action {

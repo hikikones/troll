@@ -109,15 +109,15 @@ impl Pages {
     ) {
         match self.route {
             Route::Tracks(id) => self.tracks.render(area, frame, colors, db, jb),
-            Route::NowPlaying => self.playing.render(area, frame, colors),
+            Route::NowPlaying => self.playing.render(area, frame, colors, db, jb, kitty),
             Route::Settings => self.settings.render(area, frame, colors),
         }
     }
 
-    pub fn input(&mut self, key: Key, terminal: &mut Terminal) -> Action {
+    pub fn input(&mut self, key: Key, db: &mut Database, jb: &mut Jukebox) -> Action {
         match self.route {
-            Route::Tracks(id) => self.tracks.input(key),
-            Route::NowPlaying => self.playing.input(key),
+            Route::Tracks(id) => self.tracks.input(key, db, jb),
+            Route::NowPlaying => self.playing.input(key, db, jb),
             Route::Settings => self.settings.input(key),
         }
     }

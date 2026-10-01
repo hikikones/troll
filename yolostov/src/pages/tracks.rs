@@ -4,7 +4,7 @@ use widgets2::{Block, List, ListIndex, TableLayout};
 
 use crate::{
     app::{Action, Colors},
-    database::{Database, TrackId, TrackSort},
+    database::{AudioRating, Database, TrackId, TrackSort},
     jukebox::Jukebox,
     modals::ModalAction,
 };
@@ -12,6 +12,7 @@ use crate::{
 pub struct TracksPage {
     list: List,
     reverse_sort: bool,
+    keep_on_sort: bool,
 }
 
 impl TracksPage {
@@ -21,6 +22,7 @@ impl TracksPage {
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
             reverse_sort: false,
+            keep_on_sort: false,
         }
     }
 
@@ -120,7 +122,7 @@ impl TracksPage {
 
                 let mut style = match idx {
                     ListIndex::Selected => Style::fg(colors.primary).with_reverse(),
-                    ListIndex::Selection => Style::fg(colors.primary).with_reverse(),
+                    ListIndex::Selection => Style::fg(colors.neutral).with_reverse(),
                     ListIndex::Normal => Style::fg(colors.normal),
                 };
 
@@ -128,6 +130,7 @@ impl TracksPage {
                     style.insert(Attributes::BOLD);
                 }
 
+                // TODO: only show crossed out on text
                 if jb.is_faulty(id) {
                     style.insert(Attributes::CROSSED_OUT);
                 }
@@ -159,9 +162,65 @@ impl TracksPage {
         );
     }
 
-    pub fn input(&mut self, key: Key) -> Action {
-        if self.list.input(key) {
-            return Action::Render;
+    pub fn input(&mut self, key: Key, db: &mut Database, jb: &mut Jukebox) -> Action {
+        match key.code {
+            KeyCode::Enter => {
+                if let Some(id) = db.get_id_from_index(self.list.index()) {
+                    jb.play_id(id, db);
+                }
+            }
+            KeyCode::Char(c) => match c {
+                '0' | '1' | '2' | '3' | '4' | '5' => {
+                    let rating = AudioRating::from_char(c).unwrap();
+                    for i in self.list.selection_inclusive() {
+                        if let Some(id) = db.get_id_from_index(i) {
+                            db.write_rating(id, rating);
+                        }
+                    }
+                }
+                'q' => {
+                    let ids = self
+                        .list
+                        .selection_inclusive()
+                        .filter_map(|i| db.get_id_from_index(i));
+                    jb.extend(ids);
+                }
+                'n' => {
+                    for i in self.list.selection_inclusive().rev() {
+                        if let Some(id) = db.get_id_from_index(i) {
+                            jb.enqueue_next(id);
+                        }
+                    }
+                }
+                's' | 'S' => {
+                    let id = db.get_id_from_index(self.list.index());
+
+                    if c == 's' {
+                        db.sort(db.get_sort().next(), self.reverse_sort);
+                    } else {
+                        self.reverse_sort = !self.reverse_sort;
+                        db.sort(db.get_sort(), self.reverse_sort);
+                    }
+
+                    if self.keep_on_sort
+                        && let Some(id) = id
+                        && let Some(i) = db.get_index_from_id(id)
+                    {
+                        self.list.set_index(i).set_selector(None);
+                    }
+                    return Action::Render;
+                }
+                _ => {
+                    if self.list.input(key) {
+                        return Action::Render;
+                    }
+                }
+            },
+            _ => {
+                if self.list.input(key) {
+                    return Action::Render;
+                }
+            }
         }
 
         Action::None

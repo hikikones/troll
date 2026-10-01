@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Color {
     Black,
     Red,
@@ -16,6 +16,7 @@ pub enum Color {
     BrightMagenta,
     BrightCyan,
     BrightWhite,
+    #[default]
     Default,
     Indexed(u8),
     Rgb(u8, u8, u8),
