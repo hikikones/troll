@@ -1,6 +1,9 @@
 use shared::symbols;
 use terminal::*;
-use widgets2::{Block, Image, ImageOptions, KittyGraphics, List, ListIndex, ScrollMargins};
+use widgets2::{
+    Block, FilterType, Image, Image2, ImageFormat, ImageLoadOptions, ImageOptions, ImageResize,
+    KittyError, KittyGraphics, KittyLoadError, List, ListIndex, ScrollMargins,
+};
 
 use crate::{
     app::{Action, Colors},
@@ -9,26 +12,18 @@ use crate::{
     modals::ModalAction,
 };
 
-type LoadImageHandle = std::thread::JoinHandle<Result<Option<Vec<u8>>, String>>;
+type ImageResult = Result<Option<Image2>, KittyError>;
+type ImageHandle = std::thread::JoinHandle<ImageResult>;
 
-fn load_front_cover(path: &std::path::Path) -> LoadImageHandle {
-    let path = path.to_path_buf();
-    std::thread::spawn(move || {
-        let front_cover = crate::database::AudioFrontCover::read(path)?;
-        match front_cover.bytes() {
-            Some(bytes) => Ok(Some(bytes.to_vec())),
-            None => Ok(None),
-        }
-    })
-}
+const IMAGE_ID: u32 = 1;
 
 pub struct PlayingPage {
     list: List,
     current_id: Option<TrackId>,
     current_qi: Option<usize>,
-    image: Image,
-    image_handle: Option<LoadImageHandle>,
-    image_loaded: bool,
+    image: Option<ImageResult>,
+    image_handle: Option<ImageHandle>,
+    // image_loaded: bool,
 }
 
 impl PlayingPage {
@@ -39,9 +34,9 @@ impl PlayingPage {
                 .with_padding(Margin::horizontal(1)),
             current_id: None,
             current_qi: None,
-            image: Image::new(1),
+            image: None,
             image_handle: None,
-            image_loaded: false,
+            // image_loaded: false,
         }
     }
 
@@ -49,45 +44,28 @@ impl PlayingPage {
 
     pub fn on_exit(&self) {}
 
-    pub fn update(&mut self, db: &Database, jb: &Jukebox, kitty: &mut KittyGraphics) {
-        let current_id = jb.current_track_id();
+    pub fn update(&mut self, db: &Database, jb: &Jukebox, kitty: &mut KittyGraphics) -> bool {
+        // Poll thread for finished image loading.
+        // When finished, take the handle and join thread.
 
-        // Check for new track and start image load if so
-        if self.current_id != current_id {
-            self.current_id = current_id;
-            if let Some(id) = current_id
-                && let Some(path) = db.get(id).map(|t| t.path())
-            {
-                self.image_handle = Some(load_front_cover(path));
-            }
+        let Some(handle) = self.image_handle.as_ref() else {
+            return false;
+        };
+
+        if !handle.is_finished() {
+            return false;
         }
 
-        // Poll thread for finished image loading
-        if let Some(handle) = self.image_handle.as_ref() {
-            if handle.is_finished() {
-                let handle = self.image_handle.take().unwrap();
-                match handle.join().unwrap() {
-                    Ok(Some(bytes)) => {
-                        // TODO: log error
-                        match self.image.load_from_bytes(bytes, kitty) {
-                            Ok(_) => {
-                                self.image_loaded = true;
-                            }
-                            Err(_) => {
-                                self.image_loaded = false;
-                                // TODO: log error
-                            }
-                        }
-                    }
-                    Ok(None) => {
-                        self.image_loaded = false;
-                    }
-                    Err(err) => {
-                        // TODO: log error
-                    }
-                }
-            }
-        }
+        let Some(handle) = self.image_handle.take() else {
+            return false;
+        };
+
+        let Ok(image) = handle.join() else {
+            return false;
+        };
+
+        self.image = Some(image);
+        true
     }
 
     pub fn refresh(&self) {}
@@ -99,12 +77,11 @@ impl PlayingPage {
         colors: &Colors,
         db: &Database,
         jb: &Jukebox,
-        kitty: &KittyGraphics,
     ) {
         self.update_scroll_on_new_track(jb);
 
         let (left, right) = area.split_vertically_with_gap(0);
-        self.render_cover(left, frame, colors, db, jb, kitty);
+        self.render_cover(left, frame, colors, db, jb);
         self.render_queue(right, frame, colors, db, jb);
     }
 
@@ -115,25 +92,62 @@ impl PlayingPage {
         colors: &Colors,
         db: &Database,
         jb: &Jukebox,
-        kitty: &KittyGraphics,
     ) {
-        let Some(rating) = self
-            .current_id
+        let Some(rating) = jb
+            .current_track_id()
             .and_then(|id| db.get(id).map(|t| t.rating()))
         else {
+            self.image = None;
             frame.push_str_fg("No track currently playing", colors.neutral);
-            frame.render(area, TextOptions::span_center());
+            frame.render(
+                area.inner(Margin::proportional(1)),
+                TextOptions::paragraph_center(),
+            );
             return;
         };
 
         let (_, cover_area, stars_area) = area.split_ends(1, 1);
 
-        if self.image_loaded {
-            self.image
-                .render(cover_area, frame, kitty, ImageOptions::fit_and_center());
-        } else {
-            frame.push_str_fg("No image", colors.neutral);
-            frame.render(area, TextOptions::span_center());
+        match self.image.as_ref() {
+            Some(Ok(Some(image))) => {
+                image.render(cover_area, frame, ImageOptions::fit_and_center());
+            }
+            Some(Ok(None)) => {
+                frame.print_fmt(Sgr::Fg(colors.neutral));
+                Block::rectangle().render(cover_area, frame);
+
+                frame.push_str("No Image");
+                frame.render(
+                    cover_area.inner(Margin::proportional(1)),
+                    TextOptions::span_center(),
+                );
+
+                frame.print_fmt(Sgr::reset_fg());
+            }
+            Some(Err(err)) => {
+                frame.print_fmt(Sgr::Fg(colors.red));
+                Block::rectangle().render(cover_area, frame);
+
+                frame.push_fmt(format_args!("ERROR\n{err}"));
+                frame.render(
+                    cover_area.inner(Margin::proportional(1)),
+                    TextOptions::paragraph_center(),
+                );
+
+                frame.print_fmt(Sgr::reset_fg());
+            }
+            None => {
+                frame.print_fmt(Sgr::Fg(colors.neutral));
+                Block::rectangle().render(cover_area, frame);
+
+                frame.push_str("Loading");
+                frame.render(
+                    cover_area.inner(Margin::proportional(1)),
+                    TextOptions::span_center(),
+                );
+
+                frame.print_fmt(Sgr::reset_fg());
+            }
         }
 
         let (filled_stars, empty_stars) = rating.stars_split();
@@ -249,5 +263,24 @@ impl PlayingPage {
         if let Some(idx) = current_queue_index {
             self.list.set_index(idx).set_selector(None);
         }
+    }
+
+    pub fn load_front_cover(&mut self, path: &std::path::Path) {
+        let path = path.to_path_buf();
+        let handle = std::thread::spawn(move || {
+            // TODO: Remove unwrap by reworking the AudioFileReport error.
+            let cover = crate::database::AudioFrontCover::read(path).unwrap();
+            match cover.bytes() {
+                Some(bytes) => Image2::from_bytes(
+                    bytes,
+                    &mut std::io::stdout().lock(),
+                    IMAGE_ID,
+                    ImageLoadOptions::max(Dims::SD),
+                )
+                .map(|img| Some(img)),
+                None => Ok(None),
+            }
+        });
+        self.image_handle = Some(handle);
     }
 }

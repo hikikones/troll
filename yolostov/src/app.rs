@@ -144,7 +144,8 @@ impl App {
             match event {
                 DatabaseEvent::Rating(_) => {}
                 DatabaseEvent::Error(err) => {
-                    // self.pages.logs.enqueue(Log::new(err)); //TODO
+                    // TODO
+                    // self.pages.logs.enqueue(Log::new(err));
                 }
             }
         });
@@ -157,6 +158,7 @@ impl App {
                     match id.and_then(|id| self.database.get(id)) {
                         Some(track) => {
                             //TODO
+                            self.pages.playing.load_front_cover(track.path());
                             // // Start loading front cover
                             // let path = track.path().to_path_buf();
                             // let picker = self.picker.clone();
@@ -178,39 +180,30 @@ impl App {
                     }
                 }
                 JukeboxEvent::Pause => {
+                    // TODO
                     // self.events.set_playback(MediaPlayback::Paused);
                 }
                 JukeboxEvent::Stop => {
+                    // TODO
                     // self.front_cover = FrontCover::default();
                     // self.front_cover_handle = None;
                     // self.events.reset_media();
                 }
                 JukeboxEvent::Error(err) => {
+                    // TODO
                     // self.pages.logs.enqueue(Log::new(err));
                 }
             }
         });
 
-        // Poll thread for finished image loading
-        // if let Some(handle) = self.front_cover_handle.as_ref() {
-        //     if handle.is_finished() {
-        //         render = true;
-        //         let handle = self.front_cover_handle.take().unwrap();
-        //         match handle.join().unwrap() {
-        //             Ok(cover) => {
-        //                 self.front_cover = cover;
-        //             }
-        //             Err(err) => {
-        //                 self.front_cover = FrontCover::empty();
-        //                 self.pages.logs.enqueue(Log::new(err));
-        //             }
-        //         }
-        //     }
-        // }
+        if self
+            .pages
+            .update(&self.database, &self.jukebox, &mut self.kitty)
+        {
+            render = true;
+        }
 
-        self.pages
-            .update(&self.database, &self.jukebox, &mut self.kitty);
-
+        // TODO: rework
         if render { Action::Render } else { Action::None }
     }
 
@@ -252,14 +245,8 @@ impl App {
     }
 
     fn render_page(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        self.pages.render(
-            area,
-            frame,
-            colors,
-            &self.database,
-            &self.jukebox,
-            &self.kitty,
-        );
+        self.pages
+            .render(area, frame, colors, &self.database, &self.jukebox);
     }
 
     fn input_page(&mut self, key: Key) -> Action {

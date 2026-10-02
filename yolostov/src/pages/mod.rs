@@ -17,10 +17,10 @@ use crate::{
 };
 
 pub struct Pages {
-    route: Route,
-    tracks: TracksPage,
-    playing: PlayingPage,
-    settings: SettingsPage,
+    pub route: Route,
+    pub tracks: TracksPage,
+    pub playing: PlayingPage,
+    pub settings: SettingsPage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,12 +90,13 @@ impl Pages {
         }
     }
 
-    pub fn update(&mut self, db: &Database, jb: &Jukebox, kitty: &mut KittyGraphics) {
-        match self.route {
-            Route::Tracks(id) => self.tracks.update(),
-            Route::NowPlaying => self.playing.update(db, jb, kitty),
-            Route::Settings => self.settings.update(),
-        }
+    pub fn update(&mut self, db: &Database, jb: &Jukebox, kitty: &mut KittyGraphics) -> bool {
+        self.playing.update(db, jb, kitty)
+        // match self.route {
+        //     Route::Tracks(id) => self.tracks.update(),
+        //     Route::NowPlaying => self.playing.update(db, jb, kitty),
+        //     Route::Settings => self.settings.update(),
+        // }
     }
 
     pub fn refresh(&self) {
@@ -113,11 +114,10 @@ impl Pages {
         colors: &Colors,
         db: &Database,
         jb: &Jukebox,
-        kitty: &KittyGraphics,
     ) {
         match self.route {
             Route::Tracks(id) => self.tracks.render(area, frame, colors, db, jb),
-            Route::NowPlaying => self.playing.render(area, frame, colors, db, jb, kitty),
+            Route::NowPlaying => self.playing.render(area, frame, colors, db, jb),
             Route::Settings => self.settings.render(area, frame, colors),
         }
     }

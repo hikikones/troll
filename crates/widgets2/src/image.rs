@@ -6,6 +6,8 @@ use std::{
 
 use terminal::*;
 
+pub use image::{ImageFormat, imageops::FilterType};
+
 pub struct Image {
     id: u32,
     dims: Dims,
@@ -290,6 +292,428 @@ impl std::fmt::Display for KittyRender {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Image2 {
+    id: u32,
+    dims: Dims,
+}
+
+impl Image2 {
+    pub fn from_path(
+        &mut self,
+        path: impl AsRef<Path>,
+        writer: &mut impl std::io::Write,
+        image_id: u32,
+        options: ImageLoadOptions,
+    ) -> Result<Self, KittyError> {
+        let bytes = std::fs::read(path).map_err(|err| KittyLoadError::Read(err))?;
+        Self::from_bytes(bytes, writer, image_id, options)
+    }
+
+    pub fn from_bytes(
+        bytes: impl AsRef<[u8]>,
+        writer: &mut impl std::io::Write,
+        image_id: u32,
+        options: ImageLoadOptions,
+    ) -> Result<Self, KittyError> {
+        debug_assert_ne!(image_id, 0);
+
+        let mut frames = Vec::new();
+        load_image(std::io::Cursor::new(bytes), &mut frames, options.format)?;
+
+        if let Some(resize) = options.resize {
+            resize_image(&mut frames, resize);
+        }
+
+        let mut deflate = Deflate::new();
+        let mut base64 = Base64::new();
+        let dims = encode_image(
+            image_id,
+            frames.iter(),
+            &mut deflate,
+            &mut base64,
+            writer,
+            KittyVerbosity::Silent,
+        )?;
+
+        Ok(Self { id: image_id, dims })
+    }
+
+    pub fn render(&self, area: Rect, frame: &mut Framebuffer, options: ImageOptions) {
+        let cell_dims = frame.size().cell_dims();
+
+        // Resize
+        let ResizeResult { size, render } = options
+            .resize
+            .map(|r| r.calc(self.id, self.dims, area.size, cell_dims))
+            .unwrap_or_else(|| ResizeResult {
+                size: cell_dims.size(self.dims),
+                render: KittyRender {
+                    id: self.id,
+                    scale: None,
+                    crop: None,
+                },
+            });
+
+        // Alignment
+        let pos = match (options.horizontal, options.vertical) {
+            (None, None) => area.pos,
+            (Some(horz), None) => {
+                let col = horz.calc(area.pos.col, area.size.cols, size.cols);
+                area.pos.with_col(col)
+            }
+            (None, Some(vert)) => {
+                let row = vert.calc(area.pos.row, area.size.rows, size.rows);
+                area.pos.with_row(row)
+            }
+            (Some(horz), Some(vert)) => Pos {
+                col: horz.calc(area.pos.col, area.size.cols, size.cols),
+                row: vert.calc(area.pos.row, area.size.rows, size.rows),
+            },
+        };
+
+        // Render
+        frame.cursor(pos);
+        frame.print_fmt(render);
+    }
+}
+
+#[derive(Debug)]
+pub struct ImageLoadOptions {
+    pub format: Option<ImageFormat>,
+    pub resize: Option<ImageResize>,
+}
+
+impl ImageLoadOptions {
+    pub const fn new(format: ImageFormat, resize: ImageResize) -> Self {
+        Self {
+            format: Some(format),
+            resize: Some(resize),
+        }
+    }
+
+    pub const fn none() -> Self {
+        Self {
+            format: None,
+            resize: None,
+        }
+    }
+
+    pub const fn format(format: ImageFormat) -> Self {
+        Self {
+            format: Some(format),
+            resize: None,
+        }
+    }
+
+    pub const fn resize(resize: ImageResize) -> Self {
+        Self {
+            format: None,
+            resize: Some(resize),
+        }
+    }
+
+    pub const fn max(max: Dims) -> Self {
+        Self {
+            format: None,
+            resize: Some(ImageResize {
+                max,
+                filter: FilterType::Lanczos3,
+            }),
+        }
+    }
+}
+
+impl Default for ImageLoadOptions {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+#[derive(Debug)]
+pub struct ImageResize {
+    pub max: Dims,
+    pub filter: FilterType,
+}
+
+impl ImageResize {
+    pub const fn new(max: Dims, filter: FilterType) -> Self {
+        Self { max, filter }
+    }
+}
+
+fn load_image<R>(
+    reader: R,
+    frames: &mut Vec<image::Frame>,
+    format: Option<ImageFormat>,
+) -> Result<(), image::error::ImageError>
+where
+    R: BufRead + Seek,
+{
+    use image::{
+        AnimationDecoder, DynamicImage, Frame, ImageReader,
+        codecs::{gif::GifDecoder, png::PngDecoder, webp::WebPDecoder},
+    };
+
+    let (reader, format) = match format {
+        Some(format) => {
+            let mut reader = ImageReader::new(reader);
+            reader.set_format(format);
+            (reader, format)
+        }
+        None => {
+            let reader = ImageReader::new(reader).with_guessed_format()?;
+            match reader.format() {
+                Some(format) => (reader, format),
+                None => {
+                    let image = reader.decode()?.into_rgba8();
+                    frames.push(Frame::new(image));
+                    return Ok(());
+                }
+            }
+        }
+    };
+
+    // Decode images into frames
+    match format {
+        ImageFormat::Png => {
+            let decoder = PngDecoder::new(reader.into_inner())?;
+            if decoder.is_apng()? {
+                for frame in decoder.apng()?.into_frames() {
+                    frames.push(frame?);
+                }
+            } else {
+                let image = DynamicImage::from_decoder(decoder)?.into_rgba8();
+                frames.push(Frame::new(image));
+                return Ok(());
+            }
+        }
+
+        ImageFormat::Gif => {
+            let decoder = GifDecoder::new(reader.into_inner())?;
+            for frame in decoder.into_frames() {
+                frames.push(frame?);
+            }
+        }
+
+        ImageFormat::WebP => {
+            let decoder = WebPDecoder::new(reader.into_inner())?;
+            for frame in decoder.into_frames() {
+                frames.push(frame?);
+            }
+        }
+
+        _ => {
+            let image = reader.decode()?.into_rgba8();
+            frames.push(Frame::new(image));
+            return Ok(());
+        }
+    }
+
+    Ok(())
+}
+
+fn resize_image(frames: &mut Vec<image::Frame>, options: ImageResize) {
+    let (max_width, max_height) = options.max.into_u32();
+    for frame in frames.iter_mut() {
+        let (width, height) = frame.buffer().dimensions();
+
+        if width <= max_width && height <= max_height {
+            continue;
+        }
+
+        let buffer = std::mem::take(frame.buffer_mut());
+        let resized = image::DynamicImage::ImageRgba8(buffer)
+            .resize(max_width, max_height, options.filter)
+            .into_rgba8();
+        *frame.buffer_mut() = resized;
+    }
+}
+
+fn encode_image<'a>(
+    id: u32,
+    frames: impl IntoIterator<Item = &'a image::Frame>,
+    deflate: &mut Deflate,
+    base64: &mut Base64,
+    writer: &mut impl std::io::Write,
+    verbosity: KittyVerbosity,
+) -> Result<Dims, KittyEncodeError> {
+    debug_assert_ne!(id, 0);
+
+    let mut frames = frames.into_iter();
+
+    let Some(frame) = frames.next() else {
+        return Err(KittyEncodeError::Empty);
+    };
+
+    let rgba = frame.buffer();
+    let dims = Dims::from(rgba.dimensions());
+    let compressed = deflate.compress(rgba.as_raw())?;
+    let b64 = base64.encode(compressed);
+
+    // Encode first frame
+    struct StaticRoot {
+        id: u32,
+        dims: Dims,
+        verbosity: KittyVerbosity,
+    }
+
+    struct StaticChunk {
+        id: u32,
+        verbosity: KittyVerbosity,
+    }
+
+    impl std::fmt::Display for StaticRoot {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_fmt(format_args!(
+                "{},{},{},{},{},{}",
+                KittyAction::Transmit,
+                KittyImageFormat::Rgba32(self.dims),
+                KittyTransfer::Direct,
+                KittyId(self.id),
+                KittyCompression::ZlibDeflate,
+                self.verbosity
+            ))
+        }
+    }
+
+    impl std::fmt::Display for StaticChunk {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_fmt(format_args!("{},{}", KittyId(self.id), self.verbosity))
+        }
+    }
+
+    write_chunks(
+        StaticRoot {
+            id,
+            dims,
+            verbosity: KittyVerbosity::Silent,
+        },
+        StaticChunk {
+            id,
+            verbosity: KittyVerbosity::Silent,
+        },
+        b64,
+        writer,
+    )?;
+
+    // If more frames, encode animation
+    let mut animation = false;
+    for frame in frames {
+        animation = true;
+
+        let delay = frame.delay().numer_denom_ms().0 as i32;
+        let rgba = frame.buffer();
+        let dims = Dims::from(rgba.dimensions());
+        let compressed = deflate.compress(rgba.as_raw())?;
+        let b64 = base64.encode(compressed);
+
+        struct AnimatedRoot {
+            id: u32,
+            dims: Dims,
+            delay: i32,
+            verbosity: KittyVerbosity,
+        }
+
+        struct AnimatedChunk {
+            id: u32,
+            verbosity: KittyVerbosity,
+        }
+
+        impl std::fmt::Display for AnimatedRoot {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_fmt(format_args!(
+                    "{},{},{},{},{},{},{}",
+                    KittyAction::AnimationTransmitFrame,
+                    KittyImageFormat::Rgba32(self.dims),
+                    KittyTransfer::Direct,
+                    KittyId(self.id),
+                    KittyAnimationGap(self.delay),
+                    KittyCompression::ZlibDeflate,
+                    self.verbosity
+                ))
+            }
+        }
+
+        impl std::fmt::Display for AnimatedChunk {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_fmt(format_args!(
+                    "{},{},{}",
+                    KittyAction::AnimationTransmitFrame,
+                    KittyId(self.id),
+                    self.verbosity
+                ))
+            }
+        }
+
+        write_chunks(
+            AnimatedRoot {
+                id,
+                dims,
+                delay,
+                verbosity,
+            },
+            AnimatedChunk { id, verbosity },
+            b64,
+            writer,
+        )?;
+    }
+
+    // Set animation controls
+    if animation {
+        write!(
+            writer,
+            "{KITTY_START}{},{},{},{},{}{KITTY_END}",
+            KittyAction::AnimationControl,
+            KittyId(id),
+            KittyAnimationState::RunNormal,
+            KittyAnimationLoop::Forever,
+            verbosity
+        )?;
+    }
+
+    Ok(dims)
+}
+
+fn write_chunks(
+    root_header: impl std::fmt::Display,
+    chunk_header: impl std::fmt::Display,
+    base64: &str,
+    writer: &mut impl std::io::Write,
+) -> std::io::Result<()> {
+    const CHUNK_SIZE: usize = 4096;
+    let b64_len = base64.len();
+
+    if b64_len <= CHUNK_SIZE {
+        return write!(writer, "{KITTY_START}{root_header};{base64}{KITTY_END}");
+    }
+
+    write!(
+        writer,
+        "{KITTY_START}{root_header},m=1;{}{KITTY_END}",
+        &base64[0..CHUNK_SIZE]
+    )?;
+
+    let mut start = CHUNK_SIZE;
+    let mut end = CHUNK_SIZE * 2;
+
+    while end < b64_len {
+        write!(
+            writer,
+            "{KITTY_START}{chunk_header},m=1;{}{KITTY_END}",
+            &base64[start..end]
+        )?;
+        start = end;
+        end += CHUNK_SIZE;
+    }
+
+    write!(
+        writer,
+        "{KITTY_START}{chunk_header},m=0;{}{KITTY_END}",
+        &base64[start..]
+    )
+}
+
 pub struct KittyGraphics {
     frames: Vec<image::Frame>,
     deflate: Deflate,
@@ -337,7 +761,7 @@ impl KittyGraphics {
         R: BufRead + Seek,
     {
         use image::{
-            AnimationDecoder, DynamicImage, Frame, ImageFormat, ImageReader,
+            AnimationDecoder, DynamicImage, Frame, ImageReader,
             codecs::{gif::GifDecoder, png::PngDecoder, webp::WebPDecoder},
         };
 
@@ -855,14 +1279,14 @@ impl Base64 {
 
 #[derive(Debug)]
 pub enum KittyLoadError {
-    Io(std::io::Error),
+    Read(std::io::Error),
     Image(image::error::ImageError),
 }
 
 impl std::fmt::Display for KittyLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Io(err) => err.fmt(f),
+            Self::Read(err) => err.fmt(f),
             Self::Image(err) => err.fmt(f),
         }
     }
@@ -871,19 +1295,21 @@ impl std::fmt::Display for KittyLoadError {
 impl std::error::Error for KittyLoadError {}
 
 impl From<std::io::Error> for KittyLoadError {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
+    fn from(err: std::io::Error) -> Self {
+        Self::Read(err)
     }
 }
 
 impl From<image::error::ImageError> for KittyLoadError {
-    fn from(value: image::error::ImageError) -> Self {
-        Self::Image(value)
+    fn from(err: image::error::ImageError) -> Self {
+        Self::Image(err)
     }
 }
 
 #[derive(Debug)]
 pub enum KittyEncodeError {
+    Empty,
+    Io(std::io::Error),
     Fmt(std::fmt::Error),
     Compress(DeflateError),
 }
@@ -891,6 +1317,8 @@ pub enum KittyEncodeError {
 impl std::fmt::Display for KittyEncodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Empty => f.write_str("no image frames to encode"),
+            Self::Io(err) => err.fmt(f),
             Self::Fmt(err) => err.fmt(f),
             Self::Compress(err) => err.fmt(f),
         }
@@ -899,15 +1327,21 @@ impl std::fmt::Display for KittyEncodeError {
 
 impl std::error::Error for KittyEncodeError {}
 
+impl From<std::io::Error> for KittyEncodeError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
 impl From<std::fmt::Error> for KittyEncodeError {
-    fn from(value: std::fmt::Error) -> Self {
-        Self::Fmt(value)
+    fn from(err: std::fmt::Error) -> Self {
+        Self::Fmt(err)
     }
 }
 
 impl From<DeflateError> for KittyEncodeError {
-    fn from(value: DeflateError) -> Self {
-        Self::Compress(value)
+    fn from(err: DeflateError) -> Self {
+        Self::Compress(err)
     }
 }
 
@@ -929,19 +1363,19 @@ impl std::fmt::Display for KittyError {
 impl std::error::Error for KittyError {}
 
 impl From<image::error::ImageError> for KittyError {
-    fn from(value: image::error::ImageError) -> Self {
-        Self::Load(KittyLoadError::Image(value))
+    fn from(err: image::error::ImageError) -> Self {
+        Self::Load(KittyLoadError::Image(err))
     }
 }
 
 impl From<KittyLoadError> for KittyError {
-    fn from(value: KittyLoadError) -> Self {
-        Self::Load(value)
+    fn from(err: KittyLoadError) -> Self {
+        Self::Load(err)
     }
 }
 
 impl From<KittyEncodeError> for KittyError {
-    fn from(value: KittyEncodeError) -> Self {
-        Self::Encode(value)
+    fn from(err: KittyEncodeError) -> Self {
+        Self::Encode(err)
     }
 }

@@ -164,6 +164,26 @@ impl Dims {
         height: 0,
     };
 
+    pub const SD: Self = Self {
+        width: 720,
+        height: 480,
+    };
+
+    pub const HD: Self = Self {
+        width: 1280,
+        height: 720,
+    };
+
+    pub const FULL_HD: Self = Self {
+        width: 1920,
+        height: 1080,
+    };
+
+    pub const ULTRA_HD: Self = Self {
+        width: 3840,
+        height: 2160,
+    };
+
     pub const fn new(width: u16, height: u16) -> Self {
         Self { width, height }
     }
@@ -176,6 +196,10 @@ impl Dims {
     pub const fn with_height(mut self, height: u16) -> Self {
         self.height = height;
         self
+    }
+
+    pub const fn into_u32(self) -> (u32, u32) {
+        (self.width as u32, self.height as u32)
     }
 
     pub fn resize(self, max: Dims) -> Self {
