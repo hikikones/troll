@@ -2,6 +2,9 @@ use terminal::*;
 use widgets2::{KittyDeleteAll, KittyGraphics};
 
 use crate::{
+    database::{Database, DatabaseEvent},
+    events::{Event, EventHandler},
+    jukebox::{Jukebox, JukeboxEvent},
     modals::{Modal, ModalAction, Modals},
     pages::{Pages, Route},
 };
@@ -9,6 +12,9 @@ use crate::{
 pub struct App {
     pages: Pages,
     modals: Modals,
+    events: EventHandler,
+    database: Database,
+    jukebox: Jukebox,
     kitty: KittyGraphics,
     colors: Colors,
     is_running: bool,
@@ -46,13 +52,14 @@ impl Colors {
 }
 
 impl App {
-    pub fn new() -> Self {
-        let mut kitty = KittyGraphics::new();
-
+    pub fn new(database: Database, jukebox: Jukebox) -> Self {
         Self {
-            pages: Pages::new(Route::Demo, &mut kitty),
+            pages: Pages::new(Route::Tracks(None)),
             modals: Modals::new(),
-            kitty,
+            events: EventHandler::new(),
+            database,
+            jukebox,
+            kitty: KittyGraphics::new(),
             colors: Colors {
                 normal: Color::Default,
                 primary: Color::BrightYellow,
@@ -66,16 +73,20 @@ impl App {
 
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
         // Render default page
-        self.pages.on_enter(self.pages.route, terminal.frame());
+        self.pages.on_enter(terminal.frame(), &self.database);
         self.render(terminal)?;
+
+        // Start reading events and load music
+        self.events.start();
+        self.database.load();
 
         // Run event loop
         while self.is_running {
-            let Some(event) = Terminal::read()? else {
-                continue;
+            let action = match self.events.next()? {
+                Event::Update => self.update(),
+                Event::Render => Action::Render,
+                Event::Terminal(event) => self.handle_event(event, terminal),
             };
-
-            let action = self.handle_event(event, terminal);
             self.apply_action(action, terminal)?;
         }
 
@@ -88,10 +99,27 @@ impl App {
                 KeyCode::Esc => Action::Quit,
                 KeyCode::Tab if self.modals.is_none() => Action::Route(self.pages.next()),
                 KeyCode::BackTab if self.modals.is_none() => Action::Route(self.pages.prev()),
+                KeyCode::Down if key.ctrl() => {
+                    self.jukebox.stop();
+                    Action::None
+                }
+                KeyCode::Up if key.ctrl() => {
+                    self.jukebox.pause_or_play();
+                    Action::None
+                }
+                KeyCode::Right if key.ctrl() => {
+                    self.jukebox.play_next(&self.database);
+                    return Action::None;
+                }
+                KeyCode::Left if key.ctrl() => {
+                    self.jukebox.play_previous(&self.database);
+                    return Action::None;
+                }
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
+                KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
                 _ => match self.modals.current {
                     Some(modal) => self.modal_input(key, modal),
-                    None => self.input_page(key, terminal),
+                    None => self.input_page(key),
                 },
             },
             TerminalEvent::Resize => Action::Render,
@@ -124,6 +152,75 @@ impl App {
         Ok(())
     }
 
+    fn update(&mut self) -> Action {
+        let mut render = false;
+
+        // Update database
+        self.database.update(|event| {
+            render = true;
+            match event {
+                DatabaseEvent::Rating(_) => {}
+                DatabaseEvent::Error(err) => {
+                    // TODO
+                    // self.pages.logs.enqueue(Log::new(err));
+                }
+            }
+        });
+
+        // Update jukebox
+        self.jukebox.update(&self.database, |event| {
+            render = true;
+            match event {
+                JukeboxEvent::Play(id) => {
+                    match id.and_then(|id| self.database.get(id)) {
+                        Some(track) => {
+                            //TODO
+                            self.pages.playing.load_front_cover(track.path());
+                            // // Start loading front cover
+                            // let path = track.path().to_path_buf();
+                            // let picker = self.picker.clone();
+                            // let handle = load_front_cover(path, picker);
+                            // self.front_cover_handle = Some(handle);
+
+                            // // Update metadata and playback status for system media
+                            // self.events.set_media(
+                            //     track.title(),
+                            //     track.artist(),
+                            //     MediaPlayback::Playing,
+                            // );
+                        }
+                        None => {
+                            // Update only playback status for system media
+                            // TODO
+                            // self.events.set_playback(MediaPlayback::Playing);
+                        }
+                    }
+                }
+                JukeboxEvent::Pause => {
+                    // TODO
+                    // self.events.set_playback(MediaPlayback::Paused);
+                }
+                JukeboxEvent::Stop => {
+                    // TODO
+                    // self.front_cover = FrontCover::default();
+                    // self.front_cover_handle = None;
+                    // self.events.reset_media();
+                }
+                JukeboxEvent::Error(err) => {
+                    // TODO
+                    // self.pages.logs.enqueue(Log::new(err));
+                }
+            }
+        });
+
+        if self.pages.update(&self.database, &self.jukebox) {
+            render = true;
+        }
+
+        // TODO: rework
+        if render { Action::Render } else { Action::None }
+    }
+
     fn render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         terminal.render(|frame| {
             let area = frame.area();
@@ -140,7 +237,7 @@ impl App {
 
             self.pages.render_navigation(top, frame, &colors);
 
-            self.render_page(body.inner(Margin::proportional(1)), frame, &colors);
+            self.render_page(body.inner(Margin::all(1)), frame, &colors);
 
             frame.push_fmt(Sgr::Fg(colors.normal));
             frame.push_str("TODO BOTTOM");
@@ -156,17 +253,18 @@ impl App {
     }
 
     fn set_route(&mut self, route: Route, frame: &mut Framebuffer) {
-        self.pages.on_exit(self.pages.route, frame);
-        self.pages.route = route;
-        self.pages.on_enter(route, frame);
+        self.pages.on_exit(frame);
+        self.pages.set_route(route);
+        self.pages.on_enter(frame, &self.database);
     }
 
     fn render_page(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        self.pages.render(area, frame, colors, &self.kitty);
+        self.pages
+            .render(area, frame, colors, &self.database, &self.jukebox);
     }
 
-    fn input_page(&mut self, key: Key, terminal: &mut Terminal) -> Action {
-        self.pages.input(key, terminal)
+    fn input_page(&mut self, key: Key) -> Action {
+        self.pages.input(key, &mut self.database, &mut self.jukebox)
     }
 
     fn set_modal(&mut self, modal: Option<Modal>, frame: &mut Framebuffer) {
@@ -182,11 +280,14 @@ impl App {
                 (Modal::Search, Modal::Search) => {
                     self.modal_exit(current, frame);
                 }
-                (Modal::Custom, _) => {
+                (Modal::Logs, Modal::Logs) => {
+                    self.modal_exit(current, frame);
+                }
+                (_, Modal::Custom) => {}
+                (_, _) => {
                     self.modal_exit(current, frame);
                     self.modal_enter(next, frame);
                 }
-                (_, Modal::Custom) => {}
             },
         }
     }
@@ -199,6 +300,7 @@ impl App {
 
         match modal {
             Modal::Search => self.modals.search.on_enter(),
+            Modal::Logs => self.modals.logs.on_enter(),
             Modal::Custom => {}
         }
     }
@@ -210,6 +312,7 @@ impl App {
 
         match modal {
             Modal::Search => self.modals.search.on_exit(),
+            Modal::Logs => self.modals.logs.on_exit(),
             Modal::Custom => {}
         }
     }
@@ -221,6 +324,9 @@ impl App {
             Modal::Search => {
                 self.modals.search.render(area, frame, colors);
             }
+            Modal::Logs => {
+                self.modals.logs.render(area, frame, colors);
+            }
             Modal::Custom => {
                 self.pages.render_modal(area, frame, colors);
             }
@@ -230,6 +336,7 @@ impl App {
     fn modal_input(&mut self, key: Key, modal: Modal) -> Action {
         let action = match modal {
             Modal::Search => self.modals.search.input(key),
+            Modal::Logs => self.modals.logs.input(key),
             Modal::Custom => self.pages.input_modal(key),
         };
 
@@ -237,7 +344,7 @@ impl App {
             ModalAction::None => Action::None,
             ModalAction::Render => Action::Render,
             ModalAction::Confirm => {
-                self.pages.update();
+                self.pages.refresh();
                 Action::Modal(None)
             }
             ModalAction::Cancel => Action::Modal(None),

@@ -1,12 +1,12 @@
 use crossterm::event::{Event as CrosstermEvent, KeyEvent as CrosstermKeyEvent, KeyModifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Event {
+pub enum TerminalEvent {
     Key(Key),
     Resize,
 }
 
-impl Event {
+impl TerminalEvent {
     pub(crate) fn from(event: CrosstermEvent) -> Option<Self> {
         match event {
             CrosstermEvent::Key(key) if key.kind.is_press() => Some(Self::Key(Key::from(key))),

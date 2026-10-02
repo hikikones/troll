@@ -10,7 +10,9 @@ use crossterm::{
     terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{Color, Cursor, Event, HorizontalAlignment, Pos, Rect, Size, VerticalAlignment};
+use crate::{
+    Color, Cursor, HorizontalAlignment, Pos, Rect, Sgr, Size, TerminalEvent, VerticalAlignment,
+};
 
 pub struct Terminal {
     backend: Stdout,
@@ -32,8 +34,8 @@ impl Terminal {
 
     pub fn enter<T>(
         mut self,
-        f: impl FnOnce(&mut Self) -> std::io::Result<T>,
-    ) -> std::io::Result<T> {
+        f: impl FnOnce(&mut Self) -> Result<T, Box<dyn std::error::Error>>,
+    ) -> Result<T, Box<dyn std::error::Error>> {
         Self::set_panic_hook();
 
         Self::enter_alternate_screen(&mut self.backend)?;
@@ -44,12 +46,12 @@ impl Terminal {
     }
 
     /// Reads a terminal event in a blocking manner.
-    pub fn read() -> std::io::Result<Option<Event>> {
-        crossterm::event::read().map(|ev| Event::from(ev))
+    pub fn read() -> std::io::Result<Option<TerminalEvent>> {
+        crossterm::event::read().map(|ev| TerminalEvent::from(ev))
     }
 
     /// Polls and reads a terminal event in a non-blocking manner.
-    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<Event>> {
+    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TerminalEvent>> {
         match crossterm::event::poll(timeout) {
             Ok(true) => Self::read(),
             Ok(false) => Ok(None),
@@ -162,6 +164,26 @@ impl Dims {
         height: 0,
     };
 
+    pub const SD: Self = Self {
+        width: 720,
+        height: 480,
+    };
+
+    pub const HD: Self = Self {
+        width: 1280,
+        height: 720,
+    };
+
+    pub const FULL_HD: Self = Self {
+        width: 1920,
+        height: 1080,
+    };
+
+    pub const ULTRA_HD: Self = Self {
+        width: 3840,
+        height: 2160,
+    };
+
     pub const fn new(width: u16, height: u16) -> Self {
         Self { width, height }
     }
@@ -174,6 +196,10 @@ impl Dims {
     pub const fn with_height(mut self, height: u16) -> Self {
         self.height = height;
         self
+    }
+
+    pub const fn into_u32(self) -> (u32, u32) {
+        (self.width as u32, self.height as u32)
     }
 
     pub fn resize(self, max: Dims) -> Self {
@@ -504,8 +530,16 @@ impl Framebuffer {
         self.buf.push_str(s);
     }
 
+    pub fn print_str_fg(&mut self, s: &str, fg: Color) {
+        let _ = write!(self.buf, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    }
+
     pub fn print_fmt(&mut self, content: impl Display) {
         let _ = write!(self.buf, "{content}");
+    }
+
+    pub fn print_fmt_fg(&mut self, content: impl Display, fg: Color) {
+        let _ = write!(self.buf, "{}{content}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
     fn flush(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
@@ -552,16 +586,19 @@ impl Framebuffer {
         self.text.push_str(s);
     }
 
+    pub fn push_str_fg(&mut self, s: &str, fg: Color) {
+        let _ = write!(self.text, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    }
+
     pub fn push_fmt(&mut self, content: impl Display) {
         let _ = write!(self.text, "{content}");
     }
 
-    pub fn render(&mut self, area: Rect, opts: TextOptions) {
-        if self.text.is_empty() {
-            self.cursor(area.pos);
-            return;
-        }
+    pub fn push_fmt_fg(&mut self, content: impl Display, fg: Color) {
+        let _ = write!(self.text, "{}{content}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    }
 
+    pub fn render(&mut self, area: Rect, opts: TextOptions) {
         if area.is_empty() {
             self.cursor(area.pos);
             self.text.clear();

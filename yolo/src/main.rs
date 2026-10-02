@@ -1,7 +1,7 @@
 use terminal::Terminal;
 use yolo::app::App;
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let terminal = Terminal::new()?;
     let mut app = App::new();
 

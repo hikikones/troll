@@ -1,0 +1,27 @@
+[package]
+name = "yolostov"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+clap = { workspace = true }
+clap-cargo = { workspace = true }
+edit = { workspace = true }
+fastrand = { workspace = true }
+indexmap = { workspace = true }
+lofty = { workspace = true }
+nucleo-matcher = { workspace = true }
+rodio = { workspace = true }
+serde = { workspace = true }
+serde_repr = { workspace = true }
+shared = { workspace = true }
+terminal = { workspace = true }
+utils = { workspace = true }
+walkdir = { workspace = true }
+widgets2 = { workspace = true }
+
+[features]
+default = []
+opus = ["rodio/symphonia-libopus"]

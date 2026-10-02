@@ -202,9 +202,7 @@ impl DemoPage {
             size: Size { cols: 7, rows: 11 },
         };
         frame.render(text_area.inner(Margin::all(1)), TextOptions::paragraph());
-        Block::new(Shape::Rectangle)
-            .with_color(colors.secondary)
-            .render(text_area, frame);
+        Block::new(Shape::Rectangle, Style::fg(colors.secondary)).render(text_area, frame);
 
         let mut shape_area = Rect {
             pos: Pos::new(10, 10),
@@ -218,16 +216,12 @@ impl DemoPage {
             Shape::Rectangle,
             Shape::Corners,
         ] {
-            Block::new(shape)
-                .with_color(colors.secondary)
-                .render(shape_area, frame);
+            Block::new(shape, Style::fg(colors.secondary)).render(shape_area, frame);
             shape_area.pos.col += shape_area.size.cols + 2;
         }
 
         let horz_area = area.with_col(area.cols() / 4).with_size(area.size / 6);
-        Block::rectangle()
-            .with_color(colors.normal)
-            .render(horz_area, frame);
+        Block::rectangle(colors.normal).render(horz_area, frame);
         for a in horz_area.split_horizontal(
             1,
             [
@@ -236,17 +230,13 @@ impl DemoPage {
                 Constraint::Fixed(3),
             ],
         ) {
-            Block::rectangle()
-                .with_color(colors.primary)
-                .render(a, frame);
+            Block::rectangle(colors.primary).render(a, frame);
         }
 
         let vert_area = horz_area
             .with_row(area.rows() / 2)
             .with_rows(horz_area.rows() * 3);
-        Block::rectangle()
-            .with_color(colors.normal)
-            .render(vert_area, frame);
+        Block::rectangle(colors.normal).render(vert_area, frame);
         for a in vert_area.split_vertical(
             1,
             [
@@ -255,9 +245,7 @@ impl DemoPage {
                 Constraint::Fixed(3),
             ],
         ) {
-            Block::rectangle()
-                .with_color(colors.primary)
-                .render(a, frame);
+            Block::rectangle(colors.primary).render(a, frame);
         }
     }
 
@@ -271,8 +259,8 @@ impl DemoPage {
 
     fn render_modal(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         let area = area.with_size(area.size / 2).center(area);
-        Block::clear().render(area, frame);
-        Block::rectangle().render(area, frame);
+        Block::fill(colors.normal).render(area, frame);
+        Block::rectangle(colors.normal).render(area, frame);
         frame.push_str(" Custom Modal ");
         frame.render(area, TextOptions::span_center_top());
 
@@ -340,8 +328,8 @@ impl ListPage {
         let normal = colors.normal;
         frame.print_fmt(Sgr::Fg(normal));
 
-        Block::rectangle().render(list_area, frame);
-        Block::rectangle().render(table_area, frame);
+        Block::rectangle(Color::Default).render(list_area, frame);
+        Block::rectangle(Color::Default).render(table_area, frame);
 
         frame.push_str(" LIST ");
         frame.render(list_area, TextOptions::span_center_top());
@@ -430,7 +418,7 @@ impl ListPage {
     }
 
     fn input(&mut self, key: Key) -> Action {
-        if self.list.input(key.code, key.modifiers) {
+        if self.list.input(key) {
             return Action::Render;
         }
 
@@ -486,7 +474,7 @@ impl TagsPage {
 
     fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
         let tags_area = area.with_size(area.size / 2).center(area);
-        Block::rectangle().render(tags_area, frame);
+        Block::rectangle(Color::Default).render(tags_area, frame);
         frame.push_str(" TAGS ");
         frame.render(tags_area, TextOptions::span_center_top());
 
@@ -518,12 +506,12 @@ impl TagsPage {
 }
 
 struct ImagePage {
-    image: Image,
+    image: KittyImage,
 }
 
 impl ImagePage {
     fn new(kitty: &mut KittyGraphics) -> Self {
-        let mut image = Image::new(1);
+        let mut image = KittyImage::new(1);
         image.load_from_path("meow.png", kitty).unwrap();
 
         Self { image }
@@ -540,7 +528,7 @@ impl ImagePage {
             area.with_size(area.size / 4).center(area),
             frame,
             &kitty,
-            ImageOptions::fit_and_center(),
+            ImageOptions::fit_center(),
         );
     }
 
@@ -608,16 +596,12 @@ impl EditorPage {
         let prompt_inner = prompt_area.inner(margin);
         let editor_inner = editor_area.inner(margin);
 
-        Block::rectangle()
-            .with_color(prompt_color)
-            .render(prompt_area, frame);
+        Block::rectangle(prompt_color).render(prompt_area, frame);
         frame.push_str(" PROMPT ");
         frame.render(prompt_area, TextOptions::span_center_top());
         self.prompt.render(prompt_inner, frame);
 
-        Block::rectangle()
-            .with_color(editor_color)
-            .render(editor_area, frame);
+        Block::rectangle(editor_color).render(editor_area, frame);
         frame.push_str(" EDITOR ");
         frame.render(editor_area, TextOptions::span_center_top());
         self.editor.render(editor_inner, frame);

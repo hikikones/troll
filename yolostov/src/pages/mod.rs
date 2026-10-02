@@ -1,0 +1,167 @@
+use terminal::*;
+use widgets2::*;
+
+mod playing;
+mod settings;
+mod tracks;
+
+use playing::*;
+use settings::*;
+use tracks::*;
+
+use crate::{
+    app::{Action, Colors},
+    database::{Database, TrackId},
+    jukebox::Jukebox,
+    modals::ModalAction,
+};
+
+pub struct Pages {
+    pub route: Route,
+    pub tracks: TracksPage,
+    pub playing: PlayingPage,
+    pub settings: SettingsPage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Route {
+    Tracks(Option<TrackId>),
+    NowPlaying,
+    Settings,
+}
+
+impl Route {
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Tracks(_) => Self::NowPlaying,
+            Self::NowPlaying => Self::Settings,
+            Self::Settings => Self::Tracks(None),
+        }
+    }
+
+    pub const fn prev(self) -> Self {
+        match self {
+            Self::Tracks(_) => Self::Settings,
+            Self::NowPlaying => Self::Tracks(None),
+            Self::Settings => Self::NowPlaying,
+        }
+    }
+}
+
+impl Pages {
+    pub const fn new(route: Route) -> Self {
+        Self {
+            route,
+            tracks: TracksPage::new(),
+            playing: PlayingPage::new(),
+            settings: SettingsPage::new(),
+        }
+    }
+
+    pub const fn route(&self) -> Route {
+        self.route
+    }
+
+    pub const fn next(&self) -> Route {
+        self.route.next()
+    }
+
+    pub const fn prev(&self) -> Route {
+        self.route.prev()
+    }
+
+    pub const fn set_route(&mut self, route: Route) {
+        self.route = route;
+    }
+
+    pub fn on_enter(&mut self, frame: &mut Framebuffer, db: &Database) {
+        match self.route {
+            Route::Tracks(id) => self.tracks.on_enter(id, db),
+            Route::NowPlaying => self.playing.on_enter(),
+            Route::Settings => self.settings.on_enter(),
+        }
+    }
+
+    pub fn on_exit(&mut self, frame: &mut Framebuffer) {
+        match self.route {
+            Route::Tracks(id) => self.tracks.on_exit(),
+            Route::NowPlaying => self.playing.on_exit(),
+            Route::Settings => self.settings.on_exit(),
+        }
+    }
+
+    pub fn update(&mut self, db: &Database, jb: &Jukebox) -> bool {
+        self.playing.update()
+        // todo?
+        // match self.route {
+        //     Route::Tracks(id) => self.tracks.update(),
+        //     Route::NowPlaying => self.playing.update(db, jb, kitty),
+        //     Route::Settings => self.settings.update(),
+        // }
+    }
+
+    pub fn refresh(&self) {
+        match self.route {
+            Route::Tracks(id) => self.tracks.refresh(),
+            Route::NowPlaying => self.playing.refresh(),
+            Route::Settings => self.settings.refresh(),
+        }
+    }
+
+    pub fn render(
+        &mut self,
+        area: Rect,
+        frame: &mut Framebuffer,
+        colors: &Colors,
+        db: &Database,
+        jb: &Jukebox,
+    ) {
+        match self.route {
+            Route::Tracks(id) => self.tracks.render(area, frame, colors, db, jb),
+            Route::NowPlaying => self.playing.render(area, frame, colors, db, jb),
+            Route::Settings => self.settings.render(area, frame, colors),
+        }
+    }
+
+    pub fn input(&mut self, key: Key, db: &mut Database, jb: &mut Jukebox) -> Action {
+        match self.route {
+            Route::Tracks(id) => self.tracks.input(key, db, jb),
+            Route::NowPlaying => self.playing.input(key, db, jb),
+            Route::Settings => self.settings.input(key),
+        }
+    }
+
+    pub fn render_modal(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        match self.route {
+            Route::Tracks(id) => self.tracks.render_modal(area, frame, colors),
+            Route::NowPlaying => self.playing.render_modal(area, frame, colors),
+            Route::Settings => self.settings.render_modal(area, frame, colors),
+        }
+    }
+
+    pub fn input_modal(&mut self, key: Key) -> ModalAction {
+        match self.route {
+            Route::Tracks(id) => self.tracks.input_modal(key),
+            Route::NowPlaying => self.playing.input_modal(key),
+            Route::Settings => self.settings.input_modal(key),
+        }
+    }
+
+    pub fn render_navigation(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        for (route, name, gap) in [
+            (Route::Tracks(None), "Tracks", 3),
+            (Route::NowPlaying, "Now Playing", 3),
+            (Route::Settings, "Settings", 0),
+        ] {
+            let is_current = std::mem::discriminant(&self.route) == std::mem::discriminant(&route);
+            if is_current {
+                frame.push_fmt(Styled::new(name, Style::fg(colors.primary).with_bold()));
+            } else {
+                frame.push_str_fg(name, colors.normal);
+            }
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        frame.render(area, TextOptions::span_center_top());
+    }
+}
