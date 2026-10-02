@@ -150,6 +150,18 @@ impl Display for Style {
     }
 }
 
+impl From<Color> for Style {
+    fn from(color: Color) -> Self {
+        Self::fg(color)
+    }
+}
+
+impl From<Attributes> for Style {
+    fn from(attr: Attributes) -> Self {
+        Self::attributes(attr)
+    }
+}
+
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Attributes: u16 {

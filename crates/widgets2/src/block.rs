@@ -3,8 +3,10 @@ use terminal::*;
 #[derive(Debug, Clone, Copy)]
 pub struct Block {
     shape: Shape,
-    color: Option<Color>,
+    style: Style,
 }
+
+// TODO: Move fill to Framebuffer?
 
 #[derive(Debug, Clone, Copy)]
 pub enum Shape {
@@ -59,25 +61,16 @@ pub enum Shape {
 }
 
 impl Block {
-    pub const fn new(shape: Shape) -> Self {
-        Self { shape, color: None }
+    pub const fn new(shape: Shape, style: Style) -> Self {
+        Self { shape, style }
     }
 
-    pub const fn rectangle() -> Self {
-        Self::new(Shape::Rectangle)
+    pub fn rectangle(style: impl Into<Style>) -> Self {
+        Self::new(Shape::Rectangle, style.into())
     }
 
-    pub const fn fill(color: Color) -> Self {
-        Self::new(Shape::Fill).with_color(color)
-    }
-
-    pub const fn clear() -> Self {
-        Self::new(Shape::Fill)
-    }
-
-    pub const fn with_color(mut self, color: Color) -> Self {
-        self.color = Some(color);
-        self
+    pub fn fill(style: impl Into<Style>) -> Self {
+        Self::new(Shape::Fill, style.into())
     }
 
     pub fn render(self, area: Rect, frame: &mut Framebuffer) {
@@ -87,26 +80,18 @@ impl Block {
                     return;
                 }
 
-                if let Some(color) = self.color {
-                    frame.print_fmt(Sgr::Fg(color));
-                    draw_line_horizontal(area.pos, area.size.cols, frame);
-                    frame.print_fmt(Sgr::Fg(Color::Default));
-                } else {
-                    draw_line_horizontal(area.pos, area.size.cols, frame);
-                }
+                frame.print_fmt(self.style);
+                draw_line_horizontal(area.pos, area.size.cols, frame);
+                frame.print_fmt(Sgr::Reset);
             }
             Shape::LineVertical => {
                 if area.is_empty() {
                     return;
                 }
 
-                if let Some(color) = self.color {
-                    frame.print_fmt(Sgr::Fg(color));
-                    draw_line_vertical(area.pos, area.size.rows, frame);
-                    frame.print_fmt(Sgr::Fg(Color::Default));
-                } else {
-                    draw_line_vertical(area.pos, area.size.rows, frame);
-                }
+                frame.print_fmt(self.style);
+                draw_line_vertical(area.pos, area.size.rows, frame);
+                frame.print_fmt(Sgr::Reset);
             }
             Shape::Horizontals => {
                 if area.size.cols == 0 {
@@ -116,22 +101,14 @@ impl Block {
                 match area.size.rows {
                     0 => return,
                     1 => {
-                        if let Some(color) = self.color {
-                            frame.print_fmt(Sgr::Fg(color));
-                            draw_line_horizontal(area.pos, area.size.cols, frame);
-                            frame.print_fmt(Sgr::Fg(Color::Default));
-                        } else {
-                            draw_line_horizontal(area.pos, area.size.cols, frame);
-                        }
+                        frame.print_fmt(self.style);
+                        draw_line_horizontal(area.pos, area.size.cols, frame);
+                        frame.print_fmt(Sgr::Reset);
                     }
                     _ => {
-                        if let Some(color) = self.color {
-                            frame.print_fmt(Sgr::Fg(color));
-                            draw_horizontals(area, frame);
-                            frame.print_fmt(Sgr::Fg(Color::Default));
-                        } else {
-                            draw_horizontals(area, frame);
-                        }
+                        frame.print_fmt(self.style);
+                        draw_horizontals(area, frame);
+                        frame.print_fmt(Sgr::Reset);
                     }
                 }
             }
@@ -143,22 +120,14 @@ impl Block {
                 match area.size.cols {
                     0 => return,
                     1 => {
-                        if let Some(color) = self.color {
-                            frame.print_fmt(Sgr::Fg(color));
-                            draw_line_vertical(area.pos, area.size.rows, frame);
-                            frame.print_fmt(Sgr::Fg(Color::Default));
-                        } else {
-                            draw_line_vertical(area.pos, area.size.rows, frame);
-                        }
+                        frame.print_fmt(self.style);
+                        draw_line_vertical(area.pos, area.size.rows, frame);
+                        frame.print_fmt(Sgr::Reset);
                     }
                     _ => {
-                        if let Some(color) = self.color {
-                            frame.print_fmt(Sgr::Fg(color));
-                            draw_verticals(area, frame);
-                            frame.print_fmt(Sgr::Fg(Color::Default));
-                        } else {
-                            draw_verticals(area, frame);
-                        }
+                        frame.print_fmt(self.style);
+                        draw_verticals(area, frame);
+                        frame.print_fmt(Sgr::Reset);
                     }
                 }
             }
@@ -167,33 +136,27 @@ impl Block {
                     return;
                 }
 
-                if let Some(color) = self.color {
-                    frame.print_fmt(Sgr::Fg(color));
-                    draw_rectangle(area, frame);
-                    frame.print_fmt(Sgr::Fg(Color::Default));
-                } else {
-                    draw_rectangle(area, frame);
-                }
+                frame.print_fmt(self.style);
+                draw_rectangle(area, frame);
+                frame.print_fmt(Sgr::Reset);
             }
             Shape::Corners => {
                 if area.size.is_less(2) {
                     return;
                 }
 
-                if let Some(color) = self.color {
-                    frame.print_fmt(Sgr::Fg(color));
-                    draw_corners(area, frame);
-                    frame.print_fmt(Sgr::Fg(Color::Default));
-                } else {
-                    draw_corners(area, frame);
-                }
+                frame.print_fmt(self.style);
+                draw_corners(area, frame);
+                frame.print_fmt(Sgr::Reset);
             }
             Shape::Fill => {
                 if area.is_empty() {
                     return;
                 }
 
-                fill(area, frame, self.color.unwrap_or(Color::Default));
+                frame.print_fmt(self.style);
+                fill(area, frame);
+                frame.print_fmt(Sgr::Reset);
             }
         }
     }
@@ -276,13 +239,9 @@ fn draw_corners(area: Rect, frame: &mut Framebuffer) {
     frame.print_ch('┘');
 }
 
-fn fill(area: Rect, frame: &mut Framebuffer, color: Color) {
-    frame.print_fmt(Sgr::Bg(color));
-
+fn fill(area: Rect, frame: &mut Framebuffer) {
     for i in 0..area.size.rows {
         frame.cursor(area.pos.with_row(area.pos.row + i));
         frame.print_ch_repeat(' ', area.size.cols);
     }
-
-    frame.print_fmt(Sgr::Bg(Color::Default));
 }

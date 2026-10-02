@@ -104,27 +104,23 @@ impl PlayingPage {
                 image_area = image.render(cover_area, frame, ImageOptions::fit_center());
             }
             Some(Ok(None)) => {
+                Block::rectangle(colors.neutral).render(cover_area, frame);
                 frame.print_fmt(Sgr::Fg(colors.neutral));
-                Block::rectangle().render(cover_area, frame);
-
                 frame.push_str("No Image");
                 frame.render(
                     cover_area.inner(Margin::proportional(1)),
                     TextOptions::span_center(),
                 );
-
                 frame.print_fmt(Sgr::reset_fg());
             }
             Some(Err(err)) => {
+                Block::rectangle(colors.red).render(cover_area, frame);
                 frame.print_fmt(Sgr::Fg(colors.red));
-                Block::rectangle().render(cover_area, frame);
-
                 frame.push_fmt(format_args!("ERROR\n{err}"));
                 frame.render(
                     cover_area.inner(Margin::proportional(1)),
                     TextOptions::paragraph_center(),
                 );
-
                 frame.print_fmt(Sgr::reset_fg());
             }
             None => {
@@ -152,9 +148,7 @@ impl PlayingPage {
         db: &Database,
         jb: &Jukebox,
     ) {
-        Block::rectangle()
-            .with_color(colors.secondary)
-            .render(area, frame);
+        Block::rectangle(colors.secondary).render(area, frame);
         frame.push_fmt_fg(
             format_args!(" History ({}) / Queue ({}) ", jb.history(), jb.queue()),
             colors.normal,

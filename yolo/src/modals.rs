@@ -55,8 +55,8 @@ impl SearchModal {
     pub fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         let area = area.with_size(area.size / 2).center(area);
         let bg = frame.palette().background().slight_offset().as_color();
-        Block::fill(bg).render(area, frame);
-        Block::rectangle().render(area, frame);
+        Block::fill(Style::bg(bg)).render(area, frame);
+        Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, frame);
 
         frame.push_str(" Search ");
         frame.render(area, TextOptions::span_center_top());

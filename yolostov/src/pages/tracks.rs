@@ -54,9 +54,7 @@ impl TracksPage {
             return;
         }
 
-        Block::rectangle()
-            .with_color(colors.secondary)
-            .render(area, frame);
+        Block::rectangle(colors.secondary).render(area, frame);
         frame.push_fmt_fg(format_args!(" All Tracks ({}) ", db.len()), colors.normal);
         frame.render(area, TextOptions::span_center_top());
 
