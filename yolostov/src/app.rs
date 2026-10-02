@@ -116,6 +116,7 @@ impl App {
                     return Action::None;
                 }
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
+                KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
                 _ => match self.modals.current {
                     Some(modal) => self.modal_input(key, modal),
                     None => self.input_page(key),
@@ -279,11 +280,14 @@ impl App {
                 (Modal::Search, Modal::Search) => {
                     self.modal_exit(current, frame);
                 }
-                (Modal::Custom, _) => {
+                (Modal::Logs, Modal::Logs) => {
+                    self.modal_exit(current, frame);
+                }
+                (_, Modal::Custom) => {}
+                (_, _) => {
                     self.modal_exit(current, frame);
                     self.modal_enter(next, frame);
                 }
-                (_, Modal::Custom) => {}
             },
         }
     }
@@ -296,6 +300,7 @@ impl App {
 
         match modal {
             Modal::Search => self.modals.search.on_enter(),
+            Modal::Logs => self.modals.logs.on_enter(),
             Modal::Custom => {}
         }
     }
@@ -307,6 +312,7 @@ impl App {
 
         match modal {
             Modal::Search => self.modals.search.on_exit(),
+            Modal::Logs => self.modals.logs.on_exit(),
             Modal::Custom => {}
         }
     }
@@ -318,6 +324,9 @@ impl App {
             Modal::Search => {
                 self.modals.search.render(area, frame, colors);
             }
+            Modal::Logs => {
+                self.modals.logs.render(area, frame, colors);
+            }
             Modal::Custom => {
                 self.pages.render_modal(area, frame, colors);
             }
@@ -327,6 +336,7 @@ impl App {
     fn modal_input(&mut self, key: Key, modal: Modal) -> Action {
         let action = match modal {
             Modal::Search => self.modals.search.input(key),
+            Modal::Logs => self.modals.logs.input(key),
             Modal::Custom => self.pages.input_modal(key),
         };
 
