@@ -52,12 +52,12 @@ impl Colors {
 }
 
 impl App {
-    pub fn new(jukebox: Jukebox) -> Self {
+    pub fn new(database: Database, jukebox: Jukebox) -> Self {
         Self {
             pages: Pages::new(Route::Tracks(None)),
             modals: Modals::new(),
             events: EventHandler::new(),
-            database: Database::new(std::path::PathBuf::from("/home/danny/Downloads/songs2")),
+            database,
             jukebox,
             kitty: KittyGraphics::new(),
             colors: Colors {

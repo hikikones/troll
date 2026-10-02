@@ -5562,6 +5562,8 @@ dependencies = [
 name = "yolostov"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "clap-cargo",
  "edit",
  "fastrand 2.5.0",
  "indexmap",

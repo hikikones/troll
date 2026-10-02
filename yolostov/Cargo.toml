@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+clap = { workspace = true }
+clap-cargo = { workspace = true }
 edit = { workspace = true }
 fastrand = { workspace = true }
 indexmap = { workspace = true }
