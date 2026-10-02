@@ -99,6 +99,22 @@ impl App {
                 KeyCode::Esc => Action::Quit,
                 KeyCode::Tab if self.modals.is_none() => Action::Route(self.pages.next()),
                 KeyCode::BackTab if self.modals.is_none() => Action::Route(self.pages.prev()),
+                KeyCode::Down if key.ctrl() => {
+                    self.jukebox.stop();
+                    Action::None
+                }
+                KeyCode::Up if key.ctrl() => {
+                    self.jukebox.pause_or_play();
+                    Action::None
+                }
+                KeyCode::Right if key.ctrl() => {
+                    self.jukebox.play_next(&self.database);
+                    return Action::None;
+                }
+                KeyCode::Left if key.ctrl() => {
+                    self.jukebox.play_previous(&self.database);
+                    return Action::None;
+                }
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
                 _ => match self.modals.current {
                     Some(modal) => self.modal_input(key, modal),
@@ -196,10 +212,7 @@ impl App {
             }
         });
 
-        if self
-            .pages
-            .update(&self.database, &self.jukebox, &mut self.kitty)
-        {
+        if self.pages.update(&self.database, &self.jukebox) {
             render = true;
         }
 
@@ -223,7 +236,7 @@ impl App {
 
             self.pages.render_navigation(top, frame, &colors);
 
-            self.render_page(body.inner(Margin::proportional(1)), frame, &colors);
+            self.render_page(body.inner(Margin::all(1)), frame, &colors);
 
             frame.push_fmt(Sgr::Fg(colors.normal));
             frame.push_str("TODO BOTTOM");

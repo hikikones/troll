@@ -7,9 +7,10 @@ use widgets2::{
 
 use crate::{
     app::{Action, Colors},
-    database::{Database, TrackId},
+    database::{AudioRating, Database, TrackId},
     jukebox::Jukebox,
     modals::ModalAction,
+    pages::Route,
 };
 
 type ImageResult = Result<Option<Image>, KittyError>;
@@ -42,28 +43,19 @@ impl PlayingPage {
 
     pub fn on_exit(&self) {}
 
-    pub fn update(&mut self, db: &Database, jb: &Jukebox, kitty: &mut KittyGraphics) -> bool {
+    pub fn update(&mut self) -> bool {
         // Poll thread for finished image loading.
         // When finished, take the handle and join thread.
-
-        let Some(handle) = self.image_handle.as_ref() else {
-            return false;
-        };
-
-        if !handle.is_finished() {
-            return false;
+        if let Some(handle) = self.image_handle.as_ref()
+            && handle.is_finished()
+            && let Some(handle) = self.image_handle.take()
+            && let Ok(image) = handle.join()
+        {
+            self.image = Some(image);
+            return true;
         }
 
-        let Some(handle) = self.image_handle.take() else {
-            return false;
-        };
-
-        let Ok(image) = handle.join() else {
-            return false;
-        };
-
-        self.image = Some(image);
-        true
+        false
     }
 
     pub fn refresh(&self) {}
@@ -135,16 +127,11 @@ impl PlayingPage {
                 frame.print_fmt(Sgr::reset_fg());
             }
             None => {
-                frame.print_fmt(Sgr::Fg(colors.neutral));
-                Block::rectangle().render(cover_area, frame);
-
-                frame.push_str("Loading");
+                frame.push_str_fg("Loading", colors.neutral);
                 frame.render(
                     cover_area.inner(Margin::proportional(1)),
                     TextOptions::span_center(),
                 );
-
-                frame.print_fmt(Sgr::reset_fg());
             }
         }
 
@@ -226,17 +213,104 @@ impl PlayingPage {
     }
 
     pub fn input(&mut self, key: Key, db: &mut Database, jb: &mut Jukebox) -> Action {
+        if jb.is_empty() {
+            return Action::None;
+        }
+
         match key.code {
             KeyCode::Enter => {
                 let index = self.list.index();
                 jb.play_index(index, db);
             }
+            KeyCode::Char(c) => match c {
+                '0' | '1' | '2' | '3' | '4' | '5' => {
+                    if let Some(id) = jb.current_track_id() {
+                        let rating = AudioRating::from_char(c).unwrap();
+                        db.write_rating(id, rating);
+                    }
+                }
+                'c' => {
+                    if jb.clear() {
+                        return Action::Render;
+                    }
+                }
+                's' => {
+                    if jb.shuffle() {
+                        return Action::Render;
+                    }
+                }
+                'g' => {
+                    let index = self.list.index();
+                    let id = jb.get(index);
+                    return Action::Route(Route::Tracks(id));
+                }
+                'm' => {
+                    let (start, end) = {
+                        let selection = self.list.selection_inclusive();
+                        (*selection.start(), *selection.end())
+                    };
+
+                    let success = if start == end {
+                        jb.move_down(start)
+                    } else {
+                        jb.move_down_range(start, end)
+                    };
+
+                    if success {
+                        self.current_qi = jb.current_queue_index();
+                        self.list.move_selection_down();
+                        return Action::Render;
+                    }
+                }
+                'M' => {
+                    let (start, end) = {
+                        let selection = self.list.selection_inclusive();
+                        (*selection.start(), *selection.end())
+                    };
+
+                    let success = if start == end {
+                        jb.move_up(start)
+                    } else {
+                        jb.move_up_range(start, end)
+                    };
+
+                    if success {
+                        self.current_qi = jb.current_queue_index();
+                        self.list.move_selection_up();
+                        return Action::Render;
+                    }
+                }
+                'r' => {
+                    let (start, end) = {
+                        let selection = self.list.selection_inclusive();
+                        (*selection.start(), *selection.end())
+                    };
+
+                    let success = if start == end {
+                        jb.remove(start)
+                    } else {
+                        jb.remove_range(start, end)
+                    };
+
+                    if success {
+                        self.current_qi = jb.current_queue_index();
+                        self.list.set_index(start).set_selector(None);
+                        return Action::Render;
+                    }
+                }
+                _ => {
+                    if self.list.input(key) {
+                        return Action::Render;
+                    }
+                }
+            },
             _ => {
                 if self.list.input(key) {
                     return Action::Render;
                 }
             }
         }
+
         Action::None
     }
 

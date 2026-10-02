@@ -90,8 +90,9 @@ impl Pages {
         }
     }
 
-    pub fn update(&mut self, db: &Database, jb: &Jukebox, kitty: &mut KittyGraphics) -> bool {
-        self.playing.update(db, jb, kitty)
+    pub fn update(&mut self, db: &Database, jb: &Jukebox) -> bool {
+        self.playing.update()
+        // todo?
         // match self.route {
         //     Route::Tracks(id) => self.tracks.update(),
         //     Route::NowPlaying => self.playing.update(db, jb, kitty),
