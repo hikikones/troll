@@ -518,12 +518,12 @@ impl TagsPage {
 }
 
 struct ImagePage {
-    image: Image,
+    image: KittyImage,
 }
 
 impl ImagePage {
     fn new(kitty: &mut KittyGraphics) -> Self {
-        let mut image = Image::new(1);
+        let mut image = KittyImage::new(1);
         image.load_from_path("meow.png", kitty).unwrap();
 
         Self { image }

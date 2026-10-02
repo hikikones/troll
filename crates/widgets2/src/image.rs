@@ -8,55 +8,102 @@ use terminal::*;
 
 pub use image::{ImageFormat, imageops::FilterType};
 
+const KITTY_START: &str = "\x1b_G";
+const KITTY_END: &str = "\x1b\\";
+
+pub struct KittyDeleteAll;
+
+impl std::fmt::Display for KittyDeleteAll {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{KITTY_START}{},{}{KITTY_END}",
+            KittyAction::Delete(KittyDelete::AllVisible),
+            KittyVerbosity::Silent,
+        ))
+    }
+}
+
+struct KittyRender {
+    id: u32,
+    scale: Option<KittyScale>,
+    crop: Option<KittyCrop>,
+}
+
+impl std::fmt::Display for KittyRender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{KITTY_START}{},{},{},{},{},{}",
+            KittyAction::Display,
+            KittyId(self.id),
+            KittyPlacement(self.id),
+            KittyLayer::BEHIND_ALL,
+            KittyCursorMovement::NoMovement,
+            KittyVerbosity::Silent,
+        ))?;
+
+        if let Some(scale) = self.scale {
+            f.write_fmt(format_args!(",{}", scale))?;
+        }
+
+        if let Some(crop) = self.crop {
+            f.write_fmt(format_args!(",{}", crop))?;
+        }
+
+        f.write_str(KITTY_END)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct Image {
     id: u32,
     dims: Dims,
-    encoded: String,
-    generation: u32,
 }
 
 impl Image {
-    pub const fn new(id: u32) -> Self {
-        Self {
-            id,
-            dims: Dims::ZERO,
-            encoded: String::new(),
-            generation: 0,
-        }
-    }
-
-    pub const fn dims(&self) -> Dims {
-        self.dims
-    }
-
-    pub fn load_from_path(
+    pub fn from_path(
         &mut self,
         path: impl AsRef<Path>,
-        kitty: &mut KittyGraphics,
-    ) -> Result<(), KittyError> {
-        kitty.load_from_path(path)?;
-        kitty.encode(self)?;
-        Ok(())
+        writer: &mut impl std::io::Write,
+        image_id: u32,
+        options: ImageLoadOptions,
+    ) -> Result<Self, KittyError> {
+        let bytes = std::fs::read(path).map_err(|err| KittyLoadError::Read(err))?;
+        Self::from_bytes(bytes, writer, image_id, options)
     }
 
-    pub fn load_from_bytes(
-        &mut self,
+    pub fn from_bytes(
         bytes: impl AsRef<[u8]>,
-        kitty: &mut KittyGraphics,
-    ) -> Result<(), KittyError> {
-        kitty.load_from_bytes(bytes)?;
-        kitty.encode(self)?;
-        Ok(())
+        writer: &mut impl std::io::Write,
+        image_id: u32,
+        options: ImageLoadOptions,
+    ) -> Result<Self, KittyError> {
+        debug_assert_ne!(image_id, 0);
+
+        let mut frames = Vec::new();
+        load_image(std::io::Cursor::new(bytes), &mut frames, options.format)?;
+
+        if let Some(resize) = options.resize {
+            resize_image(&mut frames, resize);
+        }
+
+        let mut deflate = Deflate::new();
+        let mut base64 = Base64::new();
+        let dims = encode_image(
+            image_id,
+            frames.iter(),
+            &mut deflate,
+            &mut base64,
+            writer,
+            KittyVerbosity::Silent,
+        )?;
+
+        Ok(Self { id: image_id, dims })
     }
 
-    pub fn render(
-        &mut self,
-        area: Rect,
-        frame: &mut Framebuffer,
-        kitty: &KittyGraphics,
-        options: ImageOptions,
-    ) {
+    pub fn render(&self, area: Rect, frame: &mut Framebuffer, options: ImageOptions) {
         let cell_dims = frame.size().cell_dims();
+
+        // Resize
         let ResizeResult { size, render } = options
             .resize
             .map(|r| r.calc(self.id, self.dims, area.size, cell_dims))
@@ -69,15 +116,16 @@ impl Image {
                 },
             });
 
+        // Alignment
         let pos = match (options.horizontal, options.vertical) {
             (None, None) => area.pos,
             (Some(horz), None) => {
-                area.pos
-                    .with_col(horz.calc(area.pos.col, area.size.cols, size.cols))
+                let col = horz.calc(area.pos.col, area.size.cols, size.cols);
+                area.pos.with_col(col)
             }
             (None, Some(vert)) => {
-                area.pos
-                    .with_row(vert.calc(area.pos.row, area.size.rows, size.rows))
+                let row = vert.calc(area.pos.row, area.size.rows, size.rows);
+                area.pos.with_row(row)
             }
             (Some(horz), Some(vert)) => Pos {
                 col: horz.calc(area.pos.col, area.size.cols, size.cols),
@@ -85,13 +133,73 @@ impl Image {
             },
         };
 
-        kitty.render(self, frame, pos, render);
+        // Render
+        frame.cursor(pos);
+        frame.print_fmt(render);
+    }
+}
+
+#[derive(Debug)]
+pub struct ImageLoadOptions {
+    pub format: Option<ImageFormat>,
+    pub resize: Option<ImageResize>,
+}
+
+impl ImageLoadOptions {
+    pub const fn new(format: ImageFormat, resize: ImageResize) -> Self {
+        Self {
+            format: Some(format),
+            resize: Some(resize),
+        }
     }
 
-    fn clear(&mut self) {
-        self.dims = Dims::ZERO;
-        self.encoded.clear();
-        self.generation = 0;
+    pub const fn none() -> Self {
+        Self {
+            format: None,
+            resize: None,
+        }
+    }
+
+    pub const fn format(format: ImageFormat) -> Self {
+        Self {
+            format: Some(format),
+            resize: None,
+        }
+    }
+
+    pub const fn resize(resize: ImageResize) -> Self {
+        Self {
+            format: None,
+            resize: Some(resize),
+        }
+    }
+
+    pub const fn max(max: Dims) -> Self {
+        Self {
+            format: None,
+            resize: Some(ImageResize {
+                max,
+                filter: FilterType::Lanczos3,
+            }),
+        }
+    }
+}
+
+impl Default for ImageLoadOptions {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+#[derive(Debug)]
+pub struct ImageResize {
+    pub max: Dims,
+    pub filter: FilterType,
+}
+
+impl ImageResize {
+    pub const fn new(max: Dims, filter: FilterType) -> Self {
+        Self { max, filter }
     }
 }
 
@@ -245,201 +353,6 @@ impl Default for ImageOptions {
 struct ResizeResult {
     size: Size,
     render: KittyRender,
-}
-
-const KITTY_START: &str = "\x1b_G";
-const KITTY_END: &str = "\x1b\\";
-
-pub struct KittyDeleteAll;
-
-impl std::fmt::Display for KittyDeleteAll {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "{KITTY_START}{},{}{KITTY_END}",
-            KittyAction::Delete(KittyDelete::AllVisible),
-            KittyVerbosity::Silent,
-        ))
-    }
-}
-
-struct KittyRender {
-    id: u32,
-    scale: Option<KittyScale>,
-    crop: Option<KittyCrop>,
-}
-
-impl std::fmt::Display for KittyRender {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "{KITTY_START}{},{},{},{},{},{}",
-            KittyAction::Display,
-            KittyId(self.id),
-            KittyPlacement(self.id),
-            KittyLayer::BEHIND_ALL,
-            KittyCursorMovement::NoMovement,
-            KittyVerbosity::Silent,
-        ))?;
-
-        if let Some(scale) = self.scale {
-            f.write_fmt(format_args!(",{}", scale))?;
-        }
-
-        if let Some(crop) = self.crop {
-            f.write_fmt(format_args!(",{}", crop))?;
-        }
-
-        f.write_str(KITTY_END)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Image2 {
-    id: u32,
-    dims: Dims,
-}
-
-impl Image2 {
-    pub fn from_path(
-        &mut self,
-        path: impl AsRef<Path>,
-        writer: &mut impl std::io::Write,
-        image_id: u32,
-        options: ImageLoadOptions,
-    ) -> Result<Self, KittyError> {
-        let bytes = std::fs::read(path).map_err(|err| KittyLoadError::Read(err))?;
-        Self::from_bytes(bytes, writer, image_id, options)
-    }
-
-    pub fn from_bytes(
-        bytes: impl AsRef<[u8]>,
-        writer: &mut impl std::io::Write,
-        image_id: u32,
-        options: ImageLoadOptions,
-    ) -> Result<Self, KittyError> {
-        debug_assert_ne!(image_id, 0);
-
-        let mut frames = Vec::new();
-        load_image(std::io::Cursor::new(bytes), &mut frames, options.format)?;
-
-        if let Some(resize) = options.resize {
-            resize_image(&mut frames, resize);
-        }
-
-        let mut deflate = Deflate::new();
-        let mut base64 = Base64::new();
-        let dims = encode_image(
-            image_id,
-            frames.iter(),
-            &mut deflate,
-            &mut base64,
-            writer,
-            KittyVerbosity::Silent,
-        )?;
-
-        Ok(Self { id: image_id, dims })
-    }
-
-    pub fn render(&self, area: Rect, frame: &mut Framebuffer, options: ImageOptions) {
-        let cell_dims = frame.size().cell_dims();
-
-        // Resize
-        let ResizeResult { size, render } = options
-            .resize
-            .map(|r| r.calc(self.id, self.dims, area.size, cell_dims))
-            .unwrap_or_else(|| ResizeResult {
-                size: cell_dims.size(self.dims),
-                render: KittyRender {
-                    id: self.id,
-                    scale: None,
-                    crop: None,
-                },
-            });
-
-        // Alignment
-        let pos = match (options.horizontal, options.vertical) {
-            (None, None) => area.pos,
-            (Some(horz), None) => {
-                let col = horz.calc(area.pos.col, area.size.cols, size.cols);
-                area.pos.with_col(col)
-            }
-            (None, Some(vert)) => {
-                let row = vert.calc(area.pos.row, area.size.rows, size.rows);
-                area.pos.with_row(row)
-            }
-            (Some(horz), Some(vert)) => Pos {
-                col: horz.calc(area.pos.col, area.size.cols, size.cols),
-                row: vert.calc(area.pos.row, area.size.rows, size.rows),
-            },
-        };
-
-        // Render
-        frame.cursor(pos);
-        frame.print_fmt(render);
-    }
-}
-
-#[derive(Debug)]
-pub struct ImageLoadOptions {
-    pub format: Option<ImageFormat>,
-    pub resize: Option<ImageResize>,
-}
-
-impl ImageLoadOptions {
-    pub const fn new(format: ImageFormat, resize: ImageResize) -> Self {
-        Self {
-            format: Some(format),
-            resize: Some(resize),
-        }
-    }
-
-    pub const fn none() -> Self {
-        Self {
-            format: None,
-            resize: None,
-        }
-    }
-
-    pub const fn format(format: ImageFormat) -> Self {
-        Self {
-            format: Some(format),
-            resize: None,
-        }
-    }
-
-    pub const fn resize(resize: ImageResize) -> Self {
-        Self {
-            format: None,
-            resize: Some(resize),
-        }
-    }
-
-    pub const fn max(max: Dims) -> Self {
-        Self {
-            format: None,
-            resize: Some(ImageResize {
-                max,
-                filter: FilterType::Lanczos3,
-            }),
-        }
-    }
-}
-
-impl Default for ImageLoadOptions {
-    fn default() -> Self {
-        Self::none()
-    }
-}
-
-#[derive(Debug)]
-pub struct ImageResize {
-    pub max: Dims,
-    pub filter: FilterType,
-}
-
-impl ImageResize {
-    pub const fn new(max: Dims, filter: FilterType) -> Self {
-        Self { max, filter }
-    }
 }
 
 fn load_image<R>(
@@ -714,6 +627,93 @@ fn write_chunks(
     )
 }
 
+pub struct KittyImage {
+    id: u32,
+    dims: Dims,
+    encoded: String,
+    generation: u32,
+}
+
+impl KittyImage {
+    pub const fn new(id: u32) -> Self {
+        Self {
+            id,
+            dims: Dims::ZERO,
+            encoded: String::new(),
+            generation: 0,
+        }
+    }
+
+    pub const fn dims(&self) -> Dims {
+        self.dims
+    }
+
+    pub fn load_from_path(
+        &mut self,
+        path: impl AsRef<Path>,
+        kitty: &mut KittyGraphics,
+    ) -> Result<(), KittyError> {
+        kitty.load_from_path(path)?;
+        kitty.encode(self)?;
+        Ok(())
+    }
+
+    pub fn load_from_bytes(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        kitty: &mut KittyGraphics,
+    ) -> Result<(), KittyError> {
+        kitty.load_from_bytes(bytes)?;
+        kitty.encode(self)?;
+        Ok(())
+    }
+
+    pub fn render(
+        &mut self,
+        area: Rect,
+        frame: &mut Framebuffer,
+        kitty: &KittyGraphics,
+        options: ImageOptions,
+    ) {
+        let cell_dims = frame.size().cell_dims();
+        let ResizeResult { size, render } = options
+            .resize
+            .map(|r| r.calc(self.id, self.dims, area.size, cell_dims))
+            .unwrap_or_else(|| ResizeResult {
+                size: cell_dims.size(self.dims),
+                render: KittyRender {
+                    id: self.id,
+                    scale: None,
+                    crop: None,
+                },
+            });
+
+        let pos = match (options.horizontal, options.vertical) {
+            (None, None) => area.pos,
+            (Some(horz), None) => {
+                area.pos
+                    .with_col(horz.calc(area.pos.col, area.size.cols, size.cols))
+            }
+            (None, Some(vert)) => {
+                area.pos
+                    .with_row(vert.calc(area.pos.row, area.size.rows, size.rows))
+            }
+            (Some(horz), Some(vert)) => Pos {
+                col: horz.calc(area.pos.col, area.size.cols, size.cols),
+                row: vert.calc(area.pos.row, area.size.rows, size.rows),
+            },
+        };
+
+        kitty.render(self, frame, pos, render);
+    }
+
+    fn clear(&mut self) {
+        self.dims = Dims::ZERO;
+        self.encoded.clear();
+        self.generation = 0;
+    }
+}
+
 pub struct KittyGraphics {
     frames: Vec<image::Frame>,
     deflate: Deflate,
@@ -809,7 +809,7 @@ impl KittyGraphics {
         Ok(())
     }
 
-    fn encode(&mut self, image: &mut Image) -> Result<(), KittyEncodeError> {
+    fn encode(&mut self, image: &mut KittyImage) -> Result<(), KittyEncodeError> {
         let id = image.id;
 
         debug_assert_ne!(id, 0);
@@ -949,7 +949,13 @@ impl KittyGraphics {
         Ok(())
     }
 
-    fn render(&self, image: &mut Image, frame: &mut Framebuffer, pos: Pos, kitty: KittyRender) {
+    fn render(
+        &self,
+        image: &mut KittyImage,
+        frame: &mut Framebuffer,
+        pos: Pos,
+        kitty: KittyRender,
+    ) {
         // Retransmit image
         if image.generation != self.generation {
             frame.print_str(&image.encoded);

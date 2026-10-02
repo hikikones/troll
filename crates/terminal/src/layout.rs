@@ -207,6 +207,16 @@ impl Rect {
         self.align_vertical(outer, VerticalAlignment::Center)
     }
 
+    pub const fn split_left(self, left: u16, gap: u16) -> (Self, Self) {
+        (
+            self.with_cols(left),
+            Self {
+                pos: self.pos.with_col(self.col() + left + gap),
+                size: self.size.with_cols(self.cols().saturating_sub(left + gap)),
+            },
+        )
+    }
+
     pub const fn split_horizontally(self) -> (Self, Self) {
         let top_rows = self.size.rows / 2;
         (
@@ -252,6 +262,22 @@ impl Rect {
                     .with_col(self.pos.col + left_cols + 1 + extra_gaps * 2),
                 size: self.size.with_cols(left_cols),
             },
+        )
+    }
+
+    pub const fn split_sides(self, left: u16, right: u16) -> (Self, Self, Self) {
+        (
+            self.inner(Margin::right(self.cols().saturating_sub(left))),
+            self.inner(Margin::sides(left, right)),
+            self.inner(Margin::left(self.cols().saturating_sub(right))),
+        )
+    }
+
+    pub const fn split_ends(self, top: u16, bottom: u16) -> (Self, Self, Self) {
+        (
+            self.inner(Margin::bottom(self.rows().saturating_sub(top))),
+            self.inner(Margin::ends(top, bottom)),
+            self.inner(Margin::top(self.rows().saturating_sub(bottom))),
         )
     }
 
@@ -311,22 +337,6 @@ impl Rect {
         }
 
         rects
-    }
-
-    pub const fn split_sides(self, left: u16, right: u16) -> (Self, Self, Self) {
-        (
-            self.inner(Margin::right(self.cols().saturating_sub(left))),
-            self.inner(Margin::sides(left, right)),
-            self.inner(Margin::left(self.cols().saturating_sub(right))),
-        )
-    }
-
-    pub const fn split_ends(self, top: u16, bottom: u16) -> (Self, Self, Self) {
-        (
-            self.inner(Margin::bottom(self.rows().saturating_sub(top))),
-            self.inner(Margin::ends(top, bottom)),
-            self.inner(Margin::top(self.rows().saturating_sub(bottom))),
-        )
     }
 }
 

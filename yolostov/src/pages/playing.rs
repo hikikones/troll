@@ -1,8 +1,8 @@
 use shared::symbols;
 use terminal::*;
 use widgets2::{
-    Block, FilterType, Image, Image2, ImageFormat, ImageLoadOptions, ImageOptions, ImageResize,
-    KittyError, KittyGraphics, KittyLoadError, List, ListIndex, ScrollMargins,
+    Block, Image, ImageLoadOptions, ImageOptions, KittyError, KittyGraphics, List, ListIndex,
+    ScrollMargins,
 };
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     modals::ModalAction,
 };
 
-type ImageResult = Result<Option<Image2>, KittyError>;
+type ImageResult = Result<Option<Image>, KittyError>;
 type ImageHandle = std::thread::JoinHandle<ImageResult>;
 
 const IMAGE_ID: u32 = 1;
@@ -23,7 +23,6 @@ pub struct PlayingPage {
     current_qi: Option<usize>,
     image: Option<ImageResult>,
     image_handle: Option<ImageHandle>,
-    // image_loaded: bool,
 }
 
 impl PlayingPage {
@@ -36,7 +35,6 @@ impl PlayingPage {
             current_qi: None,
             image: None,
             image_handle: None,
-            // image_loaded: false,
         }
     }
 
@@ -80,7 +78,7 @@ impl PlayingPage {
     ) {
         self.update_scroll_on_new_track(jb);
 
-        let (left, right) = area.split_vertically_with_gap(0);
+        let (left, right) = area.split_left(area.cols() * 40 / 100, 2);
         self.render_cover(left, frame, colors, db, jb);
         self.render_queue(right, frame, colors, db, jb);
     }
@@ -271,7 +269,7 @@ impl PlayingPage {
             // TODO: Remove unwrap by reworking the AudioFileReport error.
             let cover = crate::database::AudioFrontCover::read(path).unwrap();
             match cover.bytes() {
-                Some(bytes) => Image2::from_bytes(
+                Some(bytes) => Image::from_bytes(
                     bytes,
                     &mut std::io::stdout().lock(),
                     IMAGE_ID,
