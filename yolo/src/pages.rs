@@ -540,7 +540,7 @@ impl ImagePage {
             area.with_size(area.size / 4).center(area),
             frame,
             &kitty,
-            ImageOptions::fit_and_center(),
+            ImageOptions::fit_center(),
         );
     }
 

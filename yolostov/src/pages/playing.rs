@@ -96,11 +96,12 @@ impl PlayingPage {
             return;
         };
 
-        let (_, cover_area, stars_area) = area.split_ends(1, 1);
+        let (_, cover_area, mut stars_area) = area.split_ends(1, 1);
+        let mut image_area = stars_area;
 
         match self.image.as_ref() {
             Some(Ok(Some(image))) => {
-                image.render(cover_area, frame, ImageOptions::fit_and_center());
+                image_area = image.render(cover_area, frame, ImageOptions::fit_center());
             }
             Some(Ok(None)) => {
                 frame.print_fmt(Sgr::Fg(colors.neutral));
@@ -134,6 +135,8 @@ impl PlayingPage {
                 );
             }
         }
+
+        stars_area.pos.row = stars_area.row().min(image_area.bottom_out());
 
         let (filled_stars, empty_stars) = rating.stars_split();
         frame.push_str_fg(filled_stars, colors.primary);

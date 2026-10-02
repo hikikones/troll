@@ -100,42 +100,24 @@ impl Image {
         Ok(Self { id: image_id, dims })
     }
 
-    pub fn render(&self, area: Rect, frame: &mut Framebuffer, options: ImageOptions) {
+    pub fn render(&self, area: Rect, frame: &mut Framebuffer, options: ImageOptions) -> Rect {
         let cell_dims = frame.size().cell_dims();
+        let ImageOptions {
+            resize,
+            horizontal,
+            vertical,
+        } = options;
 
         // Resize
-        let ResizeResult { size, render } = options
-            .resize
-            .map(|r| r.calc(self.id, self.dims, area.size, cell_dims))
-            .unwrap_or_else(|| ResizeResult {
-                size: cell_dims.size(self.dims),
-                render: KittyRender {
-                    id: self.id,
-                    scale: None,
-                    crop: None,
-                },
-            });
+        let ResizeResult { size, render } = resize.calc(self.id, self.dims, area.size, cell_dims);
 
         // Alignment
-        let pos = match (options.horizontal, options.vertical) {
-            (None, None) => area.pos,
-            (Some(horz), None) => {
-                let col = horz.calc(area.pos.col, area.size.cols, size.cols);
-                area.pos.with_col(col)
-            }
-            (None, Some(vert)) => {
-                let row = vert.calc(area.pos.row, area.size.rows, size.rows);
-                area.pos.with_row(row)
-            }
-            (Some(horz), Some(vert)) => Pos {
-                col: horz.calc(area.pos.col, area.size.cols, size.cols),
-                row: vert.calc(area.pos.row, area.size.rows, size.rows),
-            },
-        };
+        let area = area.with_size(size).align(area, horizontal, vertical);
 
         // Render
-        frame.cursor(pos);
+        frame.cursor(area.pos);
         frame.print_fmt(render);
+        area
     }
 }
 
@@ -205,6 +187,7 @@ impl ImageResize {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ResizeMode {
+    None,
     Fit,
     Stretch,
     FitWidthCropHeight { rows_outside_top: u16 },
@@ -219,6 +202,14 @@ impl ResizeMode {
         cell_dims: CellDims,
     ) -> ResizeResult {
         match self {
+            ResizeMode::None => ResizeResult {
+                size: cell_dims.size(image_dims),
+                render: KittyRender {
+                    id: image_id,
+                    scale: None,
+                    crop: None,
+                },
+            },
             ResizeMode::Fit => {
                 let max_dims = cell_dims.dims(image_size);
                 let resized_dims = image_dims.resize(max_dims);
@@ -306,47 +297,47 @@ impl Default for ResizeMode {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ImageOptions {
-    pub resize: Option<ResizeMode>,
-    pub horizontal: Option<HorizontalAlignment>,
-    pub vertical: Option<VerticalAlignment>,
+    pub resize: ResizeMode,
+    pub horizontal: HorizontalAlignment,
+    pub vertical: VerticalAlignment,
 }
 
 impl ImageOptions {
     pub const fn new() -> Self {
         Self {
-            resize: None,
-            horizontal: None,
-            vertical: None,
+            resize: ResizeMode::Fit,
+            horizontal: HorizontalAlignment::Left,
+            vertical: VerticalAlignment::Top,
         }
     }
 
-    pub const fn fit_and_center() -> Self {
+    pub const fn fit_center() -> Self {
         Self {
-            resize: Some(ResizeMode::Fit),
-            horizontal: Some(HorizontalAlignment::Center),
-            vertical: Some(VerticalAlignment::Center),
+            resize: ResizeMode::Fit,
+            horizontal: HorizontalAlignment::Center,
+            vertical: VerticalAlignment::Center,
         }
     }
 
     pub const fn with_resize(mut self, resize: ResizeMode) -> Self {
-        self.resize = Some(resize);
+        self.resize = resize;
         self
     }
 
     pub const fn with_horizontal(mut self, horizontal: HorizontalAlignment) -> Self {
-        self.horizontal = Some(horizontal);
+        self.horizontal = horizontal;
         self
     }
 
     pub const fn with_vertical(mut self, vertical: VerticalAlignment) -> Self {
-        self.vertical = Some(vertical);
+        self.vertical = vertical;
         self
     }
 }
 
 impl Default for ImageOptions {
     fn default() -> Self {
-        Self::fit_and_center()
+        Self::fit_center()
     }
 }
 
@@ -676,34 +667,14 @@ impl KittyImage {
         options: ImageOptions,
     ) {
         let cell_dims = frame.size().cell_dims();
-        let ResizeResult { size, render } = options
-            .resize
-            .map(|r| r.calc(self.id, self.dims, area.size, cell_dims))
-            .unwrap_or_else(|| ResizeResult {
-                size: cell_dims.size(self.dims),
-                render: KittyRender {
-                    id: self.id,
-                    scale: None,
-                    crop: None,
-                },
-            });
+        let ImageOptions {
+            resize,
+            horizontal,
+            vertical,
+        } = options;
 
-        let pos = match (options.horizontal, options.vertical) {
-            (None, None) => area.pos,
-            (Some(horz), None) => {
-                area.pos
-                    .with_col(horz.calc(area.pos.col, area.size.cols, size.cols))
-            }
-            (None, Some(vert)) => {
-                area.pos
-                    .with_row(vert.calc(area.pos.row, area.size.rows, size.rows))
-            }
-            (Some(horz), Some(vert)) => Pos {
-                col: horz.calc(area.pos.col, area.size.cols, size.cols),
-                row: vert.calc(area.pos.row, area.size.rows, size.rows),
-            },
-        };
-
+        let ResizeResult { size, render } = resize.calc(self.id, self.dims, area.size, cell_dims);
+        let pos = area.with_size(size).align(area, horizontal, vertical).pos;
         kitty.render(self, frame, pos, render);
     }
 
