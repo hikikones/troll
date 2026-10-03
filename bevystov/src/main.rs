@@ -1,10 +1,11 @@
-use bevystov::app::{App, Framebuffer, Terminal};
+use bevystov::app::{App, Framebuffer};
+use terminal::bevy::Terminal;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut output = Terminal::new();
-    let buffer = Framebuffer::new(&mut output)?;
+    let mut stdout = std::io::stdout();
+    let buffer = Framebuffer::new(&mut stdout)?;
 
-    let mut app = App::new(output, buffer);
+    let mut app = App::new(stdout, buffer);
 
-    terminal::bevy::Terminal::enter(|| app.run())
+    Terminal::enter(|| app.run())
 }

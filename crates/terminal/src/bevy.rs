@@ -40,10 +40,7 @@ impl Terminal {
         }
     }
 
-    pub fn render(
-        frame: &mut Framebuffer,
-        writer: &mut impl std::io::Write,
-    ) -> std::io::Result<()> {
+    pub fn flush(frame: &mut Framebuffer, writer: &mut impl std::io::Write) -> std::io::Result<()> {
         frame.size = TerminalSize::query()?;
         frame.flush(writer)
     }
