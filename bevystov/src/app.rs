@@ -12,7 +12,7 @@ use bevy_state::{
     condition::in_state,
     state::{FreelyMutableState, NextState, State, StateTransition, StateTransitionEvent, States},
 };
-use terminal::{Framebuffer, Key, KeyCode, KeyModifiers, Terminal, TerminalEvent};
+use terminal::*;
 
 pub struct App {
     world: World,
@@ -29,7 +29,9 @@ impl App {
         };
 
         app.insert_resource(Frame::default())
-            .insert_resource(Input::default());
+            .insert_resource(Input::default())
+            .insert_resource(PageArea::default())
+            .insert_resource(ModalArea::default());
 
         app.add_state(AppState::default());
 
@@ -37,6 +39,7 @@ impl App {
             input_menu.run_if(in_state(AppState::Menu)),
             input_game.run_if(in_state(AppState::Game)),
         ))
+        .add_render(RenderSet::App, render_app)
         .add_render(
             RenderSet::Page,
             (
@@ -155,13 +158,19 @@ impl App {
     }
 
     fn run_render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
-        self.schedules.render.run(&mut self.world);
-
-        let mut frame = self.world.resource_mut::<Frame>();
         terminal.render(|buffer| {
+            let mut frame = self.world.resource_mut::<Frame>();
+            frame.set_size(buffer.size().clone());
+
+            self.schedules.render.run(&mut self.world);
+
+            let mut frame = self.world.resource_mut::<Frame>();
             std::mem::swap(&mut frame.0, buffer);
+
             Ok(())
         })?;
+
+        let mut frame = self.world.resource_mut::<Frame>();
         std::mem::swap(&mut frame.0, terminal.frame());
 
         Ok(())
@@ -231,7 +240,7 @@ impl Schedules {
     }
 }
 
-#[derive(Default, Resource, Deref, DerefMut)]
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct Frame(Framebuffer);
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
@@ -253,11 +262,29 @@ impl Default for Input {
     }
 }
 
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct PageArea(Rect);
+
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct ModalArea(Rect);
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, States)]
 pub enum AppState {
     #[default]
     Menu,
     Game,
+}
+
+fn render_app(
+    mut frame: ResMut<Frame>,
+    mut page_area: ResMut<PageArea>,
+    mut modal_area: ResMut<ModalArea>,
+) {
+    let area = frame.area();
+    frame.push_fmt(format_args!("{area:?}"));
+    frame.render(area, TextOptions::paragraph_center());
+
+    // TODO
 }
 
 fn input_menu(input: Res<Input>, mut next_state: ResMut<NextState<AppState>>) {
@@ -270,7 +297,7 @@ fn input_menu(input: Res<Input>, mut next_state: ResMut<NextState<AppState>>) {
 }
 
 fn render_menu(mut frame: ResMut<Frame>) {
-    frame.print_str("menu");
+    // frame.print_str("menu");
 }
 
 fn input_game(input: Res<Input>, mut next_state: ResMut<NextState<AppState>>) {
@@ -283,5 +310,5 @@ fn input_game(input: Res<Input>, mut next_state: ResMut<NextState<AppState>>) {
 }
 
 fn render_game(mut frame: ResMut<Frame>) {
-    frame.print_str("game");
+    // frame.print_str("game");
 }

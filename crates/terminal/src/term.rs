@@ -102,7 +102,7 @@ impl Terminal {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct TerminalSize {
     cols: u16,
     rows: u16,
@@ -412,7 +412,7 @@ impl Rgb {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TerminalPalette {
     fg: Rgb,
     bg: Rgb,
@@ -499,6 +499,10 @@ impl Framebuffer {
 
     pub const fn size(&self) -> &TerminalSize {
         &self.size
+    }
+
+    pub const fn set_size(&mut self, size: TerminalSize) {
+        self.size = size;
     }
 
     pub const fn palette(&self) -> &TerminalPalette {
