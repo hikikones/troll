@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     message::Messages,
@@ -10,33 +12,23 @@ use bevy_state::{
     condition::in_state,
     state::{FreelyMutableState, NextState, State, StateTransition, StateTransitionEvent, States},
 };
-use terminal::{Key, KeyCode, KeyModifiers, TerminalEvent, bevy::Terminal};
-
-use std::{
-    io::Stdout,
-    time::{Duration, Instant},
-};
+use terminal::{Framebuffer, Key, KeyCode, KeyModifiers, Terminal, TerminalEvent};
 
 pub struct App {
-    stdout: Stdout,
     world: World,
     schedules: Schedules,
 }
 
 impl App {
-    pub fn new(stdout: Stdout, framebuffer: Framebuffer) -> Self {
+    pub fn new() -> Self {
         let mut app = {
             let mut world = World::new();
             let schedules = Schedules::new();
             bevy_state::state::setup_state_transitions_in_world(&mut world);
-            Self {
-                stdout,
-                world,
-                schedules,
-            }
+            Self { world, schedules }
         };
 
-        app.insert_resource(framebuffer)
+        app.insert_resource(Frame::default())
             .insert_resource(Input::default());
 
         app.add_state(AppState::default());
@@ -56,6 +48,47 @@ impl App {
         // TODO: plugins
 
         app
+    }
+
+    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
+        self.init(terminal)?;
+
+        // Event loop
+        let mut update = Timer::new(8);
+        let mut render = Timer::new(1);
+
+        loop {
+            // Update at a fixed rate
+            if update.tick() {
+                self.run_update();
+            }
+
+            // Render at a fixed rate
+            if render.tick() {
+                self.run_render(terminal)?;
+            }
+
+            // Poll for events in a non-blocking manner
+            if let Some(event) = Terminal::poll(update.timeout).unwrap() {
+                match event {
+                    TerminalEvent::Key(key) => {
+                        if let KeyCode::Esc = key.code {
+                            break;
+                        }
+
+                        self.insert_resource(Input(key));
+                        self.run_input(terminal)?;
+                    }
+                    TerminalEvent::Resize => {
+                        self.run_render(terminal)?;
+                    }
+                }
+            };
+
+            self.world.clear_trackers();
+        }
+
+        Ok(())
     }
 
     pub fn insert_resource(&mut self, resource: impl Resource) -> &mut Self {
@@ -84,49 +117,6 @@ impl App {
         self
     }
 
-    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // First run
-        self.run_state_transitions();
-        self.run_render()?;
-
-        // Event loop
-        let mut update = Timer::new(8);
-        let mut render = Timer::new(1);
-
-        loop {
-            // Update at a fixed rate
-            if update.tick() {
-                self.run_update();
-            }
-
-            // Render at a fixed rate
-            if render.tick() {
-                self.run_render()?;
-            }
-
-            // Poll for events in a non-blocking manner
-            if let Some(event) = Terminal::poll(update.timeout).unwrap() {
-                match event {
-                    TerminalEvent::Key(key) => {
-                        if let KeyCode::Esc = key.code {
-                            break;
-                        }
-
-                        self.insert_resource(Input(key));
-                        self.run_input()?;
-                    }
-                    TerminalEvent::Resize => {
-                        self.run_render()?;
-                    }
-                }
-            };
-
-            self.world.clear_trackers();
-        }
-
-        Ok(())
-    }
-
     pub fn add_input<M>(
         &mut self,
         systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
@@ -152,30 +142,45 @@ impl App {
         self
     }
 
-    fn run_input(&mut self) -> std::io::Result<()> {
+    fn run_input(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.schedules.input.run(&mut self.world);
         self.run_state_transitions();
 
         // TODO: only render if input produces a render event
-        self.run_render()
+        self.run_render(terminal)
     }
 
     fn run_update(&mut self) {
         self.schedules.update.run(&mut self.world);
     }
 
-    fn run_render(&mut self) -> std::io::Result<()> {
+    fn run_render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.schedules.render.run(&mut self.world);
 
-        let mut frame = self.world.remove_resource::<Framebuffer>().unwrap();
-        Terminal::flush(&mut frame, &mut self.stdout)?;
-        self.insert_resource(frame);
+        let mut frame = self.world.resource_mut::<Frame>();
+        terminal.render(|buffer| {
+            std::mem::swap(&mut frame.0, buffer);
+            Ok(())
+        })?;
+        std::mem::swap(&mut frame.0, terminal.frame());
 
         Ok(())
     }
 
     fn run_state_transitions(&mut self) {
         self.world.run_schedule(StateTransition);
+    }
+
+    fn init(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        // Swap frames initially as terminal provides the proper one.
+        // The frame inside bevy app is using dummy default values.
+        // We will do double swap for every render.
+        let mut frame = self.world.resource_mut::<Frame>();
+        std::mem::swap(&mut frame.0, terminal.frame());
+
+        // First run
+        self.run_state_transitions();
+        self.run_render(terminal)
     }
 }
 
@@ -226,15 +231,8 @@ impl Schedules {
     }
 }
 
-#[derive(Resource, Deref, DerefMut)]
-pub struct Framebuffer(terminal::bevy::Framebuffer);
-
-impl Framebuffer {
-    pub fn new(writer: &mut impl std::io::Write) -> std::io::Result<Self> {
-        let buf = terminal::bevy::Framebuffer::query(writer, &mut std::io::stdin())?;
-        Ok(Self(buf))
-    }
-}
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct Frame(Framebuffer);
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub enum RenderSet {
@@ -271,7 +269,7 @@ fn input_menu(input: Res<Input>, mut next_state: ResMut<NextState<AppState>>) {
     }
 }
 
-fn render_menu(mut frame: ResMut<Framebuffer>) {
+fn render_menu(mut frame: ResMut<Frame>) {
     frame.print_str("menu");
 }
 
@@ -284,6 +282,6 @@ fn input_game(input: Res<Input>, mut next_state: ResMut<NextState<AppState>>) {
     }
 }
 
-fn render_game(mut frame: ResMut<Framebuffer>) {
+fn render_game(mut frame: ResMut<Frame>) {
     frame.print_str("game");
 }
