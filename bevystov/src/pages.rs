@@ -4,7 +4,10 @@ use bevy_ecs::{
     schedule::IntoScheduleConfigs,
     system::{Res, ResMut},
 };
-use bevy_state::{condition::in_state, state::States};
+use bevy_state::{
+    condition::in_state,
+    state::{NextState, States},
+};
 use terminal::*;
 use widgets2::{Block, List, ListIndex};
 
@@ -14,8 +17,10 @@ pub struct PagesPlugin;
 
 impl PagesPlugin {
     pub fn build(app: &mut App) {
-        app.insert_resource(TracksList::default())
+        app.insert_resource(TracksParam::default())
+            .insert_resource(TracksList::default())
             .add_state(Route::Tracks)
+            .add_enter(Route::Tracks, enter_tracks)
             .add_render(
                 RenderSet::Page,
                 (
@@ -57,6 +62,9 @@ impl Route {
     }
 }
 
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
+pub struct TracksParam(Option<usize>);
+
 #[derive(Debug, Resource, Deref, DerefMut)]
 struct TracksList(List);
 
@@ -67,6 +75,12 @@ impl Default for TracksList {
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
         )
+    }
+}
+
+fn enter_tracks(mut params: ResMut<TracksParam>, mut list: ResMut<TracksList>) {
+    if let Some(i) = params.take() {
+        list.set_index(i);
     }
 }
 
@@ -118,10 +132,12 @@ fn render_tracks(
     });
 }
 
-fn input_tracks(key: Res<Input>) {
+fn input_tracks(key: Res<Input>, mut list: ResMut<TracksList>) {
     match key.code {
         _ => {
-            // TODO
+            if list.input(**key) {
+                // TODO: send render event
+            }
         }
     }
 }
@@ -134,8 +150,16 @@ fn render_playing(area: Res<PageArea>, mut frame: ResMut<Frame>, colors: Res<Col
     frame.render(area, TextOptions::span_center());
 }
 
-fn input_playing(key: Res<Input>) {
+fn input_playing(
+    key: Res<Input>,
+    mut params: ResMut<TracksParam>,
+    mut next_route: ResMut<NextState<Route>>,
+) {
     match key.code {
+        KeyCode::Char('2') => {
+            **params = Some(2);
+            next_route.set(Route::Tracks);
+        }
         _ => {
             // TODO
         }
