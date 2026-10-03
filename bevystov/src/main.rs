@@ -15,7 +15,7 @@ use terminal::{Key, KeyCode, KeyModifiers, TerminalEvent, bevy::Terminal};
 
 use std::time::{Duration, Instant};
 
-#[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(States, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 enum AppState {
     #[default]
     Menu,
@@ -251,54 +251,88 @@ fn add_state<S: FreelyMutableState + Default>(world: &mut World) {
     });
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut output = Output::new();
-    let buffer = Framebuffer::new(&mut output.0)?;
+struct MyApp {
+    world: World,
+    schedules: Schedules,
+}
 
-    Terminal::enter(|| {
-        // Setup ECS
-        let mut world = World::new();
-        let mut schedules = Schedules::new();
-        bevy_state::state::setup_state_transitions_in_world(&mut world);
+impl MyApp {
+    pub fn new(terminal: Output, framebuffer: Framebuffer) -> Self {
+        let mut app = {
+            let mut world = World::new();
+            let schedules = Schedules::new();
+            bevy_state::state::setup_state_transitions_in_world(&mut world);
+            Self { world, schedules }
+        };
 
-        world.insert_resource(output);
-        world.insert_resource(buffer);
-        world.insert_resource(Input::default());
+        app.insert_resource(terminal)
+            .insert_resource(framebuffer)
+            .insert_resource(Input::default());
 
-        add_state::<AppState>(&mut world);
+        app.add_state(AppState::default());
 
-        schedules
-            .add_input((
-                input_menu.run_if(in_state(AppState::Menu)),
-                input_game.run_if(in_state(AppState::Game)),
-            ))
-            .add_render(
-                RenderSet::Build,
-                (
-                    render_menu.run_if(in_state(AppState::Menu)),
-                    render_game.run_if(in_state(AppState::Game)),
-                ),
-            )
-            .add_render(RenderSet::Flush, flush);
+        app.add_input((
+            input_menu.run_if(in_state(AppState::Menu)),
+            input_game.run_if(in_state(AppState::Game)),
+        ))
+        .add_render(
+            RenderSet::Build,
+            (
+                render_menu.run_if(in_state(AppState::Menu)),
+                render_game.run_if(in_state(AppState::Game)),
+            ),
+        )
+        .add_render(RenderSet::Flush, flush);
 
-        // First render
-        world.run_schedule(StateTransition);
-        schedules.run_render(&mut world);
+        // TODO: plugins
 
-        // Setup timers
+        app
+    }
+
+    pub fn insert_resource(&mut self, resource: impl Resource) -> &mut Self {
+        self.world.insert_resource(resource);
+        self
+    }
+
+    pub fn add_state<S: FreelyMutableState + Copy>(&mut self, state: S) -> &mut Self {
+        self.insert_resource(State::new(state))
+            .insert_resource(NextState::<S>::default())
+            .insert_resource(Messages::<StateTransitionEvent<S>>::default());
+
+        S::register_state(
+            self.world
+                .resource_mut::<bevy_ecs::schedule::Schedules>()
+                .get_mut(StateTransition)
+                .unwrap(),
+        );
+
+        self.world.write_message(StateTransitionEvent {
+            exited: None,
+            entered: Some(state),
+            allow_same_state_transitions: false,
+        });
+
+        self
+    }
+
+    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // First run
+        self.run_state_transitions();
+        self.run_render();
+
+        // Event loop
         let mut update = Timer::new(8);
         let mut render = Timer::new(1);
 
-        // Event loop
         loop {
             // Update at a fixed rate
             if update.tick() {
-                schedules.run_update(&mut world);
+                self.run_update();
             }
 
             // Render at a fixed rate
             if render.tick() {
-                schedules.run_render(&mut world);
+                self.run_render();
             }
 
             // Poll for events in a non-blocking manner
@@ -309,22 +343,144 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             break;
                         }
 
-                        world.insert_resource(Input(key));
-                        schedules.run_input(&mut world);
-
-                        // TODO: Check for app event produced by input for explicit render
-                        schedules.run_render(&mut world);
+                        self.insert_resource(Input(key));
+                        self.run_input();
                     }
                     TerminalEvent::Resize => {
-                        schedules.run_render(&mut world);
+                        self.run_render();
                     }
                 }
             };
 
-            // world.clear_trackers();
+            self.world.clear_trackers();
         }
 
         Ok(())
+    }
+
+    pub fn add_input<M>(
+        &mut self,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.schedules.input.add_systems(systems);
+        self
+    }
+
+    pub fn add_update<M>(
+        &mut self,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.schedules.update.add_systems(systems);
+        self
+    }
+
+    pub fn add_render<M>(
+        &mut self,
+        set: RenderSet,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.schedules.render.add_systems(systems.in_set(set));
+        self
+    }
+
+    fn run_input(&mut self) {
+        self.schedules.input.run(&mut self.world);
+        self.run_state_transitions();
+
+        // TODO: only render if input produces a render event
+        self.run_render();
+    }
+
+    fn run_update(&mut self) {
+        self.schedules.update.run(&mut self.world);
+    }
+
+    fn run_render(&mut self) {
+        self.schedules.render.run(&mut self.world);
+    }
+
+    fn run_state_transitions(&mut self) {
+        self.world.run_schedule(StateTransition);
+    }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut output = Output::new();
+    let buffer = Framebuffer::new(&mut output.0)?;
+
+    let mut app = MyApp::new(output, buffer);
+
+    Terminal::enter(|| {
+        app.run()
+        // Setup ECS
+        // let mut world = World::new();
+        // let mut schedules = Schedules::new();
+        // bevy_state::state::setup_state_transitions_in_world(&mut world);
+
+        // world.insert_resource(output);
+        // world.insert_resource(buffer);
+        // world.insert_resource(Input::default());
+
+        // add_state::<AppState>(&mut world);
+
+        // schedules
+        //     .add_input((
+        //         input_menu.run_if(in_state(AppState::Menu)),
+        //         input_game.run_if(in_state(AppState::Game)),
+        //     ))
+        //     .add_render(
+        //         RenderSet::Build,
+        //         (
+        //             render_menu.run_if(in_state(AppState::Menu)),
+        //             render_game.run_if(in_state(AppState::Game)),
+        //         ),
+        //     )
+        //     .add_render(RenderSet::Flush, flush);
+
+        // // First render
+        // world.run_schedule(StateTransition);
+        // schedules.run_render(&mut world);
+
+        // // Setup timers
+        // let mut update = Timer::new(8);
+        // let mut render = Timer::new(1);
+
+        // // Event loop
+        // loop {
+        //     // Update at a fixed rate
+        //     if update.tick() {
+        //         schedules.run_update(&mut world);
+        //     }
+
+        //     // Render at a fixed rate
+        //     if render.tick() {
+        //         schedules.run_render(&mut world);
+        //     }
+
+        //     // Poll for events in a non-blocking manner
+        //     if let Some(event) = Terminal::poll(update.timeout).unwrap() {
+        //         match event {
+        //             TerminalEvent::Key(key) => {
+        //                 if let KeyCode::Esc = key.code {
+        //                     break;
+        //                 }
+
+        //                 world.insert_resource(Input(key));
+        //                 schedules.run_input(&mut world);
+
+        //                 // TODO: Check for app event produced by input for explicit render
+        //                 schedules.run_render(&mut world);
+        //             }
+        //             TerminalEvent::Resize => {
+        //                 schedules.run_render(&mut world);
+        //             }
+        //         }
+        //     };
+
+        //     // world.clear_trackers();
+        // }
+
+        // Ok(())
     })
 
     // Terminal::enter(|| {
