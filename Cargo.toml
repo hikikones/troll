@@ -13,11 +13,9 @@ license = "MIT"
 [workspace.dependencies]
 ahash = { version = "0.8", default-features = false, features = ["runtime-rng", "std"] }
 base64 = { version = "0.23", default-features = false, features = ["alloc", "simd-unsafe", "std"] }
-# bevy = { version = "0.19", default-features = false, features = ["bevy_state", "debug", "std"] }
-bevy_app = { version = "0.19", default-features = false, features = ["std"] }
 bevy_derive = { version = "0.19", default-features = false }
-bevy_ecs = { version = "0.19", default-features = false, features = ["debug", "std"] }
-bevy_state = { version = "0.19", default-features = false, features = ["bevy_app", "std"] }
+bevy_ecs = { version = "0.19", default-features = false, features = ["std"] }
+bevy_state = { version = "0.19", default-features = false, features = ["std"] }
 bitflags = { version = "2.13", default-features = false, features = ["std"] }
 clap = { version = "4.6", default-features = false, features = ["color", "derive", "error-context", "help", "std", "usage"] }
 clap-cargo = { version = "0.18", default-features = false }

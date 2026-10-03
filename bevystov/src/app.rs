@@ -14,6 +14,8 @@ use bevy_state::{
 };
 use terminal::*;
 
+use crate::pages::{PagesPlugin, Route};
+
 pub struct App {
     world: World,
     schedules: Schedules,
@@ -30,25 +32,14 @@ impl App {
 
         app.insert_resource(Frame::default())
             .insert_resource(Input::default())
+            .insert_resource(Colors::default())
             .insert_resource(PageArea::default())
             .insert_resource(ModalArea::default());
 
-        app.add_state(AppState::default());
+        app.add_input(input_app)
+            .add_render(RenderSet::App, render_app);
 
-        app.add_input((
-            input_menu.run_if(in_state(AppState::Menu)),
-            input_game.run_if(in_state(AppState::Game)),
-        ))
-        .add_render(RenderSet::App, render_app)
-        .add_render(
-            RenderSet::Page,
-            (
-                render_menu.run_if(in_state(AppState::Menu)),
-                render_game.run_if(in_state(AppState::Game)),
-            ),
-        );
-
-        // TODO: plugins
+        PagesPlugin::build(&mut app);
 
         app
     }
@@ -262,53 +253,71 @@ impl Default for Input {
     }
 }
 
+#[derive(Debug, Clone, Resource)]
+pub struct Colors {
+    pub normal: Color,
+    pub primary: Color,
+    pub secondary: Color,
+    pub neutral: Color,
+    pub red: Color,
+}
+
+impl Colors {
+    const fn all(color: Color) -> Self {
+        Self {
+            normal: color,
+            primary: color,
+            secondary: color,
+            neutral: color,
+            red: color,
+        }
+    }
+}
+
+impl Default for Colors {
+    fn default() -> Self {
+        Self {
+            normal: Color::Default,
+            primary: Color::BrightYellow,
+            secondary: Color::Yellow,
+            neutral: Color::Indexed(240),
+            red: Color::Red,
+        }
+    }
+}
+
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct PageArea(Rect);
 
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct ModalArea(Rect);
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, States)]
-pub enum AppState {
-    #[default]
-    Menu,
-    Game,
-}
-
 fn render_app(
     mut frame: ResMut<Frame>,
     mut page_area: ResMut<PageArea>,
     mut modal_area: ResMut<ModalArea>,
+    colors: Res<Colors>,
 ) {
     let area = frame.area();
-    frame.push_fmt(format_args!("{area:?}"));
-    frame.render(area, TextOptions::paragraph_center());
 
-    // TODO
+    let (top, body, bottom) = area.split_ends(1, 1);
+
+    // Navigation
+    frame.push_str_fg("TODO TOP", colors.normal);
+    frame.render(top, TextOptions::span_center_top());
+
+    // Setup area for pages
+    **page_area = body.inner(Margin::all(1));
+
+    // Global shortcuts
+    frame.push_str_fg("TODO BOTTOM", colors.normal);
+    frame.render(bottom, TextOptions::span_center_top());
 }
 
-fn input_menu(input: Res<Input>, mut next_state: ResMut<NextState<AppState>>) {
-    match input.code {
-        KeyCode::Enter => {
-            next_state.set(AppState::Game);
-        }
+fn input_app(key: Res<Input>, route: Res<State<Route>>, mut next_route: ResMut<NextState<Route>>) {
+    match key.code {
+        KeyCode::Tab => next_route.set(route.next()),
+        KeyCode::BackTab => next_route.set(route.prev()),
         _ => {}
     }
-}
-
-fn render_menu(mut frame: ResMut<Frame>) {
-    // frame.print_str("menu");
-}
-
-fn input_game(input: Res<Input>, mut next_state: ResMut<NextState<AppState>>) {
-    match input.code {
-        KeyCode::Enter => {
-            next_state.set(AppState::Menu);
-        }
-        _ => {}
-    }
-}
-
-fn render_game(mut frame: ResMut<Frame>) {
-    // frame.print_str("game");
 }
