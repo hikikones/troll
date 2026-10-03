@@ -9,7 +9,7 @@ pub enum TerminalEvent {
 impl TerminalEvent {
     pub(crate) fn from(event: CrosstermEvent) -> Option<Self> {
         match event {
-            CrosstermEvent::Key(key) if key.kind.is_press() => Some(Self::Key(Key::from(key))),
+            CrosstermEvent::Key(key) if key.is_press() => Some(Self::Key(Key::from(key))),
             CrosstermEvent::Resize(_, _) => Some(Self::Resize),
             _ => None,
         }

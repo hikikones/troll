@@ -6,3 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+# bevy = { workspace = true }
+bevy_app = { workspace = true }
+bevy_derive = { workspace = true }
+bevy_ecs = { workspace = true }
+bevy_state = { workspace = true }
+# crossterm = { workspace = true }
+terminal = { workspace = true }
