@@ -7,6 +7,7 @@ use terminal::*;
 
 use crate::{Scroll, ScrollData, ScrollMargins, Scrollbar, ScrollbarColors, ScrollbarData};
 
+#[derive(Debug)]
 pub struct List {
     index: usize,
     selector: Option<usize>,

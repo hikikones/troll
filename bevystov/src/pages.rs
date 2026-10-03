@@ -1,10 +1,12 @@
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
+    resource::Resource,
     schedule::IntoScheduleConfigs,
     system::{Res, ResMut},
 };
 use bevy_state::{condition::in_state, state::States};
 use terminal::*;
-use widgets2::Block;
+use widgets2::{Block, List, ListIndex};
 
 use crate::app::{App, Colors, Frame, Input, PageArea, RenderSet};
 
@@ -12,7 +14,8 @@ pub struct PagesPlugin;
 
 impl PagesPlugin {
     pub fn build(app: &mut App) {
-        app.add_state(Route::Tracks)
+        app.insert_resource(TracksList::default())
+            .add_state(Route::Tracks)
             .add_render(
                 RenderSet::Page,
                 (
@@ -54,12 +57,65 @@ impl Route {
     }
 }
 
-fn render_tracks(area: Res<PageArea>, mut frame: ResMut<Frame>, colors: Res<Colors>) {
+#[derive(Debug, Resource, Deref, DerefMut)]
+struct TracksList(List);
+
+impl Default for TracksList {
+    fn default() -> Self {
+        Self(
+            List::new()
+                .with_scrollbar(0)
+                .with_padding(Margin::horizontal(1)),
+        )
+    }
+}
+
+// pub fn enter_tracks(&mut self, id: Option<TrackId>, db: &Database) {
+//     if let Some(id) = id
+//         && let Some(index) = db.get_index_from_id(id)
+//     {
+//         self.list.set_index(index).set_selector(None);
+//     };
+// }
+
+fn render_tracks(
+    area: Res<PageArea>,
+    mut frame: ResMut<Frame>,
+    colors: Res<Colors>,
+    mut list: ResMut<TracksList>,
+) {
     let area = **area;
 
+    let tracks = [
+        "yoyo here be dragons",
+        "nope im out",
+        "another one",
+        "yolo",
+        "hoho",
+        "pudding",
+        "yes",
+    ];
+
     Block::rectangle(colors.secondary).render(area, &mut frame);
-    frame.push_str("TRACKS");
-    frame.render(area, TextOptions::span_center());
+    frame.push_fmt_fg(
+        format_args!(" All Tracks ({}) ", tracks.len()),
+        colors.normal,
+    );
+    frame.render(area, TextOptions::span_center_top());
+
+    let inner = area.inner(Margin::all(1));
+    list.render(inner, &mut frame, tracks, |line, frame, track, index| {
+        let style = match index {
+            ListIndex::Selected => Style::fg(colors.primary).with_reverse(),
+            ListIndex::Selection => Style::fg(colors.neutral).with_reverse(),
+            ListIndex::Normal => Style::fg(colors.normal),
+        };
+
+        frame.print_fmt(style);
+        frame.push_str(track);
+        frame.render(line, TextOptions::span().with_fill());
+        frame.print_fmt(Sgr::Reset);
+    });
 }
 
 fn input_tracks(key: Res<Input>) {
