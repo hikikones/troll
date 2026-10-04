@@ -4,14 +4,11 @@ use bevy_ecs::{
     schedule::IntoScheduleConfigs,
     system::{Res, ResMut},
 };
-use bevy_state::{
-    condition::in_state,
-    state::{NextState, States},
-};
+use bevy_state::{condition::in_state, state::States};
 use terminal::*;
 use widgets2::{Block, List, ListIndex};
 
-use crate::app::{App, Colors, Frame, Input, PageArea, RenderSet};
+use crate::app::{Action, Actions, App, Colors, Frame, Input, PageArea, RenderSet};
 
 pub struct PagesPlugin;
 
@@ -19,45 +16,62 @@ impl PagesPlugin {
     pub fn build(app: &mut App) {
         app.insert_resource(TracksParam::default())
             .insert_resource(TracksList::default())
-            .add_state(Route::Tracks)
-            .add_enter(Route::Tracks, enter_tracks)
+            .add_state(Page::Tracks)
+            .add_enter(Page::Tracks, enter_tracks)
             .add_render(
                 RenderSet::Page,
                 (
-                    render_tracks.run_if(in_state(Route::Tracks)),
-                    render_playing.run_if(in_state(Route::NowPlaying)),
-                    render_settings.run_if(in_state(Route::Settings)),
+                    render_tracks.run_if(in_state(Page::Tracks)),
+                    render_playing.run_if(in_state(Page::NowPlaying)),
+                    render_settings.run_if(in_state(Page::Settings)),
                 ),
             )
             .add_input((
-                input_tracks.run_if(in_state(Route::Tracks)),
-                input_playing.run_if(in_state(Route::NowPlaying)),
-                input_settings.run_if(in_state(Route::Settings)),
+                input_tracks.run_if(in_state(Page::Tracks)),
+                input_playing.run_if(in_state(Page::NowPlaying)),
+                input_settings.run_if(in_state(Page::Settings)),
             ));
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, States)]
-pub enum Route {
+pub enum Page {
     Tracks,
     NowPlaying,
     Settings,
 }
 
-impl Route {
-    pub const fn next(self) -> Self {
+impl Page {
+    pub const fn next(self) -> Route {
         match self {
-            Self::Tracks => Self::NowPlaying,
-            Self::NowPlaying => Self::Settings,
-            Self::Settings => Self::Tracks,
+            Self::Tracks => Route::NowPlaying,
+            Self::NowPlaying => Route::Settings,
+            Self::Settings => Route::Tracks(None),
         }
     }
 
-    pub const fn prev(self) -> Self {
+    pub const fn prev(self) -> Route {
         match self {
-            Self::Tracks => Self::Settings,
-            Self::NowPlaying => Self::Tracks,
-            Self::Settings => Self::NowPlaying,
+            Self::Tracks => Route::Settings,
+            Self::NowPlaying => Route::Tracks(None),
+            Self::Settings => Route::NowPlaying,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Route {
+    Tracks(Option<usize>),
+    NowPlaying,
+    Settings,
+}
+
+impl Route {
+    pub const fn as_page(self) -> Page {
+        match self {
+            Self::Tracks(_) => Page::Tracks,
+            Self::NowPlaying => Page::NowPlaying,
+            Self::Settings => Page::Settings,
         }
     }
 }
@@ -83,14 +97,6 @@ fn enter_tracks(mut params: ResMut<TracksParam>, mut list: ResMut<TracksList>) {
         list.set_index(i);
     }
 }
-
-// pub fn enter_tracks(&mut self, id: Option<TrackId>, db: &Database) {
-//     if let Some(id) = id
-//         && let Some(index) = db.get_index_from_id(id)
-//     {
-//         self.list.set_index(index).set_selector(None);
-//     };
-// }
 
 fn render_tracks(
     area: Res<PageArea>,
@@ -132,12 +138,23 @@ fn render_tracks(
     });
 }
 
-fn input_tracks(key: Res<Input>, mut list: ResMut<TracksList>) {
+fn input_tracks(key: Res<Input>, mut actions: ResMut<Actions>, mut list: ResMut<TracksList>) {
     match key.code {
         _ => {
             if list.input(**key) {
-                // TODO: send render event
+                actions.push(Action::Render);
             }
+        }
+    }
+}
+
+fn input_playing(key: Res<Input>, mut actions: ResMut<Actions>) {
+    match key.code {
+        KeyCode::Char('2') => {
+            actions.push(Action::Route(Route::Tracks(Some(2))));
+        }
+        _ => {
+            // TODO
         }
     }
 }
@@ -150,16 +167,8 @@ fn render_playing(area: Res<PageArea>, mut frame: ResMut<Frame>, colors: Res<Col
     frame.render(area, TextOptions::span_center());
 }
 
-fn input_playing(
-    key: Res<Input>,
-    mut params: ResMut<TracksParam>,
-    mut next_route: ResMut<NextState<Route>>,
-) {
+fn input_settings(key: Res<Input>) {
     match key.code {
-        KeyCode::Char('2') => {
-            **params = Some(2);
-            next_route.set(Route::Tracks);
-        }
         _ => {
             // TODO
         }
@@ -172,12 +181,4 @@ fn render_settings(area: Res<PageArea>, mut frame: ResMut<Frame>, colors: Res<Co
     Block::rectangle(colors.neutral).render(area, &mut frame);
     frame.push_str("SETTINGS");
     frame.render(area, TextOptions::span_center());
-}
-
-fn input_settings(key: Res<Input>) {
-    match key.code {
-        _ => {
-            // TODO
-        }
-    }
 }

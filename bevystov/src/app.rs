@@ -9,7 +9,6 @@ use bevy_ecs::{
     world::World,
 };
 use bevy_state::{
-    condition::in_state,
     state::{
         FreelyMutableState, NextState, OnEnter, OnExit, State, StateTransition,
         StateTransitionEvent, StateTransitionSystems, States,
@@ -23,11 +22,12 @@ use bevy_state::{
 };
 use terminal::*;
 
-use crate::pages::{PagesPlugin, Route};
+use crate::pages::{Page, PagesPlugin, Route, TracksParam};
 
 pub struct App {
     world: World,
     schedules: Schedules,
+    is_running: bool,
 }
 
 impl App {
@@ -36,11 +36,16 @@ impl App {
             let mut world = World::new();
             let schedules = Schedules::new();
             bevy_state::state::setup_state_transitions_in_world(&mut world);
-            Self { world, schedules }
+            Self {
+                world,
+                schedules,
+                is_running: true,
+            }
         };
 
         app.insert_resource(Frame::default())
             .insert_resource(Input::default())
+            .insert_resource(Actions::default())
             .insert_resource(Colors::default())
             .insert_resource(PageArea::default())
             .insert_resource(ModalArea::default());
@@ -60,7 +65,7 @@ impl App {
         let mut update = Timer::new(8);
         let mut render = Timer::new(1);
 
-        loop {
+        while self.is_running {
             // Update at a fixed rate
             if update.tick() {
                 self.run_update();
@@ -75,10 +80,6 @@ impl App {
             if let Some(event) = Terminal::poll(update.timeout).unwrap() {
                 match event {
                     TerminalEvent::Key(key) => {
-                        if let KeyCode::Esc = key.code {
-                            break;
-                        }
-
                         self.insert_resource(Input(key));
                         self.run_input(terminal)?;
                     }
@@ -196,10 +197,13 @@ impl App {
 
     fn run_input(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.schedules.input.run(&mut self.world);
-        self.run_state_transitions();
 
-        // TODO: only render if input produces a render event
-        self.run_render(terminal)
+        if self.apply_actions() {
+            self.run_state_transitions();
+            self.run_render(terminal)?;
+        }
+
+        Ok(())
     }
 
     fn run_update(&mut self) {
@@ -239,6 +243,42 @@ impl App {
         // First run
         self.run_state_transitions();
         self.run_render(terminal)
+    }
+
+    fn apply_actions(&mut self) -> bool {
+        let mut render = false;
+
+        let mut actions = self.world.remove_resource::<Actions>().unwrap();
+
+        for action in actions.drain(..) {
+            match action {
+                Action::Render => {
+                    render = true;
+                }
+                Action::Route(route) => {
+                    render = true;
+
+                    let mut next_page = self.world.resource_mut::<NextState<Page>>();
+                    next_page.set(route.as_page());
+
+                    match route {
+                        Route::Tracks(id) => {
+                            let mut params = self.world.resource_mut::<TracksParam>();
+                            **params = id;
+                        }
+                        Route::NowPlaying => {}
+                        Route::Settings => {}
+                    }
+                }
+                Action::Quit => {
+                    self.is_running = false;
+                }
+            }
+        }
+
+        self.world.insert_resource(actions);
+
+        render
     }
 }
 
@@ -311,6 +351,18 @@ impl Default for Input {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Action {
+    Render,
+    Route(Route),
+    // Modal(Option<Modal>),
+    // Clear,
+    Quit,
+}
+
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
+pub struct Actions(Vec<Action>);
+
 #[derive(Debug, Clone, Resource)]
 pub struct Colors {
     pub normal: Color,
@@ -321,7 +373,7 @@ pub struct Colors {
 }
 
 impl Colors {
-    const fn all(color: Color) -> Self {
+    const fn _all(color: Color) -> Self {
         Self {
             normal: color,
             primary: color,
@@ -350,10 +402,19 @@ pub struct PageArea(Rect);
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct ModalArea(Rect);
 
+fn input_app(key: Res<Input>, mut actions: ResMut<Actions>, page: Res<State<Page>>) {
+    match key.code {
+        KeyCode::Esc => actions.push(Action::Quit),
+        KeyCode::Tab => actions.push(Action::Route(page.next())),
+        KeyCode::BackTab => actions.push(Action::Route(page.prev())),
+        _ => {}
+    }
+}
+
 fn render_app(
     mut frame: ResMut<Frame>,
     mut page_area: ResMut<PageArea>,
-    mut modal_area: ResMut<ModalArea>,
+    mut _modal_area: ResMut<ModalArea>,
     colors: Res<Colors>,
 ) {
     let area = frame.area();
@@ -370,12 +431,4 @@ fn render_app(
     // Global shortcuts
     frame.push_str_fg("TODO BOTTOM", colors.normal);
     frame.render(bottom, TextOptions::span_center_top());
-}
-
-fn input_app(key: Res<Input>, route: Res<State<Route>>, mut next_route: ResMut<NextState<Route>>) {
-    match key.code {
-        KeyCode::Tab => next_route.set(route.next()),
-        KeyCode::BackTab => next_route.set(route.prev()),
-        _ => {}
-    }
 }
