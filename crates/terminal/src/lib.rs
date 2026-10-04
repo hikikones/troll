@@ -5,8 +5,6 @@ mod layout;
 mod style;
 mod term;
 
-pub mod bevy;
-
 pub use color::*;
 pub use escape::*;
 pub use event::*;
