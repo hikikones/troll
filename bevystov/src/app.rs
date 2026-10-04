@@ -478,13 +478,29 @@ fn swap_colors(
     }
 }
 
-fn render_app(mut frame: ResMut<Frame>, mut page_area: ResMut<PageArea>, colors: Res<Colors>) {
+fn render_app(
+    mut frame: ResMut<Frame>,
+    mut page_area: ResMut<PageArea>,
+    colors: Res<Colors>,
+    current_page: Res<State<Page>>,
+) {
     let area = frame.area();
 
     let (top, body, bottom) = area.split_ends(1, 1);
 
     // Navigation
-    frame.push_str_fg("TODO TOP", colors.normal);
+    for (page, name, gap) in [
+        (Page::Tracks, "Tracks", 3),
+        (Page::NowPlaying, "Now Playing", 3),
+        (Page::Settings, "Settings", 0),
+    ] {
+        if *current_page == page {
+            frame.push_fmt(Styled::new(name, Style::fg(colors.primary).with_bold()));
+        } else {
+            frame.push_str_fg(name, colors.normal);
+        }
+        frame.push_ch_repeat(' ', gap);
+    }
     frame.render(top, TextOptions::span_center_top());
 
     // Setup area for pages
