@@ -1,14 +1,17 @@
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     resource::Resource,
-    schedule::IntoScheduleConfigs,
+    schedule::{IntoScheduleConfigs, SystemCondition},
     system::{Res, ResMut},
 };
 use bevy_state::{condition::in_state, state::States};
 use terminal::*;
 use widgets2::{Block, List, ListIndex};
 
-use crate::app::{Action, Actions, App, Colors, Frame, Input, PageArea, RenderSet};
+use crate::{
+    app::{Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet},
+    modals::Modal,
+};
 
 pub struct PagesPlugin;
 
@@ -16,7 +19,19 @@ impl PagesPlugin {
     pub fn build(app: &mut App) {
         app.insert_resource(TracksParam::default())
             .insert_resource(TracksList::default())
-            .add_state(Page::Tracks)
+            .add_state(Page::default())
+            .add_input(
+                InputState::Normal,
+                (
+                    input_tracks.run_if(in_state(Page::Tracks)),
+                    input_playing.run_if(in_state(Page::NowPlaying)),
+                    input_settings.run_if(in_state(Page::Settings)),
+                ),
+            )
+            .add_input(
+                InputState::Modal,
+                input_tracks_modal.run_if(in_state(Page::Tracks).and_then(in_state(Modal::Custom))),
+            )
             .add_enter(Page::Tracks, enter_tracks)
             .add_render(
                 RenderSet::Page,
@@ -26,16 +41,17 @@ impl PagesPlugin {
                     render_settings.run_if(in_state(Page::Settings)),
                 ),
             )
-            .add_input((
-                input_tracks.run_if(in_state(Page::Tracks)),
-                input_playing.run_if(in_state(Page::NowPlaying)),
-                input_settings.run_if(in_state(Page::Settings)),
-            ));
+            .add_render(
+                RenderSet::Modal,
+                render_tracks_modal
+                    .run_if(in_state(Page::Tracks).and_then(in_state(Modal::Custom))),
+            );
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, States)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, States)]
 pub enum Page {
+    #[default]
     Tracks,
     NowPlaying,
     Settings,
@@ -92,6 +108,28 @@ impl Default for TracksList {
     }
 }
 
+fn input_tracks(key: Res<Input>, mut actions: ResMut<Actions>, mut list: ResMut<TracksList>) {
+    match key.code {
+        KeyCode::Char('m') => {
+            actions.push(Action::Modal(Modal::Custom));
+        }
+        _ => {
+            if list.input(**key) {
+                actions.push(Action::Render);
+            }
+        }
+    }
+}
+
+fn input_tracks_modal(key: Res<Input>, mut actions: ResMut<Actions>) {
+    match key.code {
+        KeyCode::Char('m') => {
+            actions.push(Action::Modal(Modal::Canceled));
+        }
+        _ => {}
+    }
+}
+
 fn enter_tracks(mut params: ResMut<TracksParam>, mut list: ResMut<TracksList>) {
     if let Some(i) = params.take() {
         list.set_index(i);
@@ -138,14 +176,21 @@ fn render_tracks(
     });
 }
 
-fn input_tracks(key: Res<Input>, mut actions: ResMut<Actions>, mut list: ResMut<TracksList>) {
-    match key.code {
-        _ => {
-            if list.input(**key) {
-                actions.push(Action::Render);
-            }
-        }
-    }
+fn render_tracks_modal(mut frame: ResMut<Frame>, colors: Res<Colors>) {
+    let area = frame.area();
+    let area = area.with_size(area.size / 2).center(area);
+
+    let bg = frame.palette().background().slight_offset().as_color();
+    Block::fill(Style::bg(bg)).render(area, &mut *frame);
+    Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
+    frame.push_str(" Custom ");
+    frame.render(area, TextOptions::span_center_top());
+
+    frame.push_str("A custom modal only for the tracks page.");
+    frame.render(
+        area.inner(Margin::proportional(1)),
+        TextOptions::paragraph_center(),
+    );
 }
 
 fn input_playing(key: Res<Input>, mut actions: ResMut<Actions>) {

@@ -9,6 +9,7 @@ use bevy_ecs::{
     world::World,
 };
 use bevy_state::{
+    condition::in_state,
     state::{
         FreelyMutableState, NextState, OnEnter, OnExit, State, StateTransition,
         StateTransitionEvent, StateTransitionSystems, States,
@@ -22,7 +23,10 @@ use bevy_state::{
 };
 use terminal::*;
 
-use crate::pages::{Page, PagesPlugin, Route, TracksParam};
+use crate::{
+    modals::{Modal, ModalsPlugin},
+    pages::{Page, PagesPlugin, Route, TracksParam},
+};
 
 pub struct App {
     world: World,
@@ -47,13 +51,15 @@ impl App {
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
             .insert_resource(Colors::default())
-            .insert_resource(PageArea::default())
-            .insert_resource(ModalArea::default());
+            .insert_resource(PageArea::default());
 
-        app.add_input(input_app)
+        app.add_state(InputState::default());
+
+        app.add_input(InputState::Normal, input_app)
             .add_render(RenderSet::App, render_app);
 
         PagesPlugin::build(&mut app);
+        ModalsPlugin::build(&mut app);
 
         app
     }
@@ -172,9 +178,12 @@ impl App {
 
     pub fn add_input<M>(
         &mut self,
+        state: InputState,
         systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
     ) -> &mut Self {
-        self.schedules.input.add_systems(systems);
+        self.schedules
+            .input
+            .add_systems(systems.run_if(in_state(state)));
         self
     }
 
@@ -270,6 +279,15 @@ impl App {
                         Route::Settings => {}
                     }
                 }
+                Action::Modal(modal) => {
+                    render = true;
+
+                    let mut next_modal = self.world.resource_mut::<NextState<Modal>>();
+                    next_modal.set(modal);
+
+                    let mut next_input = self.world.resource_mut::<NextState<InputState>>();
+                    next_input.set(InputState::from(modal));
+                }
                 Action::Quit => {
                     self.is_running = false;
                 }
@@ -332,11 +350,27 @@ impl Schedules {
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct Frame(Framebuffer);
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, SystemSet)]
 pub enum RenderSet {
     App,
     Page,
     Modal,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, States)]
+pub enum InputState {
+    #[default]
+    Normal,
+    Modal,
+}
+
+impl InputState {
+    const fn from(modal: Modal) -> Self {
+        match modal {
+            Modal::Search | Modal::Logs | Modal::Custom => Self::Modal,
+            Modal::Confirmed | Modal::Canceled => Self::Normal,
+        }
+    }
 }
 
 #[derive(Resource, Deref)]
@@ -355,7 +389,7 @@ impl Default for Input {
 pub enum Action {
     Render,
     Route(Route),
-    // Modal(Option<Modal>),
+    Modal(Modal),
     // Clear,
     Quit,
 }
@@ -399,24 +433,22 @@ impl Default for Colors {
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct PageArea(Rect);
 
-#[derive(Default, Resource, Deref, DerefMut)]
-pub struct ModalArea(Rect);
-
 fn input_app(key: Res<Input>, mut actions: ResMut<Actions>, page: Res<State<Page>>) {
     match key.code {
         KeyCode::Esc => actions.push(Action::Quit),
         KeyCode::Tab => actions.push(Action::Route(page.next())),
         KeyCode::BackTab => actions.push(Action::Route(page.prev())),
+        KeyCode::Char('f') if key.ctrl() => {
+            actions.push(Action::Modal(Modal::Search));
+        }
+        KeyCode::Char('l') if key.ctrl() => {
+            actions.push(Action::Modal(Modal::Logs));
+        }
         _ => {}
     }
 }
 
-fn render_app(
-    mut frame: ResMut<Frame>,
-    mut page_area: ResMut<PageArea>,
-    mut _modal_area: ResMut<ModalArea>,
-    colors: Res<Colors>,
-) {
+fn render_app(mut frame: ResMut<Frame>, mut page_area: ResMut<PageArea>, colors: Res<Colors>) {
     let area = frame.area();
 
     let (top, body, bottom) = area.split_ends(1, 1);
