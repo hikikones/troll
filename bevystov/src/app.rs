@@ -47,16 +47,22 @@ impl App {
             }
         };
 
+        let colors = Colors::default();
+        let modal_colors = ModalColors(Colors::all(colors.neutral));
+
         app.insert_resource(Frame::default())
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
-            .insert_resource(Colors::default())
+            .insert_resource(colors)
+            .insert_resource(modal_colors)
             .insert_resource(PageArea::default());
 
         app.add_state(InputState::default());
 
         app.add_input(InputState::Normal, input_app)
-            .add_render(RenderSet::App, render_app);
+            .add_render(RenderSet::SetColors, swap_colors)
+            .add_render(RenderSet::App, render_app)
+            .add_render(RenderSet::ResetColors, swap_colors);
 
         PagesPlugin::build(&mut app);
         ModalsPlugin::build(&mut app);
@@ -337,7 +343,16 @@ impl Schedules {
         let input = Schedule::default();
         let update = Schedule::default();
         let mut render = Schedule::default();
-        render.configure_sets((RenderSet::App, RenderSet::Page, RenderSet::Modal).chain());
+        render.configure_sets(
+            (
+                RenderSet::SetColors,
+                RenderSet::App,
+                RenderSet::Page,
+                RenderSet::ResetColors,
+                RenderSet::Modal,
+            )
+                .chain(),
+        );
 
         Self {
             input,
@@ -352,8 +367,10 @@ pub struct Frame(Framebuffer);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, SystemSet)]
 pub enum RenderSet {
+    SetColors,
     App,
     Page,
+    ResetColors,
     Modal,
 }
 
@@ -407,7 +424,7 @@ pub struct Colors {
 }
 
 impl Colors {
-    const fn _all(color: Color) -> Self {
+    const fn all(color: Color) -> Self {
         Self {
             normal: color,
             primary: color,
@@ -430,6 +447,9 @@ impl Default for Colors {
     }
 }
 
+#[derive(Debug, Clone, Resource, Deref, DerefMut)]
+struct ModalColors(Colors);
+
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct PageArea(Rect);
 
@@ -445,6 +465,16 @@ fn input_app(key: Res<Input>, mut actions: ResMut<Actions>, page: Res<State<Page
             actions.push(Action::Modal(Modal::Logs));
         }
         _ => {}
+    }
+}
+
+fn swap_colors(
+    modal: Res<State<Modal>>,
+    mut colors: ResMut<Colors>,
+    mut modal_colors: ResMut<ModalColors>,
+) {
+    if modal.is_active() {
+        std::mem::swap(&mut *colors, &mut **modal_colors);
     }
 }
 

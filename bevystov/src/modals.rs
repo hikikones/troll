@@ -26,6 +26,15 @@ pub enum Modal {
     Canceled,
 }
 
+impl Modal {
+    pub const fn is_active(self) -> bool {
+        match self {
+            Self::Search | Self::Logs | Self::Custom => true,
+            Self::Confirmed | Self::Canceled => false,
+        }
+    }
+}
+
 fn input_modals(key: Res<Input>, mut actions: ResMut<Actions>, modal: Res<State<Modal>>) {
     if let KeyCode::Esc = key.code {
         actions.push(Action::Quit);
