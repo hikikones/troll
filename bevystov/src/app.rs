@@ -5,7 +5,7 @@ use bevy_ecs::{
     message::Messages,
     resource::Resource,
     schedule::{IntoScheduleConfigs, Schedule, SystemSet},
-    system::{Res, ResMut, ScheduleSystem},
+    system::{NonSend, NonSendMut, Res, ResMut, ScheduleSystem},
     world::World,
 };
 use bevy_state::{
@@ -24,8 +24,10 @@ use bevy_state::{
 use terminal::*;
 
 use crate::{
+    database::{Database, DatabaseEvent},
+    jukebox::{Jukebox, JukeboxEvent},
     modals::{Modal, ModalsPlugin},
-    pages::{Page, PagesPlugin, Route, TracksParam},
+    pages::{Page, PagesPlugin, Route, TracksPage},
 };
 
 pub struct App {
@@ -35,7 +37,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(database: Database, jukebox: Jukebox) -> Self {
         let mut app = {
             let mut world = World::new();
             let schedules = Schedules::new();
@@ -46,6 +48,9 @@ impl App {
                 is_running: true,
             }
         };
+
+        app.insert_non_send(database);
+        app.insert_non_send(jukebox);
 
         let colors = Colors::default();
         let modal_colors = ModalColors(Colors::all(colors.neutral));
@@ -62,7 +67,8 @@ impl App {
         app.add_input(InputState::Normal, input_app)
             .add_render(RenderSet::SetColors, swap_colors)
             .add_render(RenderSet::App, render_app)
-            .add_render(RenderSet::ResetColors, swap_colors);
+            .add_render(RenderSet::ResetColors, swap_colors)
+            .add_update(update_app);
 
         PagesPlugin::build(&mut app);
         ModalsPlugin::build(&mut app);
@@ -80,7 +86,7 @@ impl App {
         while self.is_running {
             // Update at a fixed rate
             if update.tick() {
-                self.run_update();
+                self.run_update(terminal)?;
             }
 
             // Render at a fixed rate
@@ -107,8 +113,13 @@ impl App {
         Ok(())
     }
 
-    pub fn insert_resource(&mut self, resource: impl Resource) -> &mut Self {
-        self.world.insert_resource(resource);
+    pub fn insert_resource(&mut self, value: impl Resource) -> &mut Self {
+        self.world.insert_resource(value);
+        self
+    }
+
+    pub fn insert_non_send<R: 'static>(&mut self, value: R) -> &mut Self {
+        self.world.insert_non_send(value);
         self
     }
 
@@ -221,8 +232,14 @@ impl App {
         Ok(())
     }
 
-    fn run_update(&mut self) {
+    fn run_update(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.schedules.update.run(&mut self.world);
+
+        if self.apply_actions() {
+            self.run_render(terminal)?;
+        }
+
+        Ok(())
     }
 
     fn run_render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
@@ -255,16 +272,22 @@ impl App {
         let mut frame = self.world.resource_mut::<Frame>();
         std::mem::swap(&mut frame.0, terminal.frame());
 
+        // Start database load
+        self.world.non_send_mut::<Database>().load();
+
         // First run
         self.run_state_transitions();
         self.run_render(terminal)
     }
 
     fn apply_actions(&mut self) -> bool {
+        if self.world.resource::<Actions>().is_empty() {
+            return false;
+        }
+
         let mut render = false;
 
         let mut actions = self.world.remove_resource::<Actions>().unwrap();
-
         for action in actions.drain(..) {
             match action {
                 Action::Render => {
@@ -278,8 +301,8 @@ impl App {
 
                     match route {
                         Route::Tracks(id) => {
-                            let mut params = self.world.resource_mut::<TracksParam>();
-                            **params = id;
+                            let mut page = self.world.resource_mut::<TracksPage>();
+                            page.set_params(id);
                         }
                         Route::NowPlaying => {}
                         Route::Settings => {}
@@ -299,7 +322,6 @@ impl App {
                 }
             }
         }
-
         self.world.insert_resource(actions);
 
         render
@@ -453,11 +475,29 @@ struct ModalColors(Colors);
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct PageArea(Rect);
 
-fn input_app(key: Res<Input>, mut actions: ResMut<Actions>, page: Res<State<Page>>) {
+fn input_app(
+    key: Res<Input>,
+    mut actions: ResMut<Actions>,
+    page: Res<State<Page>>,
+    mut jukebox: NonSendMut<Jukebox>,
+    database: NonSend<Database>,
+) {
     match key.code {
         KeyCode::Esc => actions.push(Action::Quit),
         KeyCode::Tab => actions.push(Action::Route(page.next())),
         KeyCode::BackTab => actions.push(Action::Route(page.prev())),
+        KeyCode::Down if key.ctrl() => {
+            jukebox.stop();
+        }
+        KeyCode::Up if key.ctrl() => {
+            jukebox.pause_or_play();
+        }
+        KeyCode::Right if key.ctrl() => {
+            jukebox.play_next(&database);
+        }
+        KeyCode::Left if key.ctrl() => {
+            jukebox.play_previous(&database);
+        }
         KeyCode::Char('f') if key.ctrl() => {
             actions.push(Action::Modal(Modal::Search));
         }
@@ -509,4 +549,48 @@ fn render_app(
     // Global shortcuts
     frame.push_str_fg("TODO BOTTOM", colors.normal);
     frame.render(bottom, TextOptions::span_center_top());
+}
+
+fn update_app(
+    mut database: NonSendMut<Database>,
+    mut jukebox: NonSendMut<Jukebox>,
+    mut actions: ResMut<Actions>,
+) {
+    let mut render = false;
+
+    database.update(|event| {
+        render = true;
+
+        match event {
+            DatabaseEvent::Rating(_id) => {
+                // TODO
+            }
+            DatabaseEvent::Error(_err) => {
+                // TODO
+            }
+        }
+    });
+
+    jukebox.update(&database, |event| {
+        render = true;
+
+        match event {
+            JukeboxEvent::Play(_id) => {
+                // TODO
+            }
+            JukeboxEvent::Pause => {
+                // TODO
+            }
+            JukeboxEvent::Stop => {
+                // TODO
+            }
+            JukeboxEvent::Error(_err) => {
+                // TODO
+            }
+        }
+    });
+
+    if render {
+        actions.push(Action::Render);
+    }
 }
