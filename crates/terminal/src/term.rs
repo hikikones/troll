@@ -102,7 +102,7 @@ impl Terminal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct TerminalSize {
     cols: u16,
     rows: u16,
@@ -412,7 +412,7 @@ impl Rgb {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TerminalPalette {
     fg: Rgb,
     bg: Rgb,
@@ -452,12 +452,23 @@ impl TerminalPalette {
     }
 }
 
+impl Default for TerminalPalette {
+    fn default() -> Self {
+        Self {
+            fg: Rgb::WHITE,
+            bg: Rgb::BLACK,
+            cursor: Rgb::WHITE,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum TerminalTheme {
     Dark,
     Light,
 }
 
+#[derive(Debug, Default)]
 pub struct Framebuffer {
     buf: String,
     text: String,
@@ -467,8 +478,9 @@ pub struct Framebuffer {
     cursor_pos_at_end: Option<Pos>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum CursorState {
+    #[default]
     Hide,
     Show,
 }
@@ -487,6 +499,10 @@ impl Framebuffer {
 
     pub const fn size(&self) -> &TerminalSize {
         &self.size
+    }
+
+    pub const fn set_size(&mut self, size: TerminalSize) {
+        self.size = size;
     }
 
     pub const fn palette(&self) -> &TerminalPalette {
