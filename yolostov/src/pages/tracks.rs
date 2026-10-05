@@ -121,8 +121,14 @@ impl TracksPage {
                 let [title_area, artist_area, album_area, time_area, rating_area] = areas;
 
                 let mut style = match idx {
-                    ListIndex::Selected => Style::fg(colors.primary).with_reverse(),
-                    ListIndex::Selection => Style::fg(colors.neutral).with_reverse(),
+                    ListIndex::Selected => {
+                        frame.fill(line, colors.primary);
+                        Style::fg(colors.primary).with_reverse()
+                    }
+                    ListIndex::Selection => {
+                        frame.fill(line, colors.neutral);
+                        Style::fg(colors.neutral).with_reverse()
+                    }
                     ListIndex::Normal => Style::fg(colors.normal),
                 };
 
@@ -130,32 +136,25 @@ impl TracksPage {
                     style.insert(Attributes::BOLD);
                 }
 
-                // TODO: only show crossed out on text
                 if jb.is_faulty(id) {
                     style.insert(Attributes::CROSSED_OUT);
                 }
 
                 frame.print_fmt(style);
 
-                frame.push_str(track.title());
-                frame.render(title_area, TextOptions::span().with_fill());
-                frame.print_ch_repeat(' ', artist_area.col() - title_area.right_out());
-
-                frame.push_str(track.artist());
-                frame.render(artist_area, TextOptions::span().with_fill());
-                frame.print_ch_repeat(' ', album_area.col() - artist_area.right_out());
-
-                frame.push_str(track.album());
-                frame.render(album_area, TextOptions::span().with_fill());
-                frame.print_ch_repeat(' ', time_area.col() - album_area.right_out());
-
-                frame.push_str(track.duration_display());
-                frame.render(time_area, TextOptions::span().with_fill());
-                frame.print_ch_repeat(' ', rating_area.col() - time_area.right_out());
-
-                frame.push_str(track.rating().stars());
-                frame.render(rating_area, TextOptions::span().with_fill());
-                frame.print_ch_repeat(' ', line.right_out() - rating_area.right_out());
+                frame.print_span(title_area, track.title(), HorizontalAlignment::Left);
+                frame.print_span(artist_area, track.artist(), HorizontalAlignment::Left);
+                frame.print_span(album_area, track.album(), HorizontalAlignment::Left);
+                frame.print_span(
+                    time_area,
+                    track.duration_display(),
+                    HorizontalAlignment::Left,
+                );
+                frame.print_span(
+                    rating_area,
+                    track.rating().stars(),
+                    HorizontalAlignment::Left,
+                );
 
                 frame.print_fmt(Sgr::Reset);
             },

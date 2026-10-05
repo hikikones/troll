@@ -359,7 +359,7 @@ impl ListPage {
                 frame.push_str(item.yolo());
                 frame.push_str(item.yolo2());
                 frame.push_str(item.yolo3());
-                frame.render(line, TextOptions::span().with_fill());
+                frame.render(line, TextOptions::span());
 
                 frame.print_fmt(Sgr::Reset);
             },
@@ -402,15 +402,15 @@ impl ListPage {
 
                 let [a, b, c] = areas;
                 frame.push_str(item.yolo());
-                frame.render(a, TextOptions::span().with_fill());
+                frame.render(a, TextOptions::span());
                 frame.print_ch_repeat(' ', b.col() - a.right_out());
 
                 frame.push_str(item.yolo2());
-                frame.render(b, TextOptions::span().with_fill());
+                frame.render(b, TextOptions::span());
                 frame.print_ch_repeat(' ', c.col() - b.right_out());
 
                 frame.push_str(item.yolo3());
-                frame.render(c, TextOptions::span().with_fill());
+                frame.render(c, TextOptions::span());
                 frame.print_ch_repeat(' ', line.right_out() - c.right_out());
 
                 frame.print_fmt(Sgr::Reset);

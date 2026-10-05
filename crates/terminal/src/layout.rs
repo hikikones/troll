@@ -644,23 +644,31 @@ impl HorizontalAlignment {
     pub const fn calc(self, outer_x: u16, outer_width: u16, inner_width: u16) -> u16 {
         match self {
             Self::Left => outer_x,
-            Self::Center => outer_x + (outer_width.saturating_sub(inner_width)) / 2,
-            Self::Right => outer_x + outer_width.saturating_sub(inner_width),
+            Self::Center => Self::center(outer_x, outer_width, inner_width),
+            Self::Right => Self::right(outer_x, outer_width, inner_width),
         }
     }
 
-    pub fn calc_from(self, x: u16, width: u16, line: &str) -> u16 {
+    pub fn calc_line(self, x: u16, width: u16, line: &str) -> u16 {
         match self {
             Self::Left => x,
             Self::Center => {
                 let display_width = utils::display_width(line) as u16;
-                x + (width.saturating_sub(display_width)) / 2
+                Self::center(x, width, display_width)
             }
             Self::Right => {
                 let display_width = utils::display_width(line) as u16;
-                x + width.saturating_sub(display_width)
+                Self::right(x, width, display_width)
             }
         }
+    }
+
+    const fn center(outer_x: u16, outer_width: u16, inner_width: u16) -> u16 {
+        outer_x + (outer_width.saturating_sub(inner_width)) / 2
+    }
+
+    const fn right(outer_x: u16, outer_width: u16, inner_width: u16) -> u16 {
+        outer_x + outer_width.saturating_sub(inner_width)
     }
 }
 

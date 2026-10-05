@@ -54,20 +54,22 @@ impl SearchModal {
 
     pub fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         let area = area.with_size(area.size / 2).center(area);
+
         let bg = frame.palette().background().slight_offset().as_color();
         frame.fill(area, bg);
 
-        Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, frame);
-        frame.push_str(" Search ");
-        frame.render(area, TextOptions::span_center_top());
+        Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
+        frame.print_span(area, " Search ", HorizontalAlignment::Center);
 
-        frame.print_fmt(Sgrs([Sgr::Fg(colors.secondary), Sgr::Bold, Sgr::Reverse]));
-        frame.push_str("YOLO");
-        frame.render(
-            area.inner(Margin::proportional(1)),
-            TextOptions::span_center().with_fill(),
+        let inner = area.inner(Margin::proportional(1));
+        let middle = inner.with_rows(1).center(inner);
+        let style = Style::fg(colors.secondary).with_bold().with_reverse();
+        frame.fill(middle, colors.secondary);
+        frame.print_span(
+            inner.with_rows(1).center(inner),
+            Styled::new("YOLO", style),
+            HorizontalAlignment::Center,
         );
-        frame.print_fmt(Sgr::Reset);
     }
 
     pub fn input(&mut self, key: Key) -> ModalAction {

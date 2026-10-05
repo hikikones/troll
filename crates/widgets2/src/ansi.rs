@@ -170,10 +170,13 @@ impl AnsiViewer {
         let align = self.options.alignment;
 
         let mut pos = inner.pos;
+        let mut width = 0;
         let mut i = 0;
 
+        let max_width = self.view.cols;
+
         for line in self.ansi.lines() {
-            let col = align.calc_from(pos.col, self.view.cols, line);
+            let col = align.calc_line(pos.col, max_width, line);
             frame.cursor(pos.with_col(col));
 
             let is_in_view = i >= view_start && i < view_end;
@@ -182,6 +185,18 @@ impl AnsiViewer {
                 match ga {
                     utils::GraphemeOrAnsi::Grapheme(g) => {
                         if is_in_view {
+                            if width == max_width {
+                                continue;
+                            }
+
+                            let w = utils::str_width(g.0);
+
+                            if width + w > max_width {
+                                width = max_width;
+                                continue;
+                            }
+
+                            width += w;
                             frame.print_str(g.0);
                         }
                     }
@@ -195,6 +210,7 @@ impl AnsiViewer {
                 pos.row += 1;
             }
 
+            width = 0;
             i += 1;
         }
 

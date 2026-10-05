@@ -550,12 +550,28 @@ impl Framebuffer {
         let _ = write!(self.buf, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
-    pub fn print_fmt(&mut self, content: impl Display) {
-        let _ = write!(self.buf, "{content}");
+    pub fn print_fmt(&mut self, text: impl Display) {
+        let _ = write!(self.buf, "{text}");
     }
 
-    pub fn print_fmt_fg(&mut self, content: impl Display, fg: Color) {
-        let _ = write!(self.buf, "{}{content}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    pub fn print_fmt_fg(&mut self, text: impl Display, fg: Color) {
+        let _ = write!(self.buf, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    }
+
+    pub fn print_span(&mut self, area: Rect, text: impl Display, align: HorizontalAlignment) {
+        if area.is_empty() {
+            return;
+        }
+
+        // TODO: Newlines should be ignored?
+
+        let start = self.text.len();
+        self.push_fmt(text);
+        let text = &self.text[start..];
+
+        print_span(area.pos, area.size.cols, text, align, &mut self.buf);
+
+        self.text.truncate(start);
     }
 
     pub fn fill(&mut self, area: Rect, color: Color) {
@@ -617,118 +633,105 @@ impl Framebuffer {
         let _ = write!(self.text, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
-    pub fn push_fmt(&mut self, content: impl Display) {
-        let _ = write!(self.text, "{content}");
+    pub fn push_fmt(&mut self, text: impl Display) {
+        let _ = write!(self.text, "{text}");
     }
 
-    pub fn push_fmt_fg(&mut self, content: impl Display, fg: Color) {
-        let _ = write!(self.text, "{}{content}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    pub fn push_fmt_fg(&mut self, text: impl Display, fg: Color) {
+        let _ = write!(self.text, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
-    pub fn render(&mut self, area: Rect, opts: TextOptions) {
+    pub fn render(&mut self, mut area: Rect, opts: TextOptions) {
         if area.is_empty() {
-            self.cursor(area.pos);
             self.text.clear();
             return;
         }
 
-        let mut text = std::mem::take(&mut self.text);
-
         match opts.mode {
             TextMode::Span => {
                 let row = opts.vertical.calc(area.pos.row, area.size.rows, 1);
-                self.render_span(
+                print_span(
                     area.pos.with_row(row),
                     area.size.cols,
-                    &text, // TODO: Newlines should be ignored
+                    &self.text, // TODO: Newlines should be ignored?
                     opts.horizontal,
-                    opts.fill,
+                    &mut self.buf,
                 );
             }
             TextMode::Paragraph => {
-                utils::text_wrap(&mut text, area.size.cols);
-                let lines = text.lines().count() as u16;
+                utils::text_wrap(&mut self.text, area.size.cols);
+                let lines = self.text.lines().count() as u16;
 
-                let Rect { mut pos, mut size } = area;
-                pos.row = opts.vertical.calc(area.pos.row, area.size.rows, lines);
-                size.rows = area.size.rows.min(lines);
+                area.pos.row = opts.vertical.calc(area.pos.row, area.size.rows, lines);
+                area.size.rows = area.size.rows.min(lines);
 
-                for line in text.lines().take(size.rows as usize) {
-                    self.render_span(pos, size.cols, line, opts.horizontal, opts.fill);
-                    pos.row += 1;
+                for line in self.text.lines().take(area.size.rows as usize) {
+                    print_span(
+                        area.pos,
+                        area.size.cols,
+                        line,
+                        opts.horizontal,
+                        &mut self.buf,
+                    );
+                    area.pos.row += 1;
+                }
+
+                if lines > area.size.rows {
+                    self.print_fmt(Sgr::Reset);
                 }
             }
         }
 
-        text.clear();
-        self.text = text;
+        self.text.clear();
     }
+}
 
-    fn render_span(
-        &mut self,
-        pos: Pos,
-        max_width: u16,
-        text: &str,
-        align: HorizontalAlignment,
-        fill: bool,
-    ) {
-        use std::cmp::Ordering;
+fn print_span(
+    pos: Pos,
+    max_width: u16,
+    text: &str,
+    align: HorizontalAlignment,
+    output: &mut String,
+) {
+    use std::{cmp::Ordering, fmt::Write};
 
-        // TODO: Remove fill option. Replace it with a dedicated method on Framebuffer.
-        // TODO: No need to calculate display width on HorizontalAlignment::Left.
+    let display_width = utils::display_width(text) as u16;
+    match display_width.cmp(&max_width) {
+        Ordering::Less => {
+            // Room to spare, apply alignment
+            let start_text_col = align.calc(pos.col, max_width, display_width);
+            let _ = write!(output, "{}", Cursor::Move(start_text_col, pos.row));
+            output.push_str(text);
+        }
+        Ordering::Equal => {
+            // Perfect fit, just print
+            let _ = write!(output, "{}", Cursor::Move(pos.col, pos.row));
+            output.push_str(text);
+        }
+        Ordering::Greater => {
+            // No fit, print what we can and keep ansi codes
+            let _ = write!(output, "{}", Cursor::Move(pos.col, pos.row));
 
-        let display_width = utils::display_width(text) as u16;
-        match display_width.cmp(&max_width) {
-            Ordering::Less => {
-                // Room to spare, apply alignment
-                let start_text_col = align.calc(pos.col, max_width, display_width);
-
-                if fill {
-                    // Fill remaining empty cells with spaces
-                    self.cursor(pos);
-
-                    let empty_left_count = start_text_col - pos.col;
-                    self.print_ch_repeat(' ', empty_left_count);
-
-                    self.print_str(text);
-
-                    let empty_right_count = max_width - (empty_left_count + display_width);
-                    self.print_ch_repeat(' ', empty_right_count);
-                } else {
-                    self.cursor(pos.with_col(start_text_col));
-                    self.print_str(text);
-                }
-            }
-            Ordering::Equal => {
-                // Perfect fit, just print
-                self.cursor(pos);
-                self.print_str(text);
-            }
-            Ordering::Greater => {
-                // No fit, print what we can and keep ansi codes
-                self.cursor(pos);
-
-                let mut width = 0;
-                for g in utils::GraphemeAnsiIter::new(text) {
-                    match g {
-                        utils::GraphemeOrAnsi::Grapheme(g) => {
-                            if width == max_width {
-                                continue;
-                            }
-
-                            let w = utils::str_width(g.0);
-
-                            if width + w > max_width {
-                                width = max_width;
-                                continue;
-                            }
-
-                            width += w;
-                            self.print_str(g.0);
+            let mut width = 0;
+            for g in utils::GraphemeAnsiIter::new(text) {
+                match g {
+                    utils::GraphemeOrAnsi::Grapheme(g) => {
+                        if width == max_width {
+                            continue;
                         }
-                        utils::GraphemeOrAnsi::Ansi(s) => {
-                            self.print_str(s);
+
+                        let w = utils::str_width(g.0);
+
+                        if width + w > max_width {
+                            width = max_width;
+                            continue;
                         }
+
+                        width += w;
+                        output.push_str(g.0);
+                    }
+                    utils::GraphemeOrAnsi::Ansi(s) => {
+                        output.push_str(s);
                     }
                 }
             }
@@ -747,7 +750,6 @@ pub struct TextOptions {
     pub mode: TextMode,
     pub horizontal: HorizontalAlignment,
     pub vertical: VerticalAlignment,
-    pub fill: bool,
 }
 
 impl TextOptions {
@@ -756,7 +758,6 @@ impl TextOptions {
             mode: TextMode::Span,
             horizontal: HorizontalAlignment::Left,
             vertical: VerticalAlignment::Top,
-            fill: false,
         }
     }
 
@@ -765,7 +766,6 @@ impl TextOptions {
             mode: TextMode::Span,
             horizontal: HorizontalAlignment::Center,
             vertical: VerticalAlignment::Center,
-            fill: false,
         }
     }
 
@@ -774,7 +774,6 @@ impl TextOptions {
             mode: TextMode::Span,
             horizontal: HorizontalAlignment::Center,
             vertical: VerticalAlignment::Top,
-            fill: false,
         }
     }
 
@@ -783,7 +782,6 @@ impl TextOptions {
             mode: TextMode::Span,
             horizontal: HorizontalAlignment::Right,
             vertical: VerticalAlignment::Top,
-            fill: false,
         }
     }
 
@@ -792,7 +790,6 @@ impl TextOptions {
             mode: TextMode::Paragraph,
             horizontal: HorizontalAlignment::Left,
             vertical: VerticalAlignment::Top,
-            fill: false,
         }
     }
 
@@ -801,7 +798,6 @@ impl TextOptions {
             mode: TextMode::Paragraph,
             horizontal: HorizontalAlignment::Center,
             vertical: VerticalAlignment::Center,
-            fill: false,
         }
     }
 
@@ -810,13 +806,7 @@ impl TextOptions {
             mode: TextMode::Paragraph,
             horizontal: HorizontalAlignment::Right,
             vertical: VerticalAlignment::Top,
-            fill: false,
         }
-    }
-
-    pub const fn with_fill(mut self) -> Self {
-        self.fill = true;
-        self
     }
 }
 
