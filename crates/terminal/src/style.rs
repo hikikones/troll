@@ -191,32 +191,28 @@ bitflags::bitflags! {
 }
 
 impl Attributes {
-    fn iter_sgr(self) -> impl Iterator<Item = Sgr> {
-        self.iter().map(|a| match a.bits() {
-            1 => Sgr::Reset,
-            2 => Sgr::Bold,
-            4 => Sgr::Faint,
-            8 => Sgr::Italic,
-            16 => Sgr::Underline,
-            // => Sgr::SlowBlink,
-            // => Sgr::RapidBlink,
-            32 => Sgr::Reverse,
-            64 => Sgr::Conceal,
-            128 => Sgr::CrossedOut,
-            // => Sgr::Framed,
-            // => Sgr::Encircled,
-            // => Sgr::Overlined,
-            256 => Sgr::NotBold,
-            512 => Sgr::NotItalic,
-            1024 => Sgr::NotUnderline,
-            // => Sgr::NotBlink,
-            2048 => Sgr::NotReverse,
-            4096 => Sgr::NotConceal,
-            8192 => Sgr::NotCrossedOut,
-            // => Sgr::NotFramedOrEncircled,
-            // => Sgr::NotOverlined,
+    fn as_sgr(self) -> Sgr {
+        match self {
+            Self::RESET => Sgr::Reset,
+            Self::BOLD => Sgr::Bold,
+            Self::FAINT => Sgr::Faint,
+            Self::ITALIC => Sgr::Italic,
+            Self::UNDERLINE => Sgr::Underline,
+            Self::REVERSE => Sgr::Reverse,
+            Self::CONCEAL => Sgr::Conceal,
+            Self::CROSSED_OUT => Sgr::CrossedOut,
+            Self::NOT_BOLD => Sgr::NotBold,
+            Self::NOT_ITALIC => Sgr::NotItalic,
+            Self::NOT_UNDERLINE => Sgr::NotUnderline,
+            Self::NOT_REVERSE => Sgr::NotReverse,
+            Self::NOT_CONCEAL => Sgr::NotConceal,
+            Self::NOT_CROSSED_OUT => Sgr::NotCrossedOut,
             _ => unreachable!(),
-        })
+        }
+    }
+
+    fn iter_sgr(self) -> impl Iterator<Item = Sgr> {
+        self.iter().map(Self::as_sgr)
     }
 }
 
