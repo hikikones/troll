@@ -59,7 +59,7 @@ impl SearchModal {
         frame.fill(area, bg);
 
         Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
-        frame.print_span(area, " Search ", HorizontalAlignment::Center);
+        frame.print_span(area, " Search ", HorizontalAlignment::Center, false);
 
         let inner = area.inner(Margin::proportional(1));
         let middle = inner.with_rows(1).center(inner);
@@ -69,6 +69,7 @@ impl SearchModal {
             inner.with_rows(1).center(inner),
             Styled::new("YOLO", style),
             HorizontalAlignment::Center,
+            false,
         );
     }
 

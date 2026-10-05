@@ -558,7 +558,13 @@ impl Framebuffer {
         let _ = write!(self.buf, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
-    pub fn print_span(&mut self, area: Rect, text: impl Display, align: HorizontalAlignment) {
+    pub fn print_span(
+        &mut self,
+        area: Rect,
+        text: impl Display,
+        align: HorizontalAlignment,
+        fill: bool,
+    ) {
         if area.is_empty() {
             return;
         }
@@ -569,7 +575,7 @@ impl Framebuffer {
         self.push_fmt(text);
         let text = &self.text[start..];
 
-        print_span(area.pos, area.size.cols, text, align, &mut self.buf);
+        print_span(area.pos, area.size.cols, text, align, fill, &mut self.buf);
 
         self.text.truncate(start);
     }
@@ -655,6 +661,7 @@ impl Framebuffer {
                     area.size.cols,
                     &self.text, // TODO: Newlines should be ignored?
                     opts.horizontal,
+                    opts.fill,
                     &mut self.buf,
                 );
             }
@@ -671,6 +678,7 @@ impl Framebuffer {
                         area.size.cols,
                         line,
                         opts.horizontal,
+                        opts.fill,
                         &mut self.buf,
                     );
                     area.pos.row += 1;
@@ -691,6 +699,7 @@ fn print_span(
     max_width: u16,
     text: &str,
     align: HorizontalAlignment,
+    fill: bool,
     output: &mut String,
 ) {
     use std::{cmp::Ordering, fmt::Write};
@@ -700,8 +709,22 @@ fn print_span(
         Ordering::Less => {
             // Room to spare, apply alignment
             let start_text_col = align.calc(pos.col, max_width, display_width);
-            let _ = write!(output, "{}", Cursor::Move(start_text_col, pos.row));
-            output.push_str(text);
+
+            if fill {
+                // Fill remaining empty cells with spaces
+                let _ = write!(output, "{}", Cursor::Move(pos.col, pos.row));
+
+                let empty_left_count = start_text_col - pos.col;
+                output.extend(std::iter::repeat_n(' ', empty_left_count as usize));
+
+                output.push_str(text);
+
+                let empty_right_count = max_width - (empty_left_count + display_width);
+                output.extend(std::iter::repeat_n(' ', empty_right_count as usize));
+            } else {
+                let _ = write!(output, "{}", Cursor::Move(start_text_col, pos.row));
+                output.push_str(text);
+            }
         }
         Ordering::Equal => {
             // Perfect fit, just print
@@ -723,6 +746,10 @@ fn print_span(
                         let w = utils::str_width(g.0);
 
                         if width + w > max_width {
+                            if fill {
+                                let remaining = max_width - width;
+                                output.extend(std::iter::repeat_n(' ', remaining as usize));
+                            }
                             width = max_width;
                             continue;
                         }
@@ -750,6 +777,7 @@ pub struct TextOptions {
     pub mode: TextMode,
     pub horizontal: HorizontalAlignment,
     pub vertical: VerticalAlignment,
+    pub fill: bool,
 }
 
 impl TextOptions {
@@ -758,6 +786,7 @@ impl TextOptions {
             mode: TextMode::Span,
             horizontal: HorizontalAlignment::Left,
             vertical: VerticalAlignment::Top,
+            fill: false,
         }
     }
 
@@ -766,6 +795,7 @@ impl TextOptions {
             mode: TextMode::Span,
             horizontal: HorizontalAlignment::Center,
             vertical: VerticalAlignment::Center,
+            fill: false,
         }
     }
 
@@ -774,6 +804,7 @@ impl TextOptions {
             mode: TextMode::Span,
             horizontal: HorizontalAlignment::Center,
             vertical: VerticalAlignment::Top,
+            fill: false,
         }
     }
 
@@ -782,6 +813,7 @@ impl TextOptions {
             mode: TextMode::Span,
             horizontal: HorizontalAlignment::Right,
             vertical: VerticalAlignment::Top,
+            fill: false,
         }
     }
 
@@ -790,6 +822,7 @@ impl TextOptions {
             mode: TextMode::Paragraph,
             horizontal: HorizontalAlignment::Left,
             vertical: VerticalAlignment::Top,
+            fill: false,
         }
     }
 
@@ -798,6 +831,7 @@ impl TextOptions {
             mode: TextMode::Paragraph,
             horizontal: HorizontalAlignment::Center,
             vertical: VerticalAlignment::Center,
+            fill: false,
         }
     }
 
@@ -806,7 +840,13 @@ impl TextOptions {
             mode: TextMode::Paragraph,
             horizontal: HorizontalAlignment::Right,
             vertical: VerticalAlignment::Top,
+            fill: false,
         }
+    }
+
+    pub const fn with_fill(mut self) -> Self {
+        self.fill = true;
+        self
     }
 }
 

@@ -142,18 +142,25 @@ impl TracksPage {
 
                 frame.print_fmt(style);
 
-                frame.print_span(title_area, track.title(), HorizontalAlignment::Left);
-                frame.print_span(artist_area, track.artist(), HorizontalAlignment::Left);
-                frame.print_span(album_area, track.album(), HorizontalAlignment::Left);
+                frame.print_span(title_area, track.title(), HorizontalAlignment::Left, false);
+                frame.print_span(
+                    artist_area,
+                    track.artist(),
+                    HorizontalAlignment::Left,
+                    false,
+                );
+                frame.print_span(album_area, track.album(), HorizontalAlignment::Left, false);
                 frame.print_span(
                     time_area,
                     track.duration_display(),
                     HorizontalAlignment::Left,
+                    false,
                 );
                 frame.print_span(
                     rating_area,
                     track.rating().stars(),
                     HorizontalAlignment::Left,
+                    false,
                 );
 
                 frame.print_fmt(Sgr::Reset);

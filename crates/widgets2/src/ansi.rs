@@ -167,7 +167,6 @@ impl AnsiViewer {
 
         let view_start = self.scroll;
         let view_end = self.scroll + inner.size.rows;
-        let align = self.options.alignment;
 
         let mut pos = inner.pos;
         let mut width = 0;
@@ -176,7 +175,7 @@ impl AnsiViewer {
         let max_width = self.view.cols;
 
         for line in self.ansi.lines() {
-            let col = align.calc_line(pos.col, max_width, line);
+            let col = self.options.alignment.calc_line(pos.col, max_width, line);
             frame.cursor(pos.with_col(col));
 
             let is_in_view = i >= view_start && i < view_end;
