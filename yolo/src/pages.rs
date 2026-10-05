@@ -259,7 +259,8 @@ impl DemoPage {
 
     fn render_modal(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         let area = area.with_size(area.size / 2).center(area);
-        Block::fill(colors.normal).render(area, frame);
+        frame.fill(area, colors.normal);
+
         Block::rectangle(colors.normal).render(area, frame);
         frame.push_str(" Custom Modal ");
         frame.render(area, TextOptions::span_center_top());

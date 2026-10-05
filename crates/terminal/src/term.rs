@@ -558,6 +558,17 @@ impl Framebuffer {
         let _ = write!(self.buf, "{}{content}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
+    pub fn fill(&mut self, area: Rect, color: Color) {
+        self.print_fmt(Sgr::Bg(color));
+
+        for i in 0..area.size.rows {
+            self.cursor(area.pos.with_row(area.pos.row + i));
+            self.print_ch_repeat(' ', area.size.cols);
+        }
+
+        self.print_fmt(Sgr::reset_bg());
+    }
+
     fn flush(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
         use crossterm::QueueableCommand;
 

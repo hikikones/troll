@@ -293,7 +293,8 @@ fn render_tracks_modal(mut frame: ResMut<Frame>, colors: Res<Colors>) {
     let area = area.with_size(area.size / 2).center(area);
 
     let bg = frame.palette().background().slight_offset().as_color();
-    Block::fill(Style::bg(bg)).render(area, &mut *frame);
+    frame.fill(area, bg);
+
     Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
     frame.push_str(" Custom ");
     frame.render(area, TextOptions::span_center_top());

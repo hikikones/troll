@@ -6,8 +6,6 @@ pub struct Block {
     style: Style,
 }
 
-// TODO: Move fill to Framebuffer?
-
 #[derive(Debug, Clone, Copy)]
 pub enum Shape {
     /// ```text
@@ -52,12 +50,6 @@ pub enum Shape {
     /// └   ┘
     /// ```
     Corners,
-    /// ```text
-    /// █████
-    /// █████
-    /// █████
-    /// ```
-    Fill,
 }
 
 impl Block {
@@ -67,10 +59,6 @@ impl Block {
 
     pub fn rectangle(style: impl Into<Style>) -> Self {
         Self::new(Shape::Rectangle, style.into())
-    }
-
-    pub fn fill(style: impl Into<Style>) -> Self {
-        Self::new(Shape::Fill, style.into())
     }
 
     pub fn render(self, area: Rect, frame: &mut Framebuffer) {
@@ -147,15 +135,6 @@ impl Block {
 
                 frame.print_fmt(self.style);
                 draw_corners(area, frame);
-                frame.print_fmt(Sgr::Reset);
-            }
-            Shape::Fill => {
-                if area.is_empty() {
-                    return;
-                }
-
-                frame.print_fmt(self.style);
-                fill(area, frame);
                 frame.print_fmt(Sgr::Reset);
             }
         }
@@ -237,11 +216,4 @@ fn draw_corners(area: Rect, frame: &mut Framebuffer) {
 
     frame.cursor(Pos::new(right, bottom));
     frame.print_ch('┘');
-}
-
-fn fill(area: Rect, frame: &mut Framebuffer) {
-    for i in 0..area.size.rows {
-        frame.cursor(area.pos.with_row(area.pos.row + i));
-        frame.print_ch_repeat(' ', area.size.cols);
-    }
 }
