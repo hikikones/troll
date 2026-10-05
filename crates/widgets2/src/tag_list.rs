@@ -229,7 +229,7 @@ impl TagList {
         self.process_items(inner, items.clone());
 
         let scroll_area = if self.is_scrollable(inner.size) {
-            let scroll_area = Scroll::make_scroll_area(&mut area, self.options.scrollbar_margin);
+            let scroll_area = Scroll::make_area(&mut area, self.options.scrollbar_margin);
             inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
 
             // Second pass after scrollbar

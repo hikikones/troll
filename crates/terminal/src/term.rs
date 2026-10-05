@@ -663,6 +663,9 @@ impl Framebuffer {
     ) {
         use std::cmp::Ordering;
 
+        // TODO: Remove fill option. Replace it with a dedicated method on Framebuffer.
+        // TODO: No need to calculate display width on HorizontalAlignment::Left.
+
         let display_width = utils::display_width(text) as u16;
         match display_width.cmp(&max_width) {
             Ordering::Less => {

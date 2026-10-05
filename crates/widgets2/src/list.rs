@@ -426,7 +426,7 @@ impl List {
             return None;
         }
 
-        let scroll_area = Scroll::make_scroll_area(area, self.options.scrollbar_margin);
+        let scroll_area = Scroll::make_area(area, self.options.scrollbar_margin);
         inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
         Some(scroll_area)
     }

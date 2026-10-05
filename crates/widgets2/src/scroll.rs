@@ -124,10 +124,6 @@ impl Default for Scrollbar {
 pub struct Scroll;
 
 impl Scroll {
-    pub const fn is_scrollable(lines: usize, viewport: Size, min_width: u16) -> bool {
-        lines > viewport.rows as usize && viewport.cols > min_width
-    }
-
     /// Calculates the scroll offset for provided data.
     /// Assumes the same height of one for each line.
     pub const fn calc(data: ScrollData) -> usize {
@@ -171,7 +167,11 @@ impl Scroll {
         }
     }
 
-    pub const fn make_scroll_area(area: &mut Rect, margin: u16) -> Rect {
+    pub const fn is_scrollable(lines: usize, viewport: Size, min_width: u16) -> bool {
+        lines > viewport.rows as usize && viewport.cols >= min_width
+    }
+
+    pub const fn make_area(area: &mut Rect, margin: u16) -> Rect {
         let scroll_area = Rect {
             pos: Pos {
                 col: area.pos.col + area.size.cols.saturating_sub(1),

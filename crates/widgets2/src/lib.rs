@@ -1,3 +1,4 @@
+mod ansi;
 mod block;
 mod editor;
 mod image;
@@ -6,6 +7,7 @@ mod prompt;
 mod scroll;
 mod tag_list;
 
+pub use ansi::*;
 pub use block::*;
 pub use editor::*;
 pub use image::*;
