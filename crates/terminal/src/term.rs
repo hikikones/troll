@@ -558,12 +558,15 @@ impl Framebuffer {
         let _ = write!(self.buf, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
-    pub fn print_span(
+    pub fn print_span(&mut self, area: Rect, text: impl Display) {
+        self.print_span_with_options(area, text, SpanOptions::left());
+    }
+
+    pub fn print_span_with_options(
         &mut self,
         area: Rect,
         text: impl Display,
-        align: HorizontalAlignment,
-        fill: bool,
+        options: SpanOptions,
     ) {
         if area.is_empty() {
             return;
@@ -575,7 +578,15 @@ impl Framebuffer {
         self.push_fmt(text);
         let text = &self.text[start..];
 
-        print_span(area.pos, area.size.cols, text, align, fill, &mut self.buf);
+        let row = options.vertical.calc(area.pos.row, area.size.rows, 1);
+        print_span(
+            area.pos.with_row(row),
+            area.size.cols,
+            text,
+            options.horizontal,
+            options.fill,
+            &mut self.buf,
+        );
 
         self.text.truncate(start);
     }
@@ -763,6 +774,58 @@ fn print_span(
                 }
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SpanOptions {
+    pub horizontal: HorizontalAlignment,
+    pub vertical: VerticalAlignment,
+    pub fill: bool,
+}
+
+impl SpanOptions {
+    pub const fn left() -> Self {
+        Self {
+            horizontal: HorizontalAlignment::Left,
+            vertical: VerticalAlignment::Top,
+            fill: false,
+        }
+    }
+
+    pub const fn center() -> Self {
+        Self {
+            horizontal: HorizontalAlignment::Center,
+            vertical: VerticalAlignment::Center,
+            fill: false,
+        }
+    }
+
+    pub const fn center_top() -> Self {
+        Self {
+            horizontal: HorizontalAlignment::Center,
+            vertical: VerticalAlignment::Top,
+            fill: false,
+        }
+    }
+
+    pub const fn right() -> Self {
+        Self {
+            horizontal: HorizontalAlignment::Right,
+            vertical: VerticalAlignment::Top,
+            fill: false,
+        }
+    }
+
+    pub const fn with_fill(mut self) -> Self {
+        self.fill = true;
+        self
+    }
+}
+
+impl Default for SpanOptions {
+    fn default() -> Self {
+        Self::left()
     }
 }
 

@@ -51,18 +51,16 @@ fn render_modals(modal: Res<State<Modal>>, mut frame: ResMut<Frame>, colors: Res
             frame.fill(area, bg);
 
             Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
-            frame.print_span(area, " Search ", HorizontalAlignment::Center, false);
+            frame.print_span_with_options(area, " Search ", SpanOptions::center_top());
 
-            let inner = area.inner(Margin::proportional(1));
-            let style = Style::fg(colors.secondary).with_bold().with_reverse();
-            frame.print_fmt(style);
-            frame.print_span(
-                inner.with_rows(1).center(inner),
-                "YOLO",
-                HorizontalAlignment::Center,
-                true,
+            frame.print_span_with_options(
+                area.inner(Margin::proportional(1)),
+                Styled::new(
+                    "YOLO",
+                    Style::fg(colors.secondary).with_bold().with_reverse(),
+                ),
+                SpanOptions::center().with_fill(),
             );
-            frame.print_fmt(Sgr::Reset);
         }
         Modal::Logs => {
             let area = area.with_size(area.size / 2).center(area);
