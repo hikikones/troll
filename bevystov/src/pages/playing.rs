@@ -46,6 +46,8 @@ struct PlayingPage {
     list: List,
     current_id: Option<TrackId>,
     current_qi: Option<usize>,
+    view_mode: ViewMode,
+    view_mode_small: ViewModeSmall,
     image_id: u8,
 }
 
@@ -78,9 +80,31 @@ impl Default for PlayingPage {
                 .with_padding(Margin::horizontal(1)),
             current_id: None,
             current_qi: None,
+            view_mode: ViewMode::Both,
+            view_mode_small: ViewModeSmall::Cover,
             image_id: 1,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ViewMode {
+    Cover,
+    Queue,
+    Both,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ViewModeSmall {
+    Cover,
+    Queue,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ViewFinal {
+    Small(ViewModeSmall),
+    Vertical,
+    Horizontal,
 }
 
 #[derive(Debug, Default)]
@@ -215,18 +239,69 @@ fn render_playing(
     mut page: ResMut<PlayingPage>,
     cover: NonSend<FrontCover>,
 ) {
-    page.update_scroll_on_new_track(&jukebox);
+    match page.view_mode {
+        ViewMode::Cover => {
+            render_cover(**area, &mut frame, &colors, &database, &jukebox, &cover);
+        }
+        ViewMode::Queue => {
+            page.update_scroll_on_new_track(&jukebox);
+            render_queue(
+                **area,
+                &mut frame,
+                &colors,
+                &database,
+                &jukebox,
+                &mut page.list,
+            );
+        }
+        ViewMode::Both => {
+            // Determine layout
+            let final_view = match frame.screen_size() {
+                (ScreenWidth::Narrow, ScreenHeight::Short) => {
+                    ViewFinal::Small(page.view_mode_small)
+                }
+                (ScreenWidth::Narrow, ScreenHeight::Normal) => ViewFinal::Vertical,
+                (ScreenWidth::Narrow, ScreenHeight::Tall) => ViewFinal::Vertical,
+                (ScreenWidth::Normal, ScreenHeight::Tall) => ViewFinal::Vertical,
+                (_, _) => ViewFinal::Horizontal,
+            };
 
-    let (left, right) = area.split_left(area.cols() * 40 / 100, 2);
-    render_cover(left, &mut *frame, &colors, &database, &jukebox, &cover);
-    render_queue(
-        right,
-        &mut *frame,
-        &colors,
-        &database,
-        &jukebox,
-        &mut page.list,
-    );
+            match final_view {
+                ViewFinal::Small(ViewModeSmall::Cover) => {
+                    render_cover(**area, &mut frame, &colors, &database, &jukebox, &cover);
+                }
+                ViewFinal::Small(ViewModeSmall::Queue) => {
+                    page.update_scroll_on_new_track(&jukebox);
+                    render_queue(
+                        **area,
+                        &mut frame,
+                        &colors,
+                        &database,
+                        &jukebox,
+                        &mut page.list,
+                    );
+                }
+                ViewFinal::Horizontal | ViewFinal::Vertical => {
+                    let (cover_area, queue_area) = if let ViewFinal::Horizontal = final_view {
+                        area.split_left(area.cols() * 40 / 100, 2)
+                    } else {
+                        area.split_top(area.rows() * 60 / 100, 1)
+                    };
+
+                    page.update_scroll_on_new_track(&jukebox);
+                    render_cover(cover_area, &mut frame, &colors, &database, &jukebox, &cover);
+                    render_queue(
+                        queue_area,
+                        &mut frame,
+                        &colors,
+                        &database,
+                        &jukebox,
+                        &mut page.list,
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn render_cover(

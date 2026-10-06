@@ -570,6 +570,9 @@ fn render_app(
 
             **page_area = body.inner(Margin::all(1));
             **shortcuts_area = bottom;
+
+            // TODO: remove
+            frame.print_span_with_options(bottom, "PAGE SHORTCUTS", SpanOptions::center_top());
         }
         ScreenHeight::Tall => {
             let (top, body, mut bottom) = area.split_ends(1, 6);
@@ -579,18 +582,36 @@ fn render_app(
             **page_area = body.inner(Margin::all(1));
             **shortcuts_area = bottom.with_rows(1);
 
+            // TODO: remove
+            frame.print_span_with_options(bottom, "PAGE SHORTCUTS", SpanOptions::center_top());
+
             bottom.shrink_down(2);
 
             let title_area = bottom.with_rows(1);
-            bottom.shrink_down(1);
-            let playback_area = bottom.with_rows(1);
-            bottom.shrink_down(1);
-            let play_shortcuts_area = bottom.with_rows(1);
-            bottom.shrink_down(1);
-            let app_shortcuts_area = bottom.with_rows(1);
+            frame.print_span_with_options(title_area, "TRACK TITLE", SpanOptions::center_top());
 
-            frame.push_str_fg("TODO BOTTOM", colors.normal);
-            frame.render(app_shortcuts_area, TextOptions::span_center_top());
+            bottom.shrink_down(1);
+
+            let playback_area = bottom.with_rows(1);
+            frame.print_span_with_options(playback_area, "PLAYBACK BAR", SpanOptions::center_top());
+
+            bottom.shrink_down(1);
+
+            let playback_shortcuts_area = bottom.with_rows(1);
+            frame.print_span_with_options(
+                playback_shortcuts_area,
+                "PLAYBACK SHORTCUTS",
+                SpanOptions::center_top(),
+            );
+
+            bottom.shrink_down(1);
+
+            let app_shortcuts_area = bottom.with_rows(1);
+            frame.print_span_with_options(
+                app_shortcuts_area,
+                "APP SHORTCUTS",
+                SpanOptions::center_top(),
+            );
         }
     }
 }

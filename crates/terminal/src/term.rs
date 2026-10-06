@@ -186,8 +186,8 @@ pub struct ScreenSizeThresholds {
 
 impl ScreenSizeThresholds {
     const DEFAULT: Self = Self {
-        width_normal: 68,
-        width_wide: 108,
+        width_normal: 40,
+        width_wide: 80,
         height_normal: 20,
         height_tall: 30,
     };
