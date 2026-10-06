@@ -126,6 +126,8 @@ impl App {
 
     fn render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         terminal.render(|frame| {
+            frame.query_term_size()?;
+
             let area = frame.area();
 
             frame.print_fmt(KittyDeleteAll);

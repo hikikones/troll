@@ -34,6 +34,7 @@ impl Terminal {
 
     pub const fn with_thresholds(mut self, thresholds: ScreenSizeThresholds) -> Self {
         self.buffer.thresholds = thresholds;
+        self.buffer.screen = ScreenSize::new(self.buffer.size.window_size(), thresholds);
         self
     }
 
@@ -72,9 +73,6 @@ impl Terminal {
         &mut self,
         f: impl FnOnce(&mut Framebuffer) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
-        // Move this to a method on buffer? Caller can then decide when to query again.
-        self.buffer.size = TerminalSize::from(crossterm::terminal::window_size()?);
-
         f(&mut self.buffer)?;
 
         self.buffer.flush(&mut self.backend.lock())
@@ -84,6 +82,7 @@ impl Terminal {
         Self::leave_alternate_screen(&mut self.backend)?;
         let t = f();
         Self::enter_alternate_screen(&mut self.backend)?;
+
         t
     }
 
@@ -161,44 +160,84 @@ impl TerminalSize {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScreenSize {
-    Small,
-    Medium,
-    Large,
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenWidth {
+    Narrow,
+    #[default]
+    Normal,
+    Wide,
 }
 
-impl ScreenSize {
-    pub const fn new(window_size: Size, thresholds: ScreenSizeThresholds) -> ScreenSize {
-        let ScreenSizeThresholds { medium, large } = thresholds;
-        match (window_size.cols, window_size.rows) {
-            (w, h) if w < medium.cols || h < medium.rows => Self::Small,
-            (w, h) if w < large.cols || h < large.rows => Self::Medium,
-            _ => Self::Large,
-        }
-    }
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenHeight {
+    Short,
+    #[default]
+    Normal,
+    Tall,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct ScreenSizeThresholds {
-    pub medium: Size,
-    pub large: Size,
+    pub width_normal: u16,
+    pub width_wide: u16,
+    pub height_normal: u16,
+    pub height_tall: u16,
 }
 
 impl ScreenSizeThresholds {
-    pub const DEFAULT: Self = Self {
-        medium: Size::new(68, 20),
-        large: Size::new(108, 30),
+    const DEFAULT: Self = Self {
+        width_normal: 68,
+        width_wide: 108,
+        height_normal: 20,
+        height_tall: 30,
     };
-
-    pub const fn new(medium: Size, large: Size) -> Self {
-        Self { medium, large }
-    }
 }
 
 impl Default for ScreenSizeThresholds {
     fn default() -> Self {
         Self::DEFAULT
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ScreenSize {
+    width: ScreenWidth,
+    height: ScreenHeight,
+}
+
+impl ScreenSize {
+    const fn new(window_size: Size, thresholds: ScreenSizeThresholds) -> ScreenSize {
+        let ScreenSizeThresholds {
+            width_normal,
+            width_wide,
+            height_normal,
+            height_tall,
+        } = thresholds;
+
+        let width = match window_size.cols {
+            w if w < width_normal => ScreenWidth::Narrow,
+            w if w < width_wide => ScreenWidth::Normal,
+            _ => ScreenWidth::Wide,
+        };
+        let height = match window_size.rows {
+            h if h < height_normal => ScreenHeight::Short,
+            h if h < height_tall => ScreenHeight::Normal,
+            _ => ScreenHeight::Tall,
+        };
+
+        Self { width, height }
+    }
+
+    pub const fn width(&self) -> ScreenWidth {
+        self.width
+    }
+
+    pub const fn height(&self) -> ScreenHeight {
+        self.height
+    }
+
+    pub const fn both(&self) -> (ScreenWidth, ScreenHeight) {
+        (self.width, self.height)
     }
 }
 
@@ -524,6 +563,7 @@ pub struct Framebuffer {
     buf: String,
     text: String,
     size: TerminalSize,
+    screen: ScreenSize,
     thresholds: ScreenSizeThresholds,
     palette: TerminalPalette,
     cursor_state: CursorState,
@@ -543,6 +583,7 @@ impl Framebuffer {
             buf: String::new(),
             text: String::new(),
             size,
+            screen: ScreenSize::new(size.window_size(), ScreenSizeThresholds::DEFAULT),
             thresholds: ScreenSizeThresholds::DEFAULT,
             palette,
             cursor_state: CursorState::Hide,
@@ -550,16 +591,29 @@ impl Framebuffer {
         }
     }
 
+    pub fn query_term_size(&mut self) -> std::io::Result<()> {
+        let win_size = crossterm::terminal::window_size()?;
+
+        self.size = TerminalSize::from(win_size);
+        self.screen = ScreenSize::new(self.size.window_size(), self.thresholds);
+
+        Ok(())
+    }
+
     pub const fn term_size(&self) -> TerminalSize {
         self.size
     }
 
-    pub const fn set_term_size(&mut self, size: TerminalSize) {
-        self.size = size;
+    pub const fn screen_width(&self) -> ScreenWidth {
+        self.screen.width
     }
 
-    pub const fn screen_size(&self) -> ScreenSize {
-        ScreenSize::new(self.size.window_size(), self.thresholds)
+    pub const fn screen_height(&self) -> ScreenHeight {
+        self.screen.height
+    }
+
+    pub const fn screen_size(&self) -> (ScreenWidth, ScreenHeight) {
+        (self.screen.width, self.screen.height)
     }
 
     pub const fn palette(&self) -> &TerminalPalette {

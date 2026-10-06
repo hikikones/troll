@@ -60,7 +60,8 @@ impl App {
             .insert_resource(Actions::default())
             .insert_resource(colors)
             .insert_resource(modal_colors)
-            .insert_resource(PageArea::default());
+            .insert_resource(PageArea::default())
+            .insert_resource(ShortcutsArea::default());
 
         app.add_state(InputState::default());
 
@@ -248,7 +249,7 @@ impl App {
     fn run_render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         terminal.render(|buffer| {
             let mut frame = self.world.resource_mut::<Frame>();
-            frame.set_term_size(buffer.term_size()); // TODO: Move term size query to Framebuffer so caller can decide.
+            frame.query_term_size()?;
 
             self.schedules.render.run(&mut self.world);
 
@@ -498,6 +499,9 @@ struct ModalColors(Colors);
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct PageArea(Rect);
 
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct ShortcutsArea(Rect);
+
 fn input_app(
     mut input: ResMut<Input>,
     mut actions: ResMut<Actions>,
@@ -548,34 +552,63 @@ fn swap_colors(
 fn render_app(
     mut frame: ResMut<Frame>,
     mut page_area: ResMut<PageArea>,
+    mut shortcuts_area: ResMut<ShortcutsArea>,
     colors: Res<Colors>,
     current_page: Res<State<Page>>,
 ) {
     let area = frame.area();
 
-    let (top, body, bottom) = area.split_ends(1, 1);
+    match frame.screen_height() {
+        ScreenHeight::Short => {
+            **page_area = area;
+            **shortcuts_area = Rect::ZERO;
+        }
+        ScreenHeight::Normal => {
+            let (top, body, bottom) = area.split_ends(1, 1);
 
-    // Navigation
+            render_navigation(top, &mut frame, &colors, **current_page);
+
+            **page_area = body.inner(Margin::all(1));
+            **shortcuts_area = bottom;
+        }
+        ScreenHeight::Tall => {
+            let (top, body, mut bottom) = area.split_ends(1, 6);
+
+            render_navigation(top, &mut frame, &colors, **current_page);
+
+            **page_area = body.inner(Margin::all(1));
+            **shortcuts_area = bottom.with_rows(1);
+
+            bottom.shrink_down(2);
+
+            let title_area = bottom.with_rows(1);
+            bottom.shrink_down(1);
+            let playback_area = bottom.with_rows(1);
+            bottom.shrink_down(1);
+            let play_shortcuts_area = bottom.with_rows(1);
+            bottom.shrink_down(1);
+            let app_shortcuts_area = bottom.with_rows(1);
+
+            frame.push_str_fg("TODO BOTTOM", colors.normal);
+            frame.render(app_shortcuts_area, TextOptions::span_center_top());
+        }
+    }
+}
+
+fn render_navigation(area: Rect, frame: &mut Framebuffer, colors: &Colors, current_page: Page) {
     for (page, name, gap) in [
         (Page::Tracks, "Tracks", 3),
         (Page::NowPlaying, "Now Playing", 3),
         (Page::Settings, "Settings", 0),
     ] {
-        if *current_page == page {
+        if current_page == page {
             frame.push_fmt(Styled::new(name, Style::fg(colors.primary).with_bold()));
         } else {
             frame.push_str_fg(name, colors.normal);
         }
         frame.push_ch_repeat(' ', gap);
     }
-    frame.render(top, TextOptions::span_center_top());
-
-    // Setup area for pages
-    **page_area = body.inner(Margin::all(1));
-
-    // Global shortcuts
-    frame.push_str_fg("TODO BOTTOM", colors.normal);
-    frame.render(bottom, TextOptions::span_center_top());
+    frame.render(area, TextOptions::span_center_top());
 }
 
 fn update_app(
