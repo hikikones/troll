@@ -101,7 +101,7 @@ impl Image {
     }
 
     pub fn render(&self, area: Rect, frame: &mut Framebuffer, options: ImageOptions) -> Rect {
-        let cell_dims = frame.size().cell_dims();
+        let cell_dims = frame.term_size().cell_dims();
         let ImageOptions {
             resize,
             horizontal,
@@ -117,6 +117,7 @@ impl Image {
         // Render
         frame.cursor(area.pos);
         frame.print_fmt(render);
+
         area
     }
 }
@@ -666,7 +667,7 @@ impl KittyImage {
         kitty: &KittyGraphics,
         options: ImageOptions,
     ) {
-        let cell_dims = frame.size().cell_dims();
+        let cell_dims = frame.term_size().cell_dims();
         let ImageOptions {
             resize,
             horizontal,

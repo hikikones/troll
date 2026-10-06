@@ -120,7 +120,7 @@ impl Block {
                 }
             }
             Shape::Rectangle => {
-                if area.size.is_less(2) {
+                if area.size.is_either_less(2) {
                     return;
                 }
 
@@ -129,7 +129,7 @@ impl Block {
                 frame.print_fmt(Sgr::Reset);
             }
             Shape::Corners => {
-                if area.size.is_less(2) {
+                if area.size.is_either_less(2) {
                     return;
                 }
 

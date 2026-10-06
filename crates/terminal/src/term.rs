@@ -32,6 +32,11 @@ impl Terminal {
         })
     }
 
+    pub const fn with_thresholds(mut self, thresholds: ScreenSizeThresholds) -> Self {
+        self.buffer.thresholds = thresholds;
+        self
+    }
+
     pub fn enter<T>(
         mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Box<dyn std::error::Error>>,
@@ -67,7 +72,8 @@ impl Terminal {
         &mut self,
         f: impl FnOnce(&mut Framebuffer) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
-        self.buffer.size = TerminalSize::query()?;
+        // Move this to a method on buffer? Caller can then decide when to query again.
+        self.buffer.size = TerminalSize::from(crossterm::terminal::window_size()?);
 
         f(&mut self.buffer)?;
 
@@ -102,7 +108,7 @@ impl Terminal {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct TerminalSize {
     cols: u16,
     rows: u16,
@@ -121,12 +127,16 @@ impl TerminalSize {
             ));
         }
 
-        Ok(Self {
+        Ok(Self::from(win_size))
+    }
+
+    const fn from(win_size: crossterm::terminal::WindowSize) -> Self {
+        Self {
             cols: win_size.columns,
             rows: win_size.rows,
             width: win_size.width,
             height: win_size.height,
-        })
+        }
     }
 
     pub const fn window_size(&self) -> Size {
@@ -148,6 +158,47 @@ impl TerminalSize {
             width: self.width / self.cols,
             height: self.height / self.rows,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenSize {
+    Small,
+    Medium,
+    Large,
+}
+
+impl ScreenSize {
+    pub const fn new(window_size: Size, thresholds: ScreenSizeThresholds) -> ScreenSize {
+        let ScreenSizeThresholds { medium, large } = thresholds;
+        match (window_size.cols, window_size.rows) {
+            (w, h) if w < medium.cols || h < medium.rows => Self::Small,
+            (w, h) if w < large.cols || h < large.rows => Self::Medium,
+            _ => Self::Large,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ScreenSizeThresholds {
+    pub medium: Size,
+    pub large: Size,
+}
+
+impl ScreenSizeThresholds {
+    pub const DEFAULT: Self = Self {
+        medium: Size::new(68, 20),
+        large: Size::new(108, 30),
+    };
+
+    pub const fn new(medium: Size, large: Size) -> Self {
+        Self { medium, large }
+    }
+}
+
+impl Default for ScreenSizeThresholds {
+    fn default() -> Self {
+        Self::DEFAULT
     }
 }
 
@@ -473,6 +524,7 @@ pub struct Framebuffer {
     buf: String,
     text: String,
     size: TerminalSize,
+    thresholds: ScreenSizeThresholds,
     palette: TerminalPalette,
     cursor_state: CursorState,
     cursor_pos_at_end: Option<Pos>,
@@ -491,18 +543,23 @@ impl Framebuffer {
             buf: String::new(),
             text: String::new(),
             size,
+            thresholds: ScreenSizeThresholds::DEFAULT,
             palette,
             cursor_state: CursorState::Hide,
             cursor_pos_at_end: None,
         }
     }
 
-    pub const fn size(&self) -> &TerminalSize {
-        &self.size
+    pub const fn term_size(&self) -> TerminalSize {
+        self.size
     }
 
-    pub const fn set_size(&mut self, size: TerminalSize) {
+    pub const fn set_term_size(&mut self, size: TerminalSize) {
         self.size = size;
+    }
+
+    pub const fn screen_size(&self) -> ScreenSize {
+        ScreenSize::new(self.size.window_size(), self.thresholds)
     }
 
     pub const fn palette(&self) -> &TerminalPalette {
@@ -605,7 +662,7 @@ impl Framebuffer {
     fn flush(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
         use crossterm::QueueableCommand;
 
-        if self.size.window_size().is_less(2) {
+        if self.size.window_size().is_either_less(2) {
             self.clear();
             return Ok(());
         }

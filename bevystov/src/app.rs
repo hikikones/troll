@@ -248,7 +248,7 @@ impl App {
     fn run_render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         terminal.render(|buffer| {
             let mut frame = self.world.resource_mut::<Frame>();
-            frame.set_size(buffer.size().clone());
+            frame.set_term_size(buffer.term_size()); // TODO: Move term size query to Framebuffer so caller can decide.
 
             self.schedules.render.run(&mut self.world);
 

@@ -209,11 +209,45 @@ impl Rect {
 
     pub const fn split_left(self, left: u16, gap: u16) -> (Self, Self) {
         (
-            self.with_cols(left),
-            Self {
-                pos: self.pos.with_col(self.col() + left + gap),
-                size: self.size.with_cols(self.cols().saturating_sub(left + gap)),
-            },
+            self.inner(Margin::right(self.cols().saturating_sub(left))),
+            self.inner(Margin::left(left + gap)),
+        )
+    }
+
+    pub const fn split_right(self, right: u16, gap: u16) -> (Self, Self) {
+        (
+            self.inner(Margin::right(right + gap)),
+            self.inner(Margin::left(self.cols().saturating_sub(right))),
+        )
+    }
+
+    pub const fn split_top(self, top: u16, gap: u16) -> (Self, Self) {
+        (
+            self.inner(Margin::bottom(self.rows().saturating_sub(top))),
+            self.inner(Margin::top(top + gap)),
+        )
+    }
+
+    pub const fn split_bottom(self, bottom: u16, gap: u16) -> (Self, Self) {
+        (
+            self.inner(Margin::bottom(bottom + gap)),
+            self.inner(Margin::top(self.rows().saturating_sub(bottom))),
+        )
+    }
+
+    pub const fn split_sides(self, left: u16, right: u16) -> (Self, Self, Self) {
+        (
+            self.inner(Margin::right(self.cols().saturating_sub(left))),
+            self.inner(Margin::sides(left, right)),
+            self.inner(Margin::left(self.cols().saturating_sub(right))),
+        )
+    }
+
+    pub const fn split_ends(self, top: u16, bottom: u16) -> (Self, Self, Self) {
+        (
+            self.inner(Margin::bottom(self.rows().saturating_sub(top))),
+            self.inner(Margin::ends(top, bottom)),
+            self.inner(Margin::top(self.rows().saturating_sub(bottom))),
         )
     }
 
@@ -262,22 +296,6 @@ impl Rect {
                     .with_col(self.pos.col + left_cols + 1 + extra_gaps * 2),
                 size: self.size.with_cols(left_cols),
             },
-        )
-    }
-
-    pub const fn split_sides(self, left: u16, right: u16) -> (Self, Self, Self) {
-        (
-            self.inner(Margin::right(self.cols().saturating_sub(left))),
-            self.inner(Margin::sides(left, right)),
-            self.inner(Margin::left(self.cols().saturating_sub(right))),
-        )
-    }
-
-    pub const fn split_ends(self, top: u16, bottom: u16) -> (Self, Self, Self) {
-        (
-            self.inner(Margin::bottom(self.rows().saturating_sub(top))),
-            self.inner(Margin::ends(top, bottom)),
-            self.inner(Margin::top(self.rows().saturating_sub(bottom))),
         )
     }
 
@@ -490,7 +508,7 @@ impl Size {
         self.cols == 0 || self.rows == 0
     }
 
-    pub const fn is_less(&self, v: u16) -> bool {
+    pub const fn is_either_less(&self, v: u16) -> bool {
         self.cols < v || self.rows < v
     }
 
