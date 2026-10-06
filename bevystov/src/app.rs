@@ -64,11 +64,14 @@ impl App {
 
         app.add_state(InputState::default());
 
-        app.add_input(InputState::Normal, input_app)
-            .add_render(RenderSet::SetColors, swap_colors)
+        app.add_render(RenderSet::SetColors, swap_colors)
             .add_render(RenderSet::App, render_app)
             .add_render(RenderSet::ResetColors, swap_colors)
             .add_update(update_app);
+
+        app.schedules
+            .input
+            .add_systems(input_app.in_set(InputSet::Global));
 
         PagesPlugin::build(&mut app);
         ModalsPlugin::build(&mut app);
@@ -98,7 +101,7 @@ impl App {
             if let Some(event) = Terminal::poll(update.timeout).unwrap() {
                 match event {
                     TerminalEvent::Key(key) => {
-                        self.insert_resource(Input(key));
+                        self.insert_resource(Input(Some(key)));
                         self.run_input(terminal)?;
                     }
                     TerminalEvent::Resize => {
@@ -200,7 +203,7 @@ impl App {
     ) -> &mut Self {
         self.schedules
             .input
-            .add_systems(systems.run_if(in_state(state)));
+            .add_systems(systems.in_set(InputSet::Normal).run_if(in_state(state)));
         self
     }
 
@@ -286,8 +289,8 @@ impl App {
         }
 
         let mut render = false;
-
         let mut actions = self.world.remove_resource::<Actions>().unwrap();
+
         for action in actions.drain(..) {
             match action {
                 Action::Render => {
@@ -296,34 +299,52 @@ impl App {
                 Action::Route(route) => {
                     render = true;
 
-                    let mut next_page = self.world.resource_mut::<NextState<Page>>();
-                    next_page.set(route.as_page());
+                    let modal = *self.world.resource::<State<Modal>>().get();
+                    if modal.is_active() {
+                        self.world
+                            .resource_mut::<NextState<Modal>>()
+                            .set(Modal::Canceled);
+                        self.world
+                            .resource_mut::<NextState<InputState>>()
+                            .set(InputState::Normal);
+                    } else {
+                        self.world
+                            .resource_mut::<NextState<Page>>()
+                            .set(route.as_page());
 
-                    match route {
-                        Route::Tracks(id) => {
-                            let mut page = self.world.resource_mut::<TracksPage>();
-                            page.set_params(id);
+                        match route {
+                            Route::Tracks(id) => {
+                                let mut page = self.world.resource_mut::<TracksPage>();
+                                page.set_params(id);
+                            }
+                            Route::NowPlaying => {}
+                            Route::Settings => {}
                         }
-                        Route::NowPlaying => {}
-                        Route::Settings => {}
                     }
                 }
                 Action::Modal(modal) => {
-                    render = true;
+                    let current = *self.world.resource::<State<Modal>>().get();
+                    let next = match (current, modal) {
+                        (Modal::Search, Modal::Search) => Modal::Canceled,
+                        (Modal::Logs, Modal::Logs) => Modal::Canceled,
+                        (_, _) => modal,
+                    };
 
-                    let mut next_modal = self.world.resource_mut::<NextState<Modal>>();
-                    next_modal.set(modal);
-
-                    let mut next_input = self.world.resource_mut::<NextState<InputState>>();
-                    next_input.set(InputState::from(modal));
+                    if current != next {
+                        render = true;
+                        self.world.resource_mut::<NextState<Modal>>().set(next);
+                        self.world
+                            .resource_mut::<NextState<InputState>>()
+                            .set(next.as_input_state());
+                    }
                 }
                 Action::Quit => {
                     self.is_running = false;
                 }
             }
         }
-        self.world.insert_resource(actions);
 
+        self.world.insert_resource(actions);
         render
     }
 }
@@ -362,8 +383,9 @@ struct Schedules {
 
 impl Schedules {
     fn new() -> Self {
-        let input = Schedule::default();
-        let update = Schedule::default();
+        let mut input = Schedule::default();
+        input.configure_sets((InputSet::Global, InputSet::Normal).chain());
+
         let mut render = Schedule::default();
         render.configure_sets(
             (
@@ -378,8 +400,8 @@ impl Schedules {
 
         Self {
             input,
-            update,
             render,
+            update: Schedule::default(),
         }
     }
 }
@@ -396,6 +418,12 @@ pub enum RenderSet {
     Modal,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, SystemSet)]
+enum InputSet {
+    Global,
+    Normal,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, States)]
 pub enum InputState {
     #[default]
@@ -403,24 +431,20 @@ pub enum InputState {
     Modal,
 }
 
-impl InputState {
-    const fn from(modal: Modal) -> Self {
-        match modal {
-            Modal::Search | Modal::Logs | Modal::Custom => Self::Modal,
-            Modal::Confirmed | Modal::Canceled => Self::Normal,
-        }
+#[derive(Debug, Default, Resource)]
+pub struct Input(Option<Key>);
+
+impl Input {
+    const fn take(&mut self) -> Key {
+        self.0.take().unwrap()
     }
-}
 
-#[derive(Resource, Deref)]
-pub struct Input(Key);
+    const fn set(&mut self, key: Key) {
+        self.0 = Some(key);
+    }
 
-impl Default for Input {
-    fn default() -> Self {
-        Self(Key {
-            code: KeyCode::Esc,
-            modifiers: KeyModifiers::empty(),
-        })
+    pub const fn get(&self) -> Option<Key> {
+        self.0
     }
 }
 
@@ -429,7 +453,6 @@ pub enum Action {
     Render,
     Route(Route),
     Modal(Modal),
-    // Clear,
     Quit,
 }
 
@@ -476,12 +499,14 @@ struct ModalColors(Colors);
 pub struct PageArea(Rect);
 
 fn input_app(
-    key: Res<Input>,
+    mut input: ResMut<Input>,
     mut actions: ResMut<Actions>,
     page: Res<State<Page>>,
     mut jukebox: NonSendMut<Jukebox>,
     database: NonSend<Database>,
 ) {
+    let key = input.take();
+
     match key.code {
         KeyCode::Esc => actions.push(Action::Quit),
         KeyCode::Tab => actions.push(Action::Route(page.next())),
@@ -504,7 +529,9 @@ fn input_app(
         KeyCode::Char('l') if key.ctrl() => {
             actions.push(Action::Modal(Modal::Logs));
         }
-        _ => {}
+        _ => {
+            input.set(key);
+        }
     }
 }
 

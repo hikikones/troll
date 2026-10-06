@@ -3,15 +3,13 @@ use bevy_state::state::{State, States};
 use terminal::*;
 use widgets2::Block;
 
-use crate::app::{Action, Actions, App, Colors, Frame, Input, InputState, RenderSet};
+use crate::app::{App, Colors, Frame, InputState, RenderSet};
 
 pub struct ModalsPlugin;
 
 impl ModalsPlugin {
     pub fn build(app: &mut App) {
-        app.add_state(Modal::default());
-
-        app.add_input(InputState::Modal, input_modals)
+        app.add_state(Modal::default())
             .add_render(RenderSet::Modal, render_modals);
     }
 }
@@ -33,28 +31,12 @@ impl Modal {
             Self::Confirmed | Self::Canceled => false,
         }
     }
-}
 
-fn input_modals(key: Res<Input>, mut actions: ResMut<Actions>, modal: Res<State<Modal>>) {
-    if let KeyCode::Esc = key.code {
-        actions.push(Action::Quit);
-        return;
-    }
-
-    match **modal {
-        Modal::Search => match key.code {
-            KeyCode::Char('f') if key.ctrl() => {
-                actions.push(Action::Modal(Modal::Canceled));
-            }
-            _ => {}
-        },
-        Modal::Logs => match key.code {
-            KeyCode::Char('l') if key.ctrl() => {
-                actions.push(Action::Modal(Modal::Canceled));
-            }
-            _ => {}
-        },
-        Modal::Custom | Modal::Confirmed | Modal::Canceled => {}
+    pub const fn as_input_state(self) -> InputState {
+        match self {
+            Self::Search | Self::Logs | Self::Custom => InputState::Modal,
+            Self::Confirmed | Self::Canceled => InputState::Normal,
+        }
     }
 }
 

@@ -70,12 +70,16 @@ impl Default for TracksPage {
 }
 
 fn input_tracks(
-    key: Res<Input>,
+    input: Res<Input>,
     mut db: NonSendMut<Database>,
     mut jb: NonSendMut<Jukebox>,
     mut page: ResMut<TracksPage>,
     mut actions: ResMut<Actions>,
 ) {
+    let Some(key) = input.get() else {
+        return;
+    };
+
     match key.code {
         KeyCode::Enter => {
             if let Some(id) = db.get_id_from_index(page.list.index()) {
@@ -131,20 +135,24 @@ fn input_tracks(
                 actions.push(Action::Modal(Modal::Custom));
             }
             _ => {
-                if page.list.input(**key) {
+                if page.list.input(key) {
                     actions.push(Action::Render);
                 }
             }
         },
         _ => {
-            if page.list.input(**key) {
+            if page.list.input(key) {
                 actions.push(Action::Render);
             }
         }
     }
 }
 
-fn input_tracks_modal(key: Res<Input>, mut actions: ResMut<Actions>) {
+fn input_tracks_modal(input: Res<Input>, mut actions: ResMut<Actions>) {
+    let Some(key) = input.get() else {
+        return;
+    };
+
     match key.code {
         KeyCode::Char('m') => {
             actions.push(Action::Modal(Modal::Canceled));

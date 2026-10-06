@@ -97,7 +97,7 @@ impl FrontCover {
 }
 
 fn input_playing(
-    key: Res<Input>,
+    input: Res<Input>,
     mut page: ResMut<PlayingPage>,
     mut actions: ResMut<Actions>,
     mut db: NonSendMut<Database>,
@@ -106,6 +106,10 @@ fn input_playing(
     if jb.is_empty() {
         return;
     }
+
+    let Some(key) = input.get() else {
+        return;
+    };
 
     match key.code {
         KeyCode::Enter => {
@@ -189,13 +193,13 @@ fn input_playing(
                 }
             }
             _ => {
-                if page.list.input(**key) {
+                if page.list.input(key) {
                     actions.push(Action::Render);
                 }
             }
         },
         _ => {
-            if page.list.input(**key) {
+            if page.list.input(key) {
                 actions.push(Action::Render);
             }
         }

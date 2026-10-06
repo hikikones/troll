@@ -29,7 +29,11 @@ impl SettingsPagePlugin {
     }
 }
 
-fn input_settings(key: Res<Input>, mut reader: ResMut<Reader>, mut actions: ResMut<Actions>) {
+fn input_settings(input: Res<Input>, mut reader: ResMut<Reader>, mut actions: ResMut<Actions>) {
+    let Some(key) = input.get() else {
+        return;
+    };
+
     if reader.0.input(key.code) {
         actions.push(Action::Render);
     }
