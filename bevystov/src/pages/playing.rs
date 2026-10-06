@@ -47,7 +47,7 @@ struct PlayingPage {
     current_id: Option<TrackId>,
     current_qi: Option<usize>,
     view_mode: ViewMode,
-    view_mode_small: ViewModeSmall,
+    view_small: ViewSmall,
     image_id: u8,
 }
 
@@ -81,7 +81,7 @@ impl Default for PlayingPage {
             current_id: None,
             current_qi: None,
             view_mode: ViewMode::Both,
-            view_mode_small: ViewModeSmall::Cover,
+            view_small: ViewSmall::Cover,
             image_id: 1,
         }
     }
@@ -95,14 +95,14 @@ enum ViewMode {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum ViewModeSmall {
+enum ViewSmall {
     Cover,
     Queue,
 }
 
 #[derive(Debug, Clone, Copy)]
 enum ViewFinal {
-    Small(ViewModeSmall),
+    Small(ViewSmall),
     Vertical,
     Horizontal,
 }
@@ -117,6 +117,43 @@ impl FrontCover {
     fn clear(&mut self) {
         self.result = None;
         self.handle = None;
+    }
+
+    fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) -> Rect {
+        match self.result.as_ref() {
+            Some(Ok(Some(image))) => {
+                return image.render(area, frame, ImageOptions::fit_center());
+            }
+            Some(Ok(None)) => {
+                Block::rectangle(colors.neutral).render(area, frame);
+                frame.print_fmt(Sgr::Fg(colors.neutral));
+                frame.push_str("No Image");
+                frame.render(
+                    area.inner(Margin::proportional(1)),
+                    TextOptions::span_center(),
+                );
+                frame.print_fmt(Sgr::reset_fg());
+            }
+            Some(Err(err)) => {
+                Block::rectangle(colors.red).render(area, frame);
+                frame.print_fmt(Sgr::Fg(colors.red));
+                frame.push_fmt(format_args!("ERROR\n{err}"));
+                frame.render(
+                    area.inner(Margin::proportional(1)),
+                    TextOptions::paragraph_center(),
+                );
+                frame.print_fmt(Sgr::reset_fg());
+            }
+            None => {
+                frame.push_str_fg("Loading", colors.neutral);
+                frame.render(
+                    area.inner(Margin::proportional(1)),
+                    TextOptions::span_center(),
+                );
+            }
+        }
+
+        area
     }
 }
 
@@ -257,9 +294,7 @@ fn render_playing(
         ViewMode::Both => {
             // Determine layout
             let final_view = match frame.screen_size() {
-                (ScreenWidth::Narrow, ScreenHeight::Short) => {
-                    ViewFinal::Small(page.view_mode_small)
-                }
+                (ScreenWidth::Narrow, ScreenHeight::Short) => ViewFinal::Small(page.view_small),
                 (ScreenWidth::Narrow, ScreenHeight::Normal) => ViewFinal::Vertical,
                 (ScreenWidth::Narrow, ScreenHeight::Tall) => ViewFinal::Vertical,
                 (ScreenWidth::Normal, ScreenHeight::Tall) => ViewFinal::Vertical,
@@ -267,10 +302,10 @@ fn render_playing(
             };
 
             match final_view {
-                ViewFinal::Small(ViewModeSmall::Cover) => {
+                ViewFinal::Small(ViewSmall::Cover) => {
                     render_cover(**area, &mut frame, &colors, &database, &jukebox, &cover);
                 }
-                ViewFinal::Small(ViewModeSmall::Queue) => {
+                ViewFinal::Small(ViewSmall::Queue) => {
                     page.update_scroll_on_new_track(&jukebox);
                     render_queue(
                         **area,
@@ -327,48 +362,22 @@ fn render_cover(
         return;
     };
 
-    let (_, cover_area, mut stars_area) = area.split_ends(1, 1);
-    let mut image_area = stars_area;
+    if area.size.rows > 15 {
+        let image_area = cover.render(area.inner(Margin::vertical(1)), frame, colors);
 
-    match cover.result.as_ref() {
-        Some(Ok(Some(image))) => {
-            image_area = image.render(cover_area, frame, ImageOptions::fit_center());
-        }
-        Some(Ok(None)) => {
-            Block::rectangle(colors.neutral).render(cover_area, frame);
-            frame.print_fmt(Sgr::Fg(colors.neutral));
-            frame.push_str("No Image");
-            frame.render(
-                cover_area.inner(Margin::proportional(1)),
-                TextOptions::span_center(),
-            );
-            frame.print_fmt(Sgr::reset_fg());
-        }
-        Some(Err(err)) => {
-            Block::rectangle(colors.red).render(cover_area, frame);
-            frame.print_fmt(Sgr::Fg(colors.red));
-            frame.push_fmt(format_args!("ERROR\n{err}"));
-            frame.render(
-                cover_area.inner(Margin::proportional(1)),
-                TextOptions::paragraph_center(),
-            );
-            frame.print_fmt(Sgr::reset_fg());
-        }
-        None => {
-            frame.push_str_fg("Loading", colors.neutral);
-            frame.render(
-                cover_area.inner(Margin::proportional(1)),
-                TextOptions::span_center(),
-            );
-        }
+        let (filled_stars, empty_stars) = rating.stars_split();
+        frame.push_fmt(Sgr::Fg(colors.primary));
+        frame.push_str(filled_stars);
+        frame.push_fmt(Sgr::Fg(colors.neutral));
+        frame.push_str(empty_stars);
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(
+            image_area.with_row(image_area.bottom_out()),
+            TextOptions::span_center_top(),
+        );
+    } else {
+        cover.render(area, frame, colors);
     }
-
-    stars_area.pos.row = stars_area.row().min(image_area.bottom_out());
-
-    let (filled_stars, empty_stars) = rating.stars_split();
-    frame.push_str_fg(filled_stars, colors.primary);
-    frame.push_str_fg(empty_stars, colors.neutral);
-    frame.render(stars_area, TextOptions::span_center_top());
 }
 
 fn render_queue(
