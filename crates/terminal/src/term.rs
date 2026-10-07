@@ -669,6 +669,14 @@ impl Framebuffer {
         let _ = write!(self.buf, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
     }
 
+    pub fn print_iter<I>(&mut self, iter: I)
+    where
+        I: IntoIterator,
+        String: Extend<I::Item>,
+    {
+        self.buf.extend(iter);
+    }
+
     pub fn print_span(&mut self, area: Rect, text: impl Display) {
         self.print_span_with_options(area, text, SpanOptions::left());
     }
@@ -767,6 +775,14 @@ impl Framebuffer {
 
     pub fn push_fmt_fg(&mut self, text: impl Display, fg: Color) {
         let _ = write!(self.text, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    }
+
+    pub fn push_iter<I>(&mut self, iter: I)
+    where
+        I: IntoIterator,
+        String: Extend<I::Item>,
+    {
+        self.text.extend(iter);
     }
 
     pub fn render(&mut self, mut area: Rect, opts: TextOptions) {
