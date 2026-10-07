@@ -46,9 +46,8 @@ struct PlayingPage {
     list: List,
     current_id: Option<TrackId>,
     current_qi: Option<usize>,
-    view_mode: ViewMode,
-    view_small: ViewSmall,
     image_id: u8,
+    view: ViewLayout,
 }
 
 impl PlayingPage {
@@ -80,31 +79,33 @@ impl Default for PlayingPage {
                 .with_padding(Margin::horizontal(1)),
             current_id: None,
             current_qi: None,
-            view_mode: ViewMode::Both,
-            view_small: ViewSmall::Cover,
             image_id: 1,
+            view: ViewLayout::Horizontal,
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum ViewMode {
+enum ViewLayout {
     Cover,
-    Queue,
-    Both,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ViewSmall {
-    Cover,
-    Queue,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ViewFinal {
-    Small(ViewSmall),
-    Vertical,
     Horizontal,
+    Vertical,
+}
+
+impl ViewLayout {
+    const fn from(screen_size: (ScreenWidth, ScreenHeight)) -> Self {
+        match screen_size {
+            (ScreenWidth::Narrow, ScreenHeight::Short) => Self::Cover,
+            (ScreenWidth::Narrow, ScreenHeight::Normal) => Self::Vertical,
+            (ScreenWidth::Narrow, ScreenHeight::Tall) => Self::Vertical,
+            (ScreenWidth::Normal, ScreenHeight::Tall) => Self::Vertical,
+            (_, _) => Self::Horizontal,
+        }
+    }
+
+    const fn shows_queue(self) -> bool {
+        !matches!(self, Self::Cover)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -161,10 +162,10 @@ fn input_playing(
     input: Res<Input>,
     mut page: ResMut<PlayingPage>,
     mut actions: ResMut<Actions>,
-    mut db: NonSendMut<Database>,
-    mut jb: NonSendMut<Jukebox>,
+    mut database: NonSendMut<Database>,
+    mut jukebox: NonSendMut<Jukebox>,
 ) {
-    if jb.is_empty() {
+    if jukebox.is_empty() {
         return;
     }
 
@@ -172,95 +173,88 @@ fn input_playing(
         return;
     };
 
+    let shows_queue = page.view.shows_queue();
+
     match key.code {
         KeyCode::Enter => {
             let index = page.list.index();
-            jb.play_index(index, &db);
+            jukebox.play_index(index, &database);
         }
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
-                if let Some(id) = jb.current_track_id() {
+                if let Some(id) = jukebox.current_track_id() {
                     let rating = AudioRating::from_char(c).unwrap();
-                    db.write_rating(id, rating);
+                    database.write_rating(id, rating);
                 }
             }
-            'c' => {
-                if jb.clear() {
+            'c' if shows_queue => {
+                if jukebox.clear() {
                     actions.push(Action::Render);
                 }
             }
-            's' => {
-                if jb.shuffle() {
+            's' if shows_queue => {
+                if jukebox.shuffle() {
                     actions.push(Action::Render);
                 }
             }
             'g' => {
                 let index = page.list.index();
-                let id = jb.get(index);
+                let id = jukebox.get(index);
                 actions.push(Action::Route(Route::Tracks(id)));
             }
-            'm' => {
-                let (start, end) = {
-                    let selection = page.list.selection_inclusive();
-                    (*selection.start(), *selection.end())
-                };
+            'm' if shows_queue => {
+                let (start, end) = page.list.selection_inclusive().into_inner();
 
                 let success = if start == end {
-                    jb.move_down(start)
+                    jukebox.move_down(start)
                 } else {
-                    jb.move_down_range(start, end)
+                    jukebox.move_down_range(start, end)
                 };
 
                 if success {
-                    page.current_qi = jb.current_queue_index();
+                    page.current_qi = jukebox.current_queue_index();
                     page.list.move_selection_down();
                     actions.push(Action::Render);
                 }
             }
-            'M' => {
-                let (start, end) = {
-                    let selection = page.list.selection_inclusive();
-                    (*selection.start(), *selection.end())
-                };
+            'M' if shows_queue => {
+                let (start, end) = page.list.selection_inclusive().into_inner();
 
                 let success = if start == end {
-                    jb.move_up(start)
+                    jukebox.move_up(start)
                 } else {
-                    jb.move_up_range(start, end)
+                    jukebox.move_up_range(start, end)
                 };
 
                 if success {
-                    page.current_qi = jb.current_queue_index();
+                    page.current_qi = jukebox.current_queue_index();
                     page.list.move_selection_up();
                     actions.push(Action::Render);
                 }
             }
-            'r' => {
-                let (start, end) = {
-                    let selection = page.list.selection_inclusive();
-                    (*selection.start(), *selection.end())
-                };
+            'r' if shows_queue => {
+                let (start, end) = page.list.selection_inclusive().into_inner();
 
                 let success = if start == end {
-                    jb.remove(start)
+                    jukebox.remove(start)
                 } else {
-                    jb.remove_range(start, end)
+                    jukebox.remove_range(start, end)
                 };
 
                 if success {
-                    page.current_qi = jb.current_queue_index();
+                    page.current_qi = jukebox.current_queue_index();
                     page.list.set_index(start).set_selector(None);
                     actions.push(Action::Render);
                 }
             }
             _ => {
-                if page.list.input(key) {
+                if shows_queue && page.list.input(key) {
                     actions.push(Action::Render);
                 }
             }
         },
         _ => {
-            if page.list.input(key) {
+            if shows_queue && page.list.input(key) {
                 actions.push(Action::Render);
             }
         }
@@ -276,67 +270,31 @@ fn render_playing(
     mut page: ResMut<PlayingPage>,
     cover: NonSend<FrontCover>,
 ) {
-    match page.view_mode {
-        ViewMode::Cover => {
+    // Always delete image
+    frame.print_fmt(KittyDeleteAll);
+
+    // Render layout based on screen size
+    page.view = ViewLayout::from(frame.screen_size());
+    let (cover_area, queue_area) = match page.view {
+        ViewLayout::Cover => {
             render_cover(**area, &mut frame, &colors, &database, &jukebox, &cover);
+            return;
         }
-        ViewMode::Queue => {
-            page.update_scroll_on_new_track(&jukebox);
-            render_queue(
-                **area,
-                &mut frame,
-                &colors,
-                &database,
-                &jukebox,
-                &mut page.list,
-            );
-        }
-        ViewMode::Both => {
-            // Determine layout
-            let final_view = match frame.screen_size() {
-                (ScreenWidth::Narrow, ScreenHeight::Short) => ViewFinal::Small(page.view_small),
-                (ScreenWidth::Narrow, ScreenHeight::Normal) => ViewFinal::Vertical,
-                (ScreenWidth::Narrow, ScreenHeight::Tall) => ViewFinal::Vertical,
-                (ScreenWidth::Normal, ScreenHeight::Tall) => ViewFinal::Vertical,
-                (_, _) => ViewFinal::Horizontal,
-            };
+        ViewLayout::Horizontal => area.split_left(area.cols() * 40 / 100, 2),
+        ViewLayout::Vertical => area.split_top(area.rows() * 60 / 100, 1),
+    };
 
-            match final_view {
-                ViewFinal::Small(ViewSmall::Cover) => {
-                    render_cover(**area, &mut frame, &colors, &database, &jukebox, &cover);
-                }
-                ViewFinal::Small(ViewSmall::Queue) => {
-                    page.update_scroll_on_new_track(&jukebox);
-                    render_queue(
-                        **area,
-                        &mut frame,
-                        &colors,
-                        &database,
-                        &jukebox,
-                        &mut page.list,
-                    );
-                }
-                ViewFinal::Horizontal | ViewFinal::Vertical => {
-                    let (cover_area, queue_area) = if let ViewFinal::Horizontal = final_view {
-                        area.split_left(area.cols() * 40 / 100, 2)
-                    } else {
-                        area.split_top(area.rows() * 60 / 100, 1)
-                    };
+    page.update_scroll_on_new_track(&jukebox);
 
-                    page.update_scroll_on_new_track(&jukebox);
-                    render_cover(cover_area, &mut frame, &colors, &database, &jukebox, &cover);
-                    render_queue(
-                        queue_area,
-                        &mut frame,
-                        &colors,
-                        &database,
-                        &jukebox,
-                        &mut page.list,
-                    );
-                }
-            }
-        }
-    }
+    render_cover(cover_area, &mut frame, &colors, &database, &jukebox, &cover);
+    render_queue(
+        queue_area,
+        &mut frame,
+        &colors,
+        &database,
+        &jukebox,
+        &mut page.list,
+    );
 }
 
 fn render_cover(
@@ -347,9 +305,6 @@ fn render_cover(
     jb: &Jukebox,
     cover: &FrontCover,
 ) {
-    // Always delete image
-    frame.print_fmt(KittyDeleteAll);
-
     let Some(rating) = jb
         .current_track_id()
         .and_then(|id| db.get(id).map(|t| t.rating()))
