@@ -33,6 +33,7 @@ use crate::{
 
 pub struct App {
     world: World,
+    timers: Timers,
     schedules: Schedules,
     is_running: bool,
 }
@@ -45,10 +46,13 @@ impl App {
     ) -> Self {
         let mut app = {
             let mut world = World::new();
+            let timers = Timers::new(8, 1);
             let schedules = Schedules::new();
             bevy_state::state::setup_state_transitions_in_world(&mut world);
+
             Self {
                 world,
+                timers,
                 schedules,
                 is_running: true,
             }
@@ -91,25 +95,17 @@ impl App {
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
         self.init(terminal)?;
 
-        // Event loop
-        let mut update = Timer::new(8);
-        let mut render = Timer::new(1);
-
         while self.is_running {
-            // Update at a fixed rate
-            if update.tick() {
+            if self.timers.update.tick() {
                 self.run_update(terminal)?;
             }
 
             let screen_height = self.world.resource::<Frame>().screen_height();
-
-            // Render at a fixed rate
-            if render.tick() && screen_height == ScreenHeight::Tall {
+            if self.timers.render.tick() && screen_height == ScreenHeight::Tall {
                 self.run_render(terminal)?;
             }
 
-            // Poll for events in a non-blocking manner
-            if let Some(event) = Terminal::poll(update.timeout)? {
+            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
                 match event {
                     TerminalEvent::Key(key) => {
                         self.insert_resource(Input(Some(key)));
@@ -241,6 +237,7 @@ impl App {
         if self.apply_actions() {
             self.run_state_transitions();
             self.run_render(terminal)?;
+            self.timers.render.reset();
         }
 
         Ok(())
@@ -251,6 +248,7 @@ impl App {
 
         if self.apply_actions() {
             self.run_render(terminal)?;
+            self.timers.render.reset();
         }
 
         Ok(())
@@ -378,11 +376,34 @@ impl Timer {
     fn tick(&mut self) -> bool {
         self.timeout = self.interval.saturating_sub(self.last_tick.elapsed());
         if self.timeout == Duration::ZERO {
-            self.last_tick = Instant::now();
+            self.reset();
             true
         } else {
             false
         }
+    }
+
+    fn reset(&mut self) {
+        self.last_tick = Instant::now();
+    }
+}
+
+struct Timers {
+    update: Timer,
+    render: Timer,
+}
+
+impl Timers {
+    fn new(update_fps: u8, render_fps: u8) -> Self {
+        Self {
+            update: Timer::new(update_fps),
+            render: Timer::new(render_fps),
+        }
+    }
+
+    fn _reset(&mut self) {
+        self.update.reset();
+        self.render.reset();
     }
 }
 
