@@ -27,6 +27,7 @@ use crate::{
     database::{Database, DatabaseEvent},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Modal, ModalsPlugin},
+    mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
     pages::{Page, PagesPlugin, Route, TracksPage},
 };
 
@@ -37,7 +38,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(database: Database, jukebox: Jukebox) -> Self {
+    pub fn new(
+        database: Database,
+        jukebox: Jukebox,
+        media_controls: Option<MediaControls>,
+    ) -> Self {
         let mut app = {
             let mut world = World::new();
             let schedules = Schedules::new();
@@ -49,8 +54,11 @@ impl App {
             }
         };
 
-        app.insert_non_send(database);
-        app.insert_non_send(jukebox);
+        app.insert_non_send(database).insert_non_send(jukebox);
+
+        if let Some(media_controls) = media_controls {
+            app.insert_non_send(media_controls);
+        }
 
         let colors = Colors::default();
         let modal_colors = ModalColors(Colors::all(colors.neutral));
@@ -713,6 +721,7 @@ fn render_playback(
 fn update_app(
     mut database: NonSendMut<Database>,
     mut jukebox: NonSendMut<Jukebox>,
+    media_controls: Option<NonSend<MediaControls>>,
     mut actions: ResMut<Actions>,
 ) {
     let mut render = false;
@@ -722,29 +731,54 @@ fn update_app(
 
         match event {
             DatabaseEvent::Rating(_id) => {
-                // TODO
+                // TODO?
             }
             DatabaseEvent::Error(_err) => {
-                // TODO
+                // TODO: logs
             }
         }
     });
+
+    if let Some(cmd) = media_controls.as_ref().and_then(|mc| mc.recv()) {
+        match cmd {
+            MprisCommand::Play => jukebox.play(),
+            MprisCommand::Pause => jukebox.pause(),
+            MprisCommand::PlayPause => jukebox.pause_or_play(),
+            MprisCommand::Stop => jukebox.stop(),
+            MprisCommand::Next => jukebox.play_next(&database),
+            MprisCommand::Previous => jukebox.play_previous(&database),
+        }
+    }
 
     jukebox.update(&database, |event| {
         render = true;
 
         match event {
-            JukeboxEvent::Play(_id) => {
-                // TODO
+            JukeboxEvent::Play(id) => {
+                if let Some(mc) = media_controls.as_ref() {
+                    match id.and_then(|id| database.get(id).map(|t| (id, t))) {
+                        Some((id, track)) => {
+                            let metadata = MprisMetadata::new(id, track);
+                            mc.send(MprisEvent::Both(MprisStatus::Playing, Some(metadata)));
+                        }
+                        None => {
+                            mc.send(MprisEvent::Status(MprisStatus::Playing));
+                        }
+                    }
+                }
             }
             JukeboxEvent::Pause => {
-                // TODO
+                if let Some(mc) = media_controls.as_ref() {
+                    mc.send(MprisEvent::Status(MprisStatus::Paused));
+                }
             }
             JukeboxEvent::Stop => {
-                // TODO
+                if let Some(mc) = media_controls.as_ref() {
+                    mc.send(MprisEvent::Both(MprisStatus::Stopped, None));
+                }
             }
             JukeboxEvent::Error(_err) => {
-                // TODO
+                // TODO: logs
             }
         }
     });

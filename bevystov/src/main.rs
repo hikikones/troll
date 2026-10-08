@@ -2,6 +2,7 @@ use bevystov::{
     app::App,
     database::Database,
     jukebox::{AudioPlayer, Jukebox},
+    mpris::MediaControls,
 };
 use terminal::Terminal;
 
@@ -12,7 +13,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let jukebox = Jukebox::new(AudioPlayer::new()?);
     let database = Database::new(args.dir);
-    let mut app = App::new(database, jukebox);
+
+    let media_controls = if args.media_controls {
+        Some(MediaControls::spawn()?)
+    } else {
+        None
+    };
+
+    let mut app = App::new(database, jukebox, media_controls);
 
     terminal.enter(|term| app.run(term))
 }
@@ -23,6 +31,11 @@ struct Args {
     /// The directory for your music.
     #[arg(value_name = "DIR", value_hint = clap::ValueHint::DirPath)]
     dir: std::path::PathBuf,
+
+    /// Add system media controls for player interaction
+    /// with media keys and your operating system.
+    #[clap(long, action)]
+    media_controls: bool,
 }
 
 const CLAP_STYLING: clap::builder::styling::Styles = clap::builder::styling::Styles::styled()

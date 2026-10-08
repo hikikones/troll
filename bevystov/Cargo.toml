@@ -23,6 +23,7 @@ terminal = { workspace = true }
 utils = { workspace = true }
 walkdir = { workspace = true }
 widgets2 = { workspace = true }
+zbus = { workspace = true }
 
 [features]
 default = []
