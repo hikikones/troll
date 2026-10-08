@@ -299,6 +299,20 @@ impl Rect {
         )
     }
 
+    pub const fn split_lines<const N: usize>(self) -> [Self; N] {
+        let mut rects = [self; N];
+
+        let mut i = 0;
+        while i < N {
+            let r = &mut rects[i];
+            r.pos.row = r.pos.row + i as u16;
+            r.size.rows = 1;
+            i += 1;
+        }
+
+        rects
+    }
+
     pub const fn split_horizontal<const N: usize>(
         self,
         gap: u16,

@@ -585,7 +585,7 @@ fn render_app(
             frame.print_span_with_options(bottom, "PAGE SHORTCUTS", SpanOptions::center_top());
         }
         ScreenHeight::Tall => {
-            let (top, body, mut bottom) = area.split_ends(1, 6);
+            let (top, body, mut bottom) = area.split_ends(1, 7);
 
             render_navigation(top, &mut frame, &colors, **current_page);
 
@@ -597,30 +597,29 @@ fn render_app(
 
             bottom.shrink_down(2);
 
-            let title_area = bottom.with_rows(1);
-            bottom.shrink_down(1);
-            let playback_area = bottom.with_rows(1);
+            let [
+                title_area,
+                status_area,
+                play_shortcuts_area,
+                _,
+                app_shortcuts_area,
+            ] = bottom.split_lines();
+
             render_playback(
                 title_area,
-                playback_area,
+                status_area,
                 &mut frame,
                 &colors,
                 &jukebox,
                 &database,
             );
 
-            bottom.shrink_down(1);
-
-            let playback_shortcuts_area = bottom.with_rows(1);
             frame.print_span_with_options(
-                playback_shortcuts_area,
+                play_shortcuts_area,
                 "PLAYBACK SHORTCUTS",
                 SpanOptions::center_top(),
             );
 
-            bottom.shrink_down(1);
-
-            let app_shortcuts_area = bottom.with_rows(1);
             frame.print_span_with_options(
                 app_shortcuts_area,
                 "APP SHORTCUTS",

@@ -26,10 +26,15 @@ pub struct Key {
 
 impl Key {
     const fn from(key_event: CrosstermKeyEvent) -> Self {
-        Self {
-            code: key_event.code,
-            modifiers: key_event.modifiers,
-        }
+        Self::new(key_event.code, key_event.modifiers)
+    }
+
+    pub const fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
+        Self { code, modifiers }
+    }
+
+    pub const fn without_modifiers(self) -> Self {
+        Self::new(self.code, KeyModifiers::empty())
     }
 
     pub const fn ctrl(&self) -> bool {
