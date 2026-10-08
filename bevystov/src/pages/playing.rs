@@ -12,7 +12,9 @@ use widgets2::{
 };
 
 use crate::{
-    app::{Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet},
+    app::{
+        Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet, ShortcutsArea,
+    },
     database::{AudioRating, Database, TrackId},
     jukebox::Jukebox,
     pages::{Page, Route},
@@ -263,6 +265,7 @@ fn input_playing(
 
 fn render_playing(
     area: Res<PageArea>,
+    shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Frame>,
     colors: Res<Colors>,
     database: NonSend<Database>,
@@ -289,6 +292,7 @@ fn render_playing(
     render_cover(cover_area, &mut frame, &colors, &database, &jukebox, &cover);
     render_queue(
         queue_area,
+        **shortcuts_area,
         &mut frame,
         &colors,
         &database,
@@ -301,13 +305,13 @@ fn render_cover(
     area: Rect,
     frame: &mut Framebuffer,
     colors: &Colors,
-    db: &Database,
-    jb: &Jukebox,
+    database: &Database,
+    jukebox: &Jukebox,
     cover: &FrontCover,
 ) {
-    let Some(rating) = jb
+    let Some(rating) = jukebox
         .current_track_id()
-        .and_then(|id| db.get(id).map(|t| t.rating()))
+        .and_then(|id| database.get(id).map(|t| t.rating()))
     else {
         frame.push_str_fg("No track currently playing", colors.neutral);
         frame.render(
@@ -337,20 +341,25 @@ fn render_cover(
 
 fn render_queue(
     area: Rect,
+    shortcuts_area: Rect,
     frame: &mut Framebuffer,
     colors: &Colors,
-    db: &Database,
-    jb: &Jukebox,
+    database: &Database,
+    jukebox: &Jukebox,
     list: &mut List,
 ) {
     Block::rectangle(colors.secondary).render(area, frame);
     frame.push_fmt_fg(
-        format_args!(" History ({}) / Queue ({}) ", jb.history(), jb.queue()),
+        format_args!(
+            " History ({}) / Queue ({}) ",
+            jukebox.history(),
+            jukebox.queue()
+        ),
         colors.normal,
     );
     frame.render(area, TextOptions::span_center_top());
 
-    if jb.is_empty() {
+    if jukebox.is_empty() {
         frame.push_str_fg("No tracks in the queue", colors.neutral);
         frame.render(
             area.inner(Margin::proportional(1)),
@@ -363,44 +372,75 @@ fn render_queue(
     let scrolloff = inner.rows() / 2;
     list.set_scrolloff(ScrollMargins::all(scrolloff));
 
-    let hlen = jb.history();
-    let current_qi = jb.current_queue_index();
+    let hlen = jukebox.history();
+    let current_qi = jukebox.current_queue_index();
 
-    list.render(inner, frame, jb.iter(), |line, frame, (id, qi), index| {
-        let Some(track) = db.get(id) else {
-            return;
-        };
+    list.render(
+        inner,
+        frame,
+        jukebox.iter(),
+        |line, frame, (id, qi), index| {
+            let Some(track) = database.get(id) else {
+                return;
+            };
 
-        let fg = if qi < hlen {
-            colors.neutral
-        } else if current_qi == Some(qi) {
-            colors.primary
-        } else {
-            colors.normal
-        };
+            let fg = if qi < hlen {
+                colors.neutral
+            } else if current_qi == Some(qi) {
+                colors.primary
+            } else {
+                colors.normal
+            };
 
-        let symbol = match index {
-            ListIndex::Selected => symbols::concat!(symbols::SELECTED, " "),
-            ListIndex::Selection => symbols::concat!(symbols::SELECTION, " "),
-            ListIndex::Normal => "",
-        };
+            let symbol = match index {
+                ListIndex::Selected => symbols::concat!(symbols::SELECTED, " "),
+                ListIndex::Selection => symbols::concat!(symbols::SELECTION, " "),
+                ListIndex::Normal => "",
+            };
 
-        frame.push_fmt(Sgr::Fg(fg));
-        frame.push_str(symbol);
+            frame.push_fmt(Sgr::Fg(fg));
+            frame.push_str(symbol);
 
-        if jb.is_faulty(id) {
-            frame.push_fmt(Sgr::CrossedOut);
-        }
+            if jukebox.is_faulty(id) {
+                frame.push_fmt(Sgr::CrossedOut);
+            }
 
-        frame.push_fmt(track.title());
+            frame.push_fmt(track.title());
+            frame.push_ch(' ');
+            frame.push_fmt(track.artist());
+            frame.push_ch(' ');
+            frame.push_fmt(track.album());
+            frame.push_ch(' ');
+            frame.push_fmt(Sgr::Reset);
+            frame.render(line, TextOptions::span());
+        },
+    );
+
+    render_shortcuts(shortcuts_area, frame, colors);
+}
+
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    let key_color = colors.secondary;
+    let name_color = colors.normal;
+    let gap = 1;
+
+    for (key, name, gap) in [
+        ("↵", "Play", gap),
+        ("0-5", "Rating", gap),
+        ("(⇧)m", "Move", gap),
+        ("s", "Shuffle", gap),
+        ("r", "Remove", gap),
+        ("c", "Clear", gap),
+        ("g", "Goto", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
         frame.push_ch(' ');
-        frame.push_fmt(track.artist());
-        frame.push_ch(' ');
-        frame.push_fmt(track.album());
-        frame.push_ch(' ');
-        frame.push_fmt(Sgr::Reset);
-        frame.render(line, TextOptions::span());
-    });
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
+    frame.render(area, TextOptions::span_center_top());
 }
 
 fn exit_playing(mut frame: ResMut<Frame>) {

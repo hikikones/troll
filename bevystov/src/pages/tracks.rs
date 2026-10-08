@@ -4,12 +4,13 @@ use bevy_ecs::{
     system::{NonSend, NonSendMut, Res, ResMut},
 };
 use bevy_state::condition::in_state;
-use shared::symbols;
 use terminal::*;
 use widgets2::{Block, List, ListIndex, TableLayout};
 
 use crate::{
-    app::{Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet},
+    app::{
+        Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet, ShortcutsArea,
+    },
     database::{AudioRating, Database, TrackId, TrackSort},
     jukebox::Jukebox,
     modals::Modal,
@@ -71,8 +72,8 @@ impl Default for TracksPage {
 
 fn input_tracks(
     input: Res<Input>,
-    mut db: NonSendMut<Database>,
-    mut jb: NonSendMut<Jukebox>,
+    mut database: NonSendMut<Database>,
+    mut jukebox: NonSendMut<Jukebox>,
     mut page: ResMut<TracksPage>,
     mut actions: ResMut<Actions>,
 ) {
@@ -82,16 +83,16 @@ fn input_tracks(
 
     match key.code {
         KeyCode::Enter => {
-            if let Some(id) = db.get_id_from_index(page.list.index()) {
-                jb.play_id(id, &db);
+            if let Some(id) = database.get_id_from_index(page.list.index()) {
+                jukebox.play_id(id, &database);
             }
         }
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
                 let rating = AudioRating::from_char(c).unwrap();
                 for i in page.list.selection_inclusive() {
-                    if let Some(id) = db.get_id_from_index(i) {
-                        db.write_rating(id, rating);
+                    if let Some(id) = database.get_id_from_index(i) {
+                        database.write_rating(id, rating);
                     }
                 }
             }
@@ -99,31 +100,31 @@ fn input_tracks(
                 let ids = page
                     .list
                     .selection_inclusive()
-                    .filter_map(|i| db.get_id_from_index(i));
-                jb.extend(ids);
+                    .filter_map(|i| database.get_id_from_index(i));
+                jukebox.extend(ids);
             }
             'n' => {
                 for i in page.list.selection_inclusive().rev() {
-                    if let Some(id) = db.get_id_from_index(i) {
-                        jb.enqueue_next(id);
+                    if let Some(id) = database.get_id_from_index(i) {
+                        jukebox.enqueue_next(id);
                     }
                 }
             }
             's' | 'S' => {
-                let id = db.get_id_from_index(page.list.index());
+                let id = database.get_id_from_index(page.list.index());
 
                 if c == 's' {
-                    let sort = db.get_sort().next();
-                    db.sort(sort, page.reverse_sort);
+                    let sort = database.get_sort().next();
+                    database.sort(sort, page.reverse_sort);
                 } else {
-                    let sort = db.get_sort();
+                    let sort = database.get_sort();
                     page.reverse_sort = !page.reverse_sort;
-                    db.sort(sort, page.reverse_sort);
+                    database.sort(sort, page.reverse_sort);
                 }
 
                 if page.keep_on_sort
                     && let Some(id) = id
-                    && let Some(i) = db.get_index_from_id(id)
+                    && let Some(i) = database.get_index_from_id(id)
                 {
                     page.list.set_index(i).set_selector(None);
                 }
@@ -171,6 +172,7 @@ fn enter_tracks(mut page: ResMut<TracksPage>, database: NonSend<Database>) {
 
 fn render_tracks(
     area: Res<PageArea>,
+    shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Frame>,
     colors: Res<Colors>,
     database: NonSend<Database>,
@@ -221,11 +223,7 @@ fn render_tracks(
                 reverse: bool,
             ) -> &'a str {
                 if current_sort.equals(sort) {
-                    if reverse {
-                        symbols::ARROW_HEAD_UP
-                    } else {
-                        symbols::ARROW_HEAD_DOWN
-                    }
+                    if reverse { "⌃" } else { "⌄" }
                 } else {
                     ""
                 }
@@ -283,6 +281,30 @@ fn render_tracks(
             frame.print_fmt(Sgr::Reset);
         },
     );
+
+    render_shortcuts(**shortcuts_area, &mut frame, &colors);
+}
+
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    let key_color = colors.secondary;
+    let name_color = colors.normal;
+    let gap = 1;
+
+    for (key, name, gap) in [
+        ("↵", "Play", gap),
+        ("q", "Enqueue", gap),
+        ("n", "Play next", gap),
+        ("0-5", "Rating", gap),
+        ("(⇧)s", "Sort", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
+    frame.render(area, TextOptions::span_center_top());
 }
 
 fn render_tracks_modal(mut frame: ResMut<Frame>, colors: Res<Colors>) {

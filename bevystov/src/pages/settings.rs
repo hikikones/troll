@@ -8,7 +8,9 @@ use terminal::*;
 use widgets2::{AnsiViewer, Block};
 
 use crate::{
-    app::{Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet},
+    app::{
+        Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet, ShortcutsArea,
+    },
     pages::Page,
 };
 
@@ -41,6 +43,7 @@ fn input_settings(input: Res<Input>, mut reader: ResMut<Reader>, mut actions: Re
 
 fn render_settings(
     area: Res<PageArea>,
+    shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Frame>,
     colors: Res<Colors>,
     mut reader: ResMut<Reader>,
@@ -52,6 +55,12 @@ fn render_settings(
     reader
         .0
         .render(area.inner(Margin::all(1)), &mut frame, &lorem.0);
+
+    render_shortcuts(**shortcuts_area, &mut frame, &colors);
+}
+
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, _colors: &Colors) {
+    frame.print_span_with_options(area, "TODO", SpanOptions::center_top());
 }
 
 #[derive(Debug, Resource)]

@@ -523,17 +523,57 @@ fn input_app(
         KeyCode::Esc => actions.push(Action::Quit),
         KeyCode::Tab => actions.push(Action::Route(page.next())),
         KeyCode::BackTab => actions.push(Action::Route(page.prev())),
-        KeyCode::Down if key.ctrl() => {
-            jukebox.stop();
+        KeyCode::Left => {
+            if key.ctrl() {
+                jukebox.play_previous(&database);
+            } else if key.alt() {
+                if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
+                    let pos = jukebox.current_track_pos();
+                    let min = Duration::from_secs(2);
+                    let secs = track.duration().mul_f32(0.10).max(min);
+                    jukebox.seek(pos.saturating_sub(secs));
+                    actions.push(Action::Render);
+                }
+            } else {
+                input.set(key);
+            }
         }
-        KeyCode::Up if key.ctrl() => {
-            jukebox.pause_or_play();
+        KeyCode::Right => {
+            if key.ctrl() {
+                jukebox.play_next(&database);
+            } else if key.alt() {
+                if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
+                    let pos = jukebox.current_track_pos();
+                    let min = Duration::from_secs(1);
+                    let secs = track.duration().mul_f32(0.10).max(min);
+                    jukebox.seek(pos + secs);
+                    actions.push(Action::Render);
+                }
+            } else {
+                input.set(key);
+            }
         }
-        KeyCode::Right if key.ctrl() => {
-            jukebox.play_next(&database);
+        KeyCode::Up => {
+            if key.ctrl() {
+                jukebox.pause_or_play();
+            } else if key.alt() {
+                let volume = jukebox.volume();
+                jukebox.set_volume(volume + 0.1);
+                actions.push(Action::Render);
+            } else {
+                input.set(key);
+            }
         }
-        KeyCode::Left if key.ctrl() => {
-            jukebox.play_previous(&database);
+        KeyCode::Down => {
+            if key.ctrl() {
+                jukebox.stop();
+            } else if key.alt() {
+                let volume = jukebox.volume();
+                jukebox.set_volume(volume - 0.1);
+                actions.push(Action::Render);
+            } else {
+                input.set(key);
+            }
         }
         KeyCode::Char('f') if key.ctrl() => {
             actions.push(Action::Modal(Modal::Search));
@@ -580,9 +620,6 @@ fn render_app(
 
             **page_area = body.inner(Margin::all(1));
             **shortcuts_area = bottom;
-
-            // TODO: remove
-            frame.print_span_with_options(bottom, "PAGE SHORTCUTS", SpanOptions::center_top());
         }
         ScreenHeight::Tall => {
             let (top, body, mut bottom) = area.split_ends(1, 7);
@@ -591,9 +628,6 @@ fn render_app(
 
             **page_area = body.inner(Margin::all(1));
             **shortcuts_area = bottom.with_rows(1);
-
-            // TODO: remove
-            frame.print_span_with_options(bottom, "PAGE SHORTCUTS", SpanOptions::center_top());
 
             bottom.shrink_down(2);
 
@@ -614,16 +648,12 @@ fn render_app(
                 &database,
             );
 
-            frame.print_span_with_options(
+            render_shortcuts(
                 play_shortcuts_area,
-                "PLAYBACK SHORTCUTS",
-                SpanOptions::center_top(),
-            );
-
-            frame.print_span_with_options(
                 app_shortcuts_area,
-                "APP SHORTCUTS",
-                SpanOptions::center_top(),
+                &mut frame,
+                &colors,
+                jukebox.volume(),
             );
         }
     }
@@ -657,64 +687,108 @@ fn render_playback(
     let progress_ch = '─';
     let highlight_ch = '━';
 
-    match jukebox.current_track_id().and_then(|id| database.get(id)) {
-        Some(track) => {
-            let (normal, primary) = if jukebox.is_paused() {
-                (colors.neutral, colors.neutral)
-            } else {
-                (colors.normal, colors.primary)
-            };
+    let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) else {
+        // Neutral playback status
+        frame.push_fmt(Sgr::Fg(colors.neutral));
+        frame.push_str("00:00 ");
+        frame.push_ch_repeat(progress_ch, status_width);
+        frame.push_str(" 00:00");
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(status_area, TextOptions::span_center_top());
+        return;
+    };
 
-            // Stats
-            frame.push_fmt(Sgr::Fg(normal));
-            frame.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
+    let (normal, primary) = if jukebox.is_paused() {
+        (colors.neutral, colors.neutral)
+    } else {
+        (colors.normal, colors.primary)
+    };
 
-            if let Some(bit_depth) = track.bit_depth()
-                && let Some(sample_rate) = track.sample_rate()
-            {
-                frame.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
-            }
+    // Stats
+    frame.push_fmt(Sgr::Fg(normal));
+    frame.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
 
-            frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
-
-            // Title
-            frame.push_str(track.artist());
-            if !(track.artist().is_empty() || track.title().is_empty()) {
-                frame.push_str(" - ");
-            }
-            frame.push_str(track.title());
-
-            frame.render(title_area, TextOptions::span_center_top());
-
-            // Playback status
-            let track_pos = jukebox.current_track_pos();
-            frame.push_iter(utils::format_duration_on_stack(track_pos));
-            frame.push_ch(' ');
-
-            let progress = track_pos.as_secs_f32() / track.duration().as_secs_f32();
-            let highlights = (status_width as f32 * progress).ceil() as u16;
-            let remaining = status_width.saturating_sub(highlights);
-            frame.push_fmt(Sgr::Fg(primary));
-            frame.push_ch_repeat(highlight_ch, highlights);
-            frame.push_fmt(Sgr::Fg(normal));
-            frame.push_ch_repeat(progress_ch, remaining);
-
-            frame.push_ch(' ');
-            frame.push_iter(utils::format_duration_on_stack(track.duration()));
-
-            frame.push_fmt(Sgr::reset_fg());
-            frame.render(status_area, TextOptions::span_center_top());
-        }
-        None => {
-            // Playback status
-            frame.push_fmt(Sgr::Fg(colors.neutral));
-            frame.push_str("00:00 ");
-            frame.push_ch_repeat(progress_ch, status_width);
-            frame.push_str(" 00:00");
-            frame.push_fmt(Sgr::reset_fg());
-            frame.render(status_area, TextOptions::span_center_top());
-        }
+    if let Some(bit_depth) = track.bit_depth()
+        && let Some(sample_rate) = track.sample_rate()
+    {
+        frame.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
     }
+
+    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
+
+    // Title
+    frame.push_str(track.artist());
+    if !(track.artist().is_empty() || track.title().is_empty()) {
+        frame.push_str(" - ");
+    }
+    frame.push_str(track.title());
+
+    frame.render(title_area, TextOptions::span_center_top());
+
+    // Playback status
+    let track_pos = jukebox.current_track_pos();
+    frame.push_iter(utils::format_duration_on_stack(track_pos));
+    frame.push_ch(' ');
+
+    let progress = track_pos.as_secs_f32() / track.duration().as_secs_f32();
+    let highlights = (status_width as f32 * progress).ceil() as u16;
+    let remaining = status_width.saturating_sub(highlights);
+    frame.push_fmt(Sgr::Fg(primary));
+    frame.push_ch_repeat(highlight_ch, highlights);
+    frame.push_fmt(Sgr::Fg(normal));
+    frame.push_ch_repeat(progress_ch, remaining);
+
+    frame.push_ch(' ');
+    frame.push_iter(utils::format_duration_on_stack(track.duration()));
+
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(status_area, TextOptions::span_center_top());
+}
+
+fn render_shortcuts(
+    play_area: Rect,
+    app_area: Rect,
+    frame: &mut Framebuffer,
+    colors: &Colors,
+    volume: f32,
+) {
+    let key_color = colors.primary;
+    let name_color = colors.normal;
+    let gap = 1;
+
+    // Shortcuts for playback
+    for (key, name, gap) in [
+        ("^￪", "Play/Pause", gap),
+        ("^⇄", "Next/Prev", gap),
+        ("^￬", "Stop", gap),
+        ("⎇⇄", "Seek", gap),
+        ("⎇⇵", "Volume", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
+    frame.push_fmt(format_args!(" {}%", (volume * 100.0).round() as u8));
+    frame.render(play_area, TextOptions::span_center_top());
+
+    // Shortcuts for app
+    for (key, name, gap) in [
+        ("Esc", "Quit", gap),
+        ("(⇧)Tab", "Navigate", gap),
+        ("^f", "Find", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
+    // TODO: logs
+    frame.render(app_area, TextOptions::span_center_top());
 }
 
 fn update_app(
