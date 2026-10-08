@@ -101,13 +101,15 @@ impl App {
                 self.run_update(terminal)?;
             }
 
+            let screen_height = self.world.resource::<Frame>().screen_height();
+
             // Render at a fixed rate
-            if render.tick() {
+            if render.tick() && screen_height == ScreenHeight::Tall {
                 self.run_render(terminal)?;
             }
 
             // Poll for events in a non-blocking manner
-            if let Some(event) = Terminal::poll(update.timeout).unwrap() {
+            if let Some(event) = Terminal::poll(update.timeout)? {
                 match event {
                     TerminalEvent::Key(key) => {
                         self.insert_resource(Input(Some(key)));
