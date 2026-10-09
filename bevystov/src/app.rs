@@ -26,7 +26,7 @@ use terminal::*;
 use crate::{
     database::{Database, DatabaseEvent},
     jukebox::{Jukebox, JukeboxEvent},
-    modals::{Modal, ModalsPlugin},
+    modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
     pages::{Page, PagesPlugin, Route, TracksPage},
 };
@@ -536,6 +536,7 @@ fn input_app(
     mut actions: ResMut<Actions>,
     page: Res<State<Page>>,
     modal: Res<State<Modal>>,
+    logs: Res<Logs>,
     mut jukebox: NonSendMut<Jukebox>,
     database: NonSend<Database>,
 ) {
@@ -611,6 +612,10 @@ fn input_app(
             actions.push(Action::Modal(Modal::Search));
         }
         KeyCode::Char('l') if key.ctrl() => {
+            if logs.is_empty() {
+                return;
+            }
+
             actions.push(Action::Modal(Modal::Logs));
         }
         _ => {
@@ -635,6 +640,7 @@ fn render_app(
     mut shortcuts_area: ResMut<ShortcutsArea>,
     colors: Res<Colors>,
     current_page: Res<State<Page>>,
+    logs: Res<Logs>,
     jukebox: NonSend<Jukebox>,
     database: NonSend<Database>,
 ) {
@@ -686,6 +692,7 @@ fn render_app(
                 &mut frame,
                 &colors,
                 jukebox.volume(),
+                logs.len(),
             );
         }
     }
@@ -783,6 +790,7 @@ fn render_shortcuts(
     frame: &mut Framebuffer,
     colors: &Colors,
     volume: f32,
+    logs: usize,
 ) {
     let key_color = colors.primary;
     let name_color = colors.normal;
@@ -819,7 +827,16 @@ fn render_shortcuts(
         frame.push_str(name);
         frame.push_ch_repeat(' ', gap);
     }
-    // TODO: logs
+
+    if logs > 0 {
+        frame.push_ch(' ');
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str("^l");
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_fmt(format_args!("Logs({logs})"));
+    }
+
     frame.push_fmt(Sgr::reset_fg());
     frame.render(app_area, TextOptions::span_center_top());
 }
@@ -828,6 +845,7 @@ fn update_app(
     mut database: NonSendMut<Database>,
     mut jukebox: NonSendMut<Jukebox>,
     media_controls: Option<NonSend<MediaControls>>,
+    mut logs: ResMut<Logs>,
     mut actions: ResMut<Actions>,
 ) {
     let mut render = false;
@@ -839,8 +857,8 @@ fn update_app(
             DatabaseEvent::Rating(_id) => {
                 // TODO?
             }
-            DatabaseEvent::Error(_err) => {
-                // TODO: logs
+            DatabaseEvent::Error(err) => {
+                logs.push(err);
             }
         }
     });
@@ -883,8 +901,9 @@ fn update_app(
                     mc.send(MprisEvent::Both(MprisStatus::Stopped, None));
                 }
             }
-            JukeboxEvent::Error(_err) => {
-                // TODO: logs
+            JukeboxEvent::Error(err) => {
+                // TODO: Make proper jukebox error.
+                logs.push(std::io::Error::other(err));
             }
         }
     });

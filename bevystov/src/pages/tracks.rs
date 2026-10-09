@@ -191,7 +191,7 @@ fn render_tracks(
 
     page.list.render_table(
         inner,
-        &mut *frame,
+        &mut frame,
         database.iter(),
         TableLayout::new(
             gap,
@@ -319,7 +319,7 @@ fn render_tracks_modal(mut frame: ResMut<Frame>, colors: Res<Colors>) {
     frame.fill(area, bg, false);
 
     frame.print_fmt(Sgr::Fg(colors.normal));
-    Block::rectangle().render(area, &mut *frame);
+    Block::rectangle().render(area, &mut frame);
     frame.print_span_with_options(area, " Custom ", SpanOptions::center_top());
 
     frame.push_str("A custom modal only for the tracks page.");

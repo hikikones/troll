@@ -946,6 +946,14 @@ impl SpanOptions {
         }
     }
 
+    pub const fn fill() -> Self {
+        Self {
+            horizontal: HorizontalAlignment::Left,
+            vertical: VerticalAlignment::Top,
+            fill: true,
+        }
+    }
+
     pub const fn with_fill(mut self) -> Self {
         self.fill = true;
         self

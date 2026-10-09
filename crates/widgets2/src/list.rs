@@ -19,6 +19,12 @@ pub struct List {
     len: usize,
 }
 
+impl Default for List {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ListOptions {
     pub scrolloff: ScrollMargins,

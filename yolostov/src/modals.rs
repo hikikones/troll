@@ -62,7 +62,7 @@ impl SearchModal {
         frame.fill(area, bg, false);
 
         frame.print_fmt(Sgr::Fg(colors.normal));
-        Block::rectangle().render(area, &mut *frame);
+        Block::rectangle().render(area, frame);
         frame.print_span_with_options(area, " Search ", SpanOptions::center_top());
 
         frame.print_span_with_options(

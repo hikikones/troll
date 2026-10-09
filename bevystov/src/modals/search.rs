@@ -318,7 +318,6 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state:
             }
 
             frame.push_ch(' ');
-            frame.push_fmt(Sgr::reset_fg());
             frame.render(area, TextOptions::span_center_top());
         }
     }

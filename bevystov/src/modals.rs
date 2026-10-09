@@ -5,6 +5,8 @@ use crate::app::{App, InputState};
 mod logs;
 mod search;
 
+pub use logs::*;
+
 pub struct ModalsPlugin;
 
 impl ModalsPlugin {
