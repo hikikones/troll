@@ -174,8 +174,6 @@ fn input_search(
             KeyCode::Char('g') => {
                 let index = modal.list.index();
                 let id = results.get(index).map(|(id, _)| *id);
-                // TODO: Goto does not work since app is in modal state.
-                // Need to rework routing a bit.
                 actions.push(Action::Route(Route::Tracks(id)));
             }
             KeyCode::Char('s') => {

@@ -175,7 +175,7 @@ impl App {
         self.world.write_message(StateTransitionEvent {
             exited: None,
             entered: Some(state),
-            allow_same_state_transitions: false,
+            allow_same_state_transitions: true,
         });
 
         self
@@ -308,7 +308,7 @@ impl App {
                 Action::Route(route) => {
                     render = true;
 
-                    let modal = *self.world.resource::<State<Modal>>().get();
+                    let modal = **self.world.resource::<State<Modal>>();
                     if modal.is_active() {
                         self.world
                             .resource_mut::<NextState<Modal>>()
@@ -316,19 +316,17 @@ impl App {
                         self.world
                             .resource_mut::<NextState<InputState>>()
                             .set(InputState::Normal);
-                    } else {
-                        self.world
-                            .resource_mut::<NextState<Page>>()
-                            .set(route.as_page());
+                    }
 
-                        match route {
-                            Route::Tracks(id) => {
-                                let mut page = self.world.resource_mut::<TracksPage>();
-                                page.set_params(id);
-                            }
-                            Route::NowPlaying => {}
-                            Route::Settings => {}
+                    self.world
+                        .resource_mut::<NextState<Page>>()
+                        .set(route.as_page());
+
+                    match route {
+                        Route::Tracks(Some(id)) => {
+                            self.world.resource_mut::<TracksPage>().set_params(id);
                         }
+                        _ => {}
                     }
                 }
                 Action::Modal(modal) => {
@@ -537,6 +535,7 @@ fn input_app(
     mut input: ResMut<Input>,
     mut actions: ResMut<Actions>,
     page: Res<State<Page>>,
+    modal: Res<State<Modal>>,
     mut jukebox: NonSendMut<Jukebox>,
     database: NonSend<Database>,
 ) {
@@ -544,8 +543,18 @@ fn input_app(
 
     match key.code {
         KeyCode::Esc => actions.push(Action::Quit),
-        KeyCode::Tab => actions.push(Action::Route(page.next())),
-        KeyCode::BackTab => actions.push(Action::Route(page.prev())),
+        KeyCode::Tab | KeyCode::BackTab => {
+            if modal.is_active() {
+                actions.push(Action::Modal(Modal::Canceled));
+            } else {
+                let next_route = if let KeyCode::Tab = key.code {
+                    page.next()
+                } else {
+                    page.prev()
+                };
+                actions.push(Action::Route(next_route));
+            }
+        }
         KeyCode::Left => {
             if key.ctrl() {
                 jukebox.play_previous(&database);

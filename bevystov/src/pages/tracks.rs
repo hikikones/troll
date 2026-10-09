@@ -52,8 +52,8 @@ pub struct TracksPage {
 }
 
 impl TracksPage {
-    pub const fn set_params(&mut self, id: Option<TrackId>) {
-        self.params = id;
+    pub const fn set_params(&mut self, id: TrackId) {
+        self.params = Some(id);
     }
 }
 
@@ -146,19 +146,6 @@ fn input_tracks(
                 actions.push(Action::Render);
             }
         }
-    }
-}
-
-fn input_tracks_modal(input: Res<Input>, mut actions: ResMut<Actions>) {
-    let Some(key) = input.get() else {
-        return;
-    };
-
-    match key.code {
-        KeyCode::Char('m') => {
-            actions.push(Action::Modal(Modal::Canceled));
-        }
-        _ => {}
     }
 }
 
@@ -309,6 +296,19 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
 
     frame.push_fmt(Sgr::reset_fg());
     frame.render(area, TextOptions::span_center_top());
+}
+
+fn input_tracks_modal(input: Res<Input>, mut actions: ResMut<Actions>) {
+    let Some(key) = input.get() else {
+        return;
+    };
+
+    match key.code {
+        KeyCode::Char('m') => {
+            actions.push(Action::Modal(Modal::Canceled));
+        }
+        _ => {}
+    }
 }
 
 fn render_tracks_modal(mut frame: ResMut<Frame>, colors: Res<Colors>) {
