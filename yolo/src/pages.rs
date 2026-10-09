@@ -626,7 +626,7 @@ impl EditorPage {
                         self.editor.input(key.code, key.modifiers)
                     }
                 } else {
-                    self.prompt.input(key.code, key.modifiers)
+                    self.prompt.input(key)
                 }
             }
             KeyCode::Down => {
@@ -637,14 +637,14 @@ impl EditorPage {
                         self.editor.set_disabled(false);
                         true
                     } else {
-                        self.prompt.input(key.code, key.modifiers)
+                        self.prompt.input(key)
                     }
                 } else {
                     self.editor.input(key.code, key.modifiers)
                 }
             }
             _ => match self.state {
-                EditorPageState::Prompt => self.prompt.input(key.code, key.modifiers),
+                EditorPageState::Prompt => self.prompt.input(key),
                 EditorPageState::Editor => self.editor.input(key.code, key.modifiers),
             },
         };

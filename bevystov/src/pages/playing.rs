@@ -440,6 +440,8 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         frame.push_str(name);
         frame.push_ch_repeat(' ', gap);
     }
+
+    frame.push_fmt(Sgr::reset_fg());
     frame.render(area, TextOptions::span_center_top());
 }
 

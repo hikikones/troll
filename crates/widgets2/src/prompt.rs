@@ -6,6 +6,7 @@ use crate::{Scroll, ScrollData, ScrollMargins};
 
 // TODO: Scrolling assumes all chars/graphemes are one width.
 
+#[derive(Debug)]
 pub struct Prompt {
     input: String,
     placeholder: &'static str,
@@ -19,6 +20,7 @@ pub struct Prompt {
     last_width: u16,
 }
 
+#[derive(Debug)]
 pub struct PromptColors {
     pub normal: Color,
     pub placeholder: Color,
@@ -135,15 +137,15 @@ impl Prompt {
         self.area_pos
     }
 
-    pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {
+    pub fn input(&mut self, key: Key) -> bool {
         if self.disabled {
             return false;
         }
 
-        let ctrl = key_modifiers.contains(KeyModifiers::CONTROL);
-        let shift = key_modifiers.contains(KeyModifiers::SHIFT);
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
-        match key_pressed {
+        match key.code {
             KeyCode::Right => self.move_forward(shift),
             KeyCode::Left => self.move_backward(shift),
             KeyCode::Home => self.move_to_start(shift),

@@ -207,6 +207,39 @@ impl Rect {
         self.align_vertical(outer, VerticalAlignment::Center)
     }
 
+    pub const fn scale(self, factor: f32) -> Self {
+        self.with_size(self.size.mul_all_f32(factor))
+    }
+
+    pub const fn scale_cols(mut self, factor: f32) -> Self {
+        self.size.mul_cols_f32(factor);
+        self
+    }
+
+    pub const fn scale_rows(mut self, factor: f32) -> Self {
+        self.size.mul_rows_f32(factor);
+        self
+    }
+
+    pub const fn scale_and_center(self, factor: f32) -> Self {
+        self.scale_and_align(
+            factor,
+            HorizontalAlignment::Center,
+            VerticalAlignment::Center,
+        )
+    }
+
+    pub const fn scale_and_align(
+        self,
+        factor: f32,
+        horizontal: HorizontalAlignment,
+        vertical: VerticalAlignment,
+    ) -> Self {
+        let r = self;
+        self.with_size(self.size.mul_all_f32(factor))
+            .align(r, horizontal, vertical)
+    }
+
     pub const fn split_left(self, left: u16, gap: u16) -> (Self, Self) {
         (
             self.inner(Margin::right(self.cols().saturating_sub(left))),
@@ -555,11 +588,22 @@ impl Size {
         }
     }
 
+    pub const fn mul_all(self, v: u16) -> Self {
+        Self {
+            cols: self.cols * v,
+            rows: self.rows * v,
+        }
+    }
+
     pub const fn mul_f32(self, cols: f32, rows: f32) -> Self {
         Self {
             cols: (self.cols as f32 * cols) as u16,
             rows: (self.rows as f32 * rows) as u16,
         }
+    }
+
+    pub const fn mul_all_f32(self, v: f32) -> Self {
+        self.mul_f32(v, v)
     }
 
     pub const fn div(self, rhs: Self) -> Self {
@@ -640,6 +684,30 @@ impl std::ops::Add<(u16, u16)> for Size {
             cols: self.cols + cols,
             rows: self.rows + rows,
         }
+    }
+}
+
+impl std::ops::Mul<u16> for Size {
+    type Output = Self;
+
+    fn mul(self, rhs: u16) -> Self::Output {
+        self.mul_all(rhs)
+    }
+}
+
+impl std::ops::Mul<f32> for Size {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        self.mul_all_f32(rhs)
+    }
+}
+
+impl std::ops::Mul<(f32, f32)> for Size {
+    type Output = Self;
+
+    fn mul(self, (cols, rows): (f32, f32)) -> Self::Output {
+        self.mul_f32(cols, rows)
     }
 }
 

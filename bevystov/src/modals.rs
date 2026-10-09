@@ -1,16 +1,18 @@
-use bevy_ecs::system::{Res, ResMut};
-use bevy_state::state::{State, States};
-use terminal::*;
-use widgets2::Block;
+use bevy_state::state::States;
 
-use crate::app::{App, Colors, Frame, InputState, RenderSet};
+use crate::app::{App, InputState};
+
+mod logs;
+mod search;
 
 pub struct ModalsPlugin;
 
 impl ModalsPlugin {
     pub fn build(app: &mut App) {
-        app.add_state(Modal::default())
-            .add_render(RenderSet::Modal, render_modals);
+        app.add_state(Modal::default());
+
+        search::SearchModalPlugin::build(app);
+        logs::LogsModalPlugin::build(app);
     }
 }
 
@@ -37,40 +39,5 @@ impl Modal {
             Self::Search | Self::Logs | Self::Custom => InputState::Modal,
             Self::Confirmed | Self::Canceled => InputState::Normal,
         }
-    }
-}
-
-fn render_modals(modal: Res<State<Modal>>, mut frame: ResMut<Frame>, colors: Res<Colors>) {
-    let area = frame.area();
-
-    match **modal {
-        Modal::Search => {
-            let area = area.with_size(area.size / 2).center(area);
-
-            let bg = frame.palette().background().slight_offset().as_color();
-            frame.fill(area, bg);
-
-            Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
-            frame.print_span_with_options(area, " Search ", SpanOptions::center_top());
-
-            frame.print_fmt(Style::fg(colors.secondary).with_bold().with_reverse());
-            frame.print_span_with_options(
-                area.inner(Margin::proportional(1)),
-                "YOLO",
-                SpanOptions::center().with_fill(),
-            );
-            frame.print_fmt(Sgr::Reset);
-        }
-        Modal::Logs => {
-            let area = area.with_size(area.size / 2).center(area);
-
-            let bg = frame.palette().background().slight_offset().as_color();
-            frame.fill(area, bg);
-
-            Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
-            frame.push_str(" Logs ");
-            frame.render(area, TextOptions::span_center_top());
-        }
-        Modal::Custom | Modal::Confirmed | Modal::Canceled => {}
     }
 }

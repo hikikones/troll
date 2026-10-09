@@ -811,6 +811,7 @@ fn render_shortcuts(
         frame.push_ch_repeat(' ', gap);
     }
     // TODO: logs
+    frame.push_fmt(Sgr::reset_fg());
     frame.render(app_area, TextOptions::span_center_top());
 }
 
