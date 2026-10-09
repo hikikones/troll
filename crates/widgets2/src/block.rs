@@ -3,7 +3,6 @@ use terminal::*;
 #[derive(Debug, Clone, Copy)]
 pub struct Block {
     shape: Shape,
-    style: Style,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -53,12 +52,12 @@ pub enum Shape {
 }
 
 impl Block {
-    pub const fn new(shape: Shape, style: Style) -> Self {
-        Self { shape, style }
+    pub const fn new(shape: Shape) -> Self {
+        Self { shape }
     }
 
-    pub fn rectangle(style: impl Into<Style>) -> Self {
-        Self::new(Shape::Rectangle, style.into())
+    pub const fn rectangle() -> Self {
+        Self::new(Shape::Rectangle)
     }
 
     pub fn render(self, area: Rect, frame: &mut Framebuffer) {
@@ -68,18 +67,14 @@ impl Block {
                     return;
                 }
 
-                frame.print_fmt(self.style);
                 draw_line_horizontal(area.pos, area.size.cols, frame);
-                frame.print_fmt(Sgr::Reset);
             }
             Shape::LineVertical => {
                 if area.is_empty() {
                     return;
                 }
 
-                frame.print_fmt(self.style);
                 draw_line_vertical(area.pos, area.size.rows, frame);
-                frame.print_fmt(Sgr::Reset);
             }
             Shape::Horizontals => {
                 if area.size.cols == 0 {
@@ -89,14 +84,10 @@ impl Block {
                 match area.size.rows {
                     0 => return,
                     1 => {
-                        frame.print_fmt(self.style);
                         draw_line_horizontal(area.pos, area.size.cols, frame);
-                        frame.print_fmt(Sgr::Reset);
                     }
                     _ => {
-                        frame.print_fmt(self.style);
                         draw_horizontals(area, frame);
-                        frame.print_fmt(Sgr::Reset);
                     }
                 }
             }
@@ -108,14 +99,10 @@ impl Block {
                 match area.size.cols {
                     0 => return,
                     1 => {
-                        frame.print_fmt(self.style);
                         draw_line_vertical(area.pos, area.size.rows, frame);
-                        frame.print_fmt(Sgr::Reset);
                     }
                     _ => {
-                        frame.print_fmt(self.style);
                         draw_verticals(area, frame);
-                        frame.print_fmt(Sgr::Reset);
                     }
                 }
             }
@@ -124,18 +111,14 @@ impl Block {
                     return;
                 }
 
-                frame.print_fmt(self.style);
                 draw_rectangle(area, frame);
-                frame.print_fmt(Sgr::Reset);
             }
             Shape::Corners => {
                 if area.size.is_either_less(2) {
                     return;
                 }
 
-                frame.print_fmt(self.style);
                 draw_corners(area, frame);
-                frame.print_fmt(Sgr::Reset);
             }
         }
     }

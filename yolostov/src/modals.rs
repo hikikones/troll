@@ -59,9 +59,10 @@ impl SearchModal {
         let area = area.with_size(area.size / 2).center(area);
 
         let bg = frame.palette().background().slight_offset().as_color();
-        frame.fill(area, bg);
+        frame.fill(area, bg, false);
 
-        Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
+        frame.print_fmt(Sgr::Fg(colors.normal));
+        Block::rectangle().render(area, &mut *frame);
         frame.print_span_with_options(area, " Search ", SpanOptions::center_top());
 
         frame.print_span_with_options(
@@ -96,11 +97,13 @@ impl LogsModal {
     pub fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         let area = area.with_size(area.size / 2).center(area);
         let bg = frame.palette().background().slight_offset().as_color();
-        frame.fill(area, bg);
+        frame.fill(area, bg, false);
 
-        Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, frame);
+        frame.print_fmt(Sgr::Fg(colors.normal));
+        Block::rectangle().render(area, frame);
         frame.push_str(" Logs ");
         frame.render(area, TextOptions::span_center_top());
+        frame.print_fmt(Sgr::Reset);
     }
 
     pub fn input(&mut self, key: Key) -> ModalAction {

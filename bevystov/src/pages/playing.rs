@@ -128,18 +128,14 @@ impl FrontCover {
                 return image.render(area, frame, ImageOptions::fit_center());
             }
             Some(Ok(None)) => {
-                Block::rectangle(colors.neutral).render(area, frame);
                 frame.print_fmt(Sgr::Fg(colors.neutral));
-                frame.push_str("No Image");
-                frame.render(
-                    area.inner(Margin::proportional(1)),
-                    TextOptions::span_center(),
-                );
+                Block::rectangle().render(area, frame);
+                frame.print_span_with_options(area, "No Image", SpanOptions::center());
                 frame.print_fmt(Sgr::reset_fg());
             }
             Some(Err(err)) => {
-                Block::rectangle(colors.red).render(area, frame);
                 frame.print_fmt(Sgr::Fg(colors.red));
+                Block::rectangle().render(area, frame);
                 frame.push_fmt(format_args!("ERROR\n{err}"));
                 frame.render(
                     area.inner(Margin::proportional(1)),
@@ -348,16 +344,19 @@ fn render_queue(
     jukebox: &Jukebox,
     list: &mut List,
 ) {
-    Block::rectangle(colors.secondary).render(area, frame);
-    frame.push_fmt_fg(
+    frame.print_fmt(Sgr::Fg(colors.secondary));
+    Block::rectangle().render(area, frame);
+
+    frame.print_fmt(Sgr::Fg(colors.normal));
+    frame.print_span_with_options(
+        area,
         format_args!(
             " History ({}) / Queue ({}) ",
             jukebox.history(),
             jukebox.queue()
         ),
-        colors.normal,
+        SpanOptions::center_top(),
     );
-    frame.render(area, TextOptions::span_center_top());
 
     if jukebox.is_empty() {
         frame.push_str_fg("No tracks in the queue", colors.neutral);

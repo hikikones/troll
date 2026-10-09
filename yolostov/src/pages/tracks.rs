@@ -54,7 +54,8 @@ impl TracksPage {
             return;
         }
 
-        Block::rectangle(colors.secondary).render(area, frame);
+        frame.print_fmt(Sgr::Fg(colors.secondary));
+        Block::rectangle().render(area, frame);
         frame.push_fmt_fg(format_args!(" All Tracks ({}) ", db.len()), colors.normal);
         frame.render(area, TextOptions::span_center_top());
 
@@ -122,11 +123,11 @@ impl TracksPage {
 
                 let mut style = match idx {
                     ListIndex::Selected => {
-                        frame.fill(line, colors.primary);
+                        frame.fill(line, colors.primary, true);
                         Style::fg(colors.primary).with_reverse()
                     }
                     ListIndex::Selection => {
-                        frame.fill(line, colors.neutral);
+                        frame.fill(line, colors.neutral, true);
                         Style::fg(colors.neutral).with_reverse()
                     }
                     ListIndex::Normal => Style::fg(colors.normal),

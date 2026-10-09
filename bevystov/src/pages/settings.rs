@@ -51,7 +51,7 @@ fn render_settings(
 ) {
     let area = **area;
 
-    Block::rectangle(colors.normal).render(area, &mut frame);
+    Block::rectangle().render(area, &mut frame);
     reader
         .0
         .render(area.inner(Margin::all(1)), &mut frame, &lorem.0);

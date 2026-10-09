@@ -202,30 +202,29 @@ fn render_search(
     jukebox: NonSend<Jukebox>,
 ) {
     let area = frame.area().scale_and_center(0.6);
-
-    // Modal
     let bg = frame.palette().background().slight_offset().as_color();
-    frame.fill(area, bg);
-    Block::rectangle(Style::fg(colors.secondary).with_bg(bg)).render(area, &mut frame);
+    frame.fill(area, bg, false);
+
+    frame.print_fmt(Sgr::Fg(colors.secondary));
+    Block::rectangle().render(area, &mut frame);
 
     // Prompt
     let prompt_area = area
         .with_size(Size::new(area.cols() / 2, 1))
         .center_horizontal(area);
-    frame.fill(prompt_area, bg);
+    frame.cursor(prompt_area.pos);
+    frame.print_ch_repeat(' ', prompt_area.cols());
     let prompt_area = prompt_area.inner(Margin::horizontal(1));
     modal.prompt.render(prompt_area, &mut frame);
 
     if database.is_empty() {
-        frame.print_span_with_options(
+        frame.print_fmt(Sgr::Fg(colors.neutral));
+        frame.push_str("No tracks to search for");
+        frame.render(
             area.inner(Margin::proportional(1)),
-            format_args!(
-                "{}No tracks to search for{}",
-                Style::fg(colors.neutral).with_bg(bg),
-                Sgr::Reset
-            ),
-            SpanOptions::center(),
+            TextOptions::paragraph_center(),
         );
+        frame.print_fmt(Sgr::Reset);
         return;
     }
 
@@ -247,11 +246,11 @@ fn render_search(
                 State::Search => Style::fg(colors.neutral).with_bg(bg),
                 State::Browse => match index {
                     ListIndex::Selected => {
-                        frame.fill(line, colors.primary);
+                        frame.fill(line, colors.primary, true);
                         Style::fg(colors.primary).with_reverse()
                     }
                     ListIndex::Selection => {
-                        frame.fill(line, colors.neutral);
+                        frame.fill(line, colors.neutral, true);
                         Style::fg(colors.neutral).with_reverse()
                     }
                     ListIndex::Normal => Style::fg(colors.normal).with_bg(bg),
@@ -274,22 +273,26 @@ fn render_search(
     );
 
     if !track_results.is_empty() {
-        render_shortcuts(shortcuts_area, &mut frame, &colors, bg, state);
+        frame.print_fmt(Sgr::Bg(bg));
+        render_shortcuts(shortcuts_area, &mut frame, &colors, state);
+        frame.print_fmt(Sgr::reset_bg());
     }
+
+    frame.print_fmt(Sgr::Reset);
 
     frame.set_cursor_pos_at_end(modal.prompt.get_cursor_pos());
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, bg: Color, state: State) {
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state: State) {
     match state {
         State::Search => {
             frame.print_span_with_options(
                 area,
                 format_args!(
-                    "{} ↵{} Browse {}",
-                    Sgrs([Sgr::Fg(colors.secondary), Sgr::Bg(bg)]),
+                    " {}↵{} Browse {}",
+                    Sgr::Fg(colors.secondary),
                     Sgr::Fg(colors.normal),
-                    Sgr::Reset
+                    Sgr::reset_fg()
                 ),
                 SpanOptions::center_top(),
             );
@@ -299,7 +302,6 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, bg: Co
             let name_color = colors.normal;
             let gap = 1;
 
-            frame.push_fmt(Sgr::Bg(bg));
             frame.push_ch(' ');
 
             for (key, name, gap) in [
@@ -318,7 +320,7 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, bg: Co
             }
 
             frame.push_ch(' ');
-            frame.push_fmt(Sgr::Reset);
+            frame.push_fmt(Sgr::reset_fg());
             frame.render(area, TextOptions::span_center_top());
         }
     }

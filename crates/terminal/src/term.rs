@@ -710,15 +710,17 @@ impl Framebuffer {
         self.text.truncate(start);
     }
 
-    pub fn fill(&mut self, area: Rect, color: Color) {
-        self.print_fmt(Sgr::Bg(color));
+    pub fn fill(&mut self, area: Rect, bg: Color, reset: bool) {
+        self.print_fmt(Sgr::Bg(bg));
 
         for i in 0..area.size.rows {
             self.cursor(area.pos.with_row(area.pos.row + i));
             self.print_ch_repeat(' ', area.size.cols);
         }
 
-        self.print_fmt(Sgr::reset_bg());
+        if reset {
+            self.print_fmt(Sgr::reset_bg());
+        }
     }
 
     fn flush(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {

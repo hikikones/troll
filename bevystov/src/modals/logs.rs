@@ -19,17 +19,13 @@ impl LogsModalPlugin {
     }
 }
 
-fn render_logs(mut frame: ResMut<Frame>, colors: Res<Colors>) {
+fn render_logs(mut frame: ResMut<Frame>, _colors: Res<Colors>) {
     let area = frame.area().inner(Margin::proportional(6));
 
     let bg = frame.palette().background().slight_offset().as_color();
-    frame.fill(area, bg);
+    frame.fill(area, bg, false);
 
-    let style = Style::fg(colors.normal).with_bg(bg);
-    Block::rectangle(style).render(area, &mut *frame);
-    frame.print_span_with_options(
-        area,
-        format_args!("{} Logs {}", style, Sgr::Reset),
-        SpanOptions::center_top(),
-    );
+    Block::rectangle().render(area, &mut frame);
+    frame.print_span_with_options(area, " Logs ", SpanOptions::center_top());
+    frame.print_fmt(Sgr::Reset);
 }

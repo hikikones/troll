@@ -187,12 +187,14 @@ fn render_tracks(
         return;
     }
 
-    Block::rectangle(colors.secondary).render(area, &mut frame);
+    frame.print_fmt(Sgr::Fg(colors.secondary));
+    Block::rectangle().render(area, &mut frame);
     frame.push_fmt_fg(
         format_args!(" All Tracks ({}) ", database.len()),
         colors.normal,
     );
     frame.render(area, TextOptions::span_center_top());
+    frame.print_fmt(Sgr::reset_fg());
 
     let inner = area.inner(Margin::all(1));
     let gap = if inner.cols() < 10 { 0 } else { 2 };
@@ -254,11 +256,11 @@ fn render_tracks(
 
             let mut style = match idx {
                 ListIndex::Selected => {
-                    frame.fill(line, colors.primary);
+                    frame.fill(line, colors.primary, true);
                     Style::fg(colors.primary).with_reverse()
                 }
                 ListIndex::Selection => {
-                    frame.fill(line, colors.neutral);
+                    frame.fill(line, colors.neutral, true);
                     Style::fg(colors.neutral).with_reverse()
                 }
                 ListIndex::Normal => Style::fg(colors.normal),
@@ -314,15 +316,16 @@ fn render_tracks_modal(mut frame: ResMut<Frame>, colors: Res<Colors>) {
     let area = area.with_size(area.size / 2).center(area);
 
     let bg = frame.palette().background().slight_offset().as_color();
-    frame.fill(area, bg);
+    frame.fill(area, bg, false);
 
-    Block::rectangle(Style::fg(colors.normal).with_bg(bg)).render(area, &mut *frame);
-    frame.push_str(" Custom ");
-    frame.render(area, TextOptions::span_center_top());
+    frame.print_fmt(Sgr::Fg(colors.normal));
+    Block::rectangle().render(area, &mut *frame);
+    frame.print_span_with_options(area, " Custom ", SpanOptions::center_top());
 
     frame.push_str("A custom modal only for the tracks page.");
     frame.render(
         area.inner(Margin::proportional(1)),
         TextOptions::paragraph_center(),
     );
+    frame.print_fmt(Sgr::Reset);
 }
