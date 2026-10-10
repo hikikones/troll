@@ -62,7 +62,7 @@ impl App {
             kitty: KittyGraphics::new(),
             colors: Colors {
                 normal: Color::Default,
-                primary: Color::BrightYellow,
+                primary: Color::YellowBright,
                 secondary: Color::Yellow,
                 neutral: Color::Indexed(240),
                 red: Color::Red,

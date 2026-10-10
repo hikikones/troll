@@ -4921,6 +4921,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "crossterm 0.29.0",
+ "serde",
  "utils",
 ]
 

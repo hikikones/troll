@@ -8,4 +8,5 @@ license.workspace = true
 [dependencies]
 bitflags = { workspace = true }
 crossterm = { workspace = true }
+serde = { workspace = true }
 utils = { workspace = true }
