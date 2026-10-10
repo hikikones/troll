@@ -55,7 +55,7 @@ impl Logs {
         self.logs.len()
     }
 
-    pub fn push(&mut self, error: impl std::error::Error) {
+    pub fn push_err(&mut self, error: impl std::error::Error) {
         use std::fmt::Write;
 
         let start = self.text.len();
@@ -69,6 +69,34 @@ impl Logs {
 
         let range = start..self.text.len();
         let width = utils::str_width(&self.text[start..]);
+        self.logs.push(Log {
+            range,
+            _width: width,
+        });
+    }
+
+    pub fn push_str(&mut self, s: impl AsRef<str>) {
+        let s = s.as_ref();
+        let width = utils::str_width(s);
+        let start = self.text.len();
+        self.text.push_str(s);
+
+        let range = start..self.text.len();
+        self.logs.push(Log {
+            range,
+            _width: width,
+        });
+    }
+
+    pub fn push_fmt(&mut self, s: impl std::fmt::Display) {
+        use std::fmt::Write;
+
+        let start = self.text.len();
+        let _ = write!(self.text, "{s}");
+
+        let range = start..self.text.len();
+        let width = utils::str_width(&self.text[start..]);
+
         self.logs.push(Log {
             range,
             _width: width,

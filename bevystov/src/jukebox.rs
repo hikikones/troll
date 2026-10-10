@@ -27,7 +27,7 @@ pub enum JukeboxEvent {
     Play(Option<TrackId>),
     Pause,
     Stop,
-    Error(String),
+    Error(String), // TODO: Make proper jukebox error.
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

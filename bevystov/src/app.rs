@@ -858,7 +858,7 @@ fn update_app(
                 // TODO?
             }
             DatabaseEvent::Error(err) => {
-                logs.push(err);
+                logs.push_err(err);
             }
         }
     });
@@ -902,8 +902,7 @@ fn update_app(
                 }
             }
             JukeboxEvent::Error(err) => {
-                // TODO: Make proper jukebox error.
-                logs.push(std::io::Error::other(err));
+                logs.push_str(err);
             }
         }
     });
