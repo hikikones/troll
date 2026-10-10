@@ -692,7 +692,7 @@ fn render_app(
                 &mut frame,
                 &colors,
                 jukebox.volume(),
-                logs.len(),
+                &logs,
             );
         }
     }
@@ -790,7 +790,7 @@ fn render_shortcuts(
     frame: &mut Framebuffer,
     colors: &Colors,
     volume: f32,
-    logs: usize,
+    logs: &Logs,
 ) {
     let key_color = colors.primary;
     let name_color = colors.normal;
@@ -828,13 +828,17 @@ fn render_shortcuts(
         frame.push_ch_repeat(' ', gap);
     }
 
-    if logs > 0 {
+    if logs.len() > 0 {
         frame.push_ch(' ');
         frame.push_fmt(Sgr::Fg(key_color));
         frame.push_str("^l");
         frame.push_fmt(Sgr::Fg(name_color));
         frame.push_ch(' ');
-        frame.push_fmt(format_args!("Logs({logs})"));
+        if logs.len_new() > 0 {
+            frame.push_fmt(format_args!("Logs({})", logs.len_new()));
+        } else {
+            frame.push_str("Logs");
+        }
     }
 
     frame.push_fmt(Sgr::reset_fg());
