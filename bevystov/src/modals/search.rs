@@ -9,11 +9,12 @@ use terminal::*;
 use widgets2::{Block, List, ListIndex, Prompt};
 
 use crate::{
-    app::{Action, Actions, App, Colors, Frame, Input, InputState, RenderSet},
+    app::{Action, Actions, App, AppCursorState, Frame, Input, InputSet, RenderSet},
     database::{Database, TrackId},
     jukebox::Jukebox,
     modals::Modal,
     pages::Route,
+    settings::{Colors, Settings},
 };
 
 pub(super) struct SearchModalPlugin;
@@ -21,11 +22,10 @@ pub(super) struct SearchModalPlugin;
 impl SearchModalPlugin {
     pub(super) fn build(app: &mut App) {
         app.insert_resource(SearchModal::default())
-            .insert_resource(TrackResults::default())
-            .add_enter(Modal::Search, enter_search)
+            .insert_resource(SearchResults::default())
             .add_exit(Modal::Search, exit_search)
             .add_input(
-                InputState::Modal,
+                InputSet::Modal,
                 input_search.run_if(in_state(Modal::Search)),
             )
             .add_render(
@@ -69,28 +69,19 @@ impl Default for SearchModal {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum State {
     Search,
     Browse,
 }
 
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
-struct TrackResults(Vec<(TrackId, u16)>);
-
-fn enter_search(mut frame: ResMut<Frame>, database: NonSend<Database>) {
-    if database.is_empty() {
-        return;
-    }
-
-    frame.cursor(Cursor::Show);
-}
+struct SearchResults(Vec<(TrackId, u16)>);
 
 fn exit_search(
-    mut frame: ResMut<Frame>,
     database: NonSend<Database>,
     mut modal: ResMut<SearchModal>,
-    mut results: ResMut<TrackResults>,
+    mut results: ResMut<SearchResults>,
 ) {
     if database.is_empty() {
         return;
@@ -98,16 +89,14 @@ fn exit_search(
 
     modal.reset();
     results.clear();
-    frame.cursor(Cursor::Hide);
 }
 
 fn input_search(
     input: Res<Input>,
-    mut frame: ResMut<Frame>,
     mut modal: ResMut<SearchModal>,
     mut jukebox: NonSendMut<Jukebox>,
     mut actions: ResMut<Actions>,
-    results: Res<TrackResults>,
+    results: Res<SearchResults>,
     database: NonSend<Database>,
 ) {
     if database.is_empty() {
@@ -123,9 +112,7 @@ fn input_search(
             KeyCode::Enter | KeyCode::Down => {
                 if !results.is_empty() {
                     modal.state = State::Browse;
-                    modal.prompt.set_disabled(true);
                     modal.list.reset();
-                    frame.cursor(Cursor::Hide);
                     actions.push(Action::Render);
                 }
             }
@@ -139,14 +126,12 @@ fn input_search(
             KeyCode::Enter => {
                 if let Some((id, _)) = results.get(modal.list.index()).copied() {
                     jukebox.play_id(id, &database);
-                    actions.push(Action::Modal(Modal::Confirmed));
+                    actions.push(Action::Modal(Modal::None));
                 }
             }
             KeyCode::Up => {
                 if modal.list.index() == 0 {
                     modal.state = State::Search;
-                    modal.prompt.set_disabled(false);
-                    frame.cursor(Cursor::Show);
                     actions.push(Action::Render);
                 } else {
                     if modal.list.input(key) {
@@ -178,8 +163,6 @@ fn input_search(
             }
             KeyCode::Char('s') => {
                 modal.state = State::Search;
-                modal.prompt.set_disabled(false);
-                frame.cursor(Cursor::Show);
                 actions.push(Action::Render);
             }
             _ => {
@@ -193,12 +176,14 @@ fn input_search(
 
 fn render_search(
     mut frame: ResMut<Frame>,
-    colors: Res<Colors>,
+    settings: Res<Settings>,
     mut modal: ResMut<SearchModal>,
-    track_results: Res<TrackResults>,
+    mut cursor_state: ResMut<AppCursorState>,
+    results: Res<SearchResults>,
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
+    let colors = settings.colors();
     let area = frame.area().scale_and_center(0.6);
     let bg = frame.palette().background().slight_offset().as_color();
     frame.fill(area, bg, false);
@@ -206,16 +191,25 @@ fn render_search(
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
 
+    let state = modal.state;
+
+    // TODO: Should probably use area.split_ends(1, 1).
+
     // Prompt
     let prompt_area = area
         .with_size(Size::new(area.cols() / 2, 1))
         .center_horizontal(area);
     frame.cursor(prompt_area.pos);
     frame.print_ch_repeat(' ', prompt_area.cols());
-    let prompt_area = prompt_area.inner(Margin::horizontal(1));
-    modal.prompt.render(prompt_area, &mut frame);
+    modal
+        .prompt
+        .set_disabled(state == State::Browse)
+        .render(prompt_area.inner(Margin::horizontal(1)), &mut frame);
 
     if database.is_empty() {
+        cursor_state.set_visible(false);
+        modal.prompt.set_disabled(true);
+
         frame.print_fmt(Sgr::Fg(colors.neutral));
         frame.push_str("No tracks to search for");
         frame.render(
@@ -229,12 +223,11 @@ fn render_search(
     // Results
     let shortcuts_area = Rect::new(area.pos.with_row(area.bottom_row()), area.size.with_rows(1));
     let results_area = area.inner(Margin::all(1));
-    let state = modal.state;
 
     modal.list.render(
         results_area,
         &mut frame,
-        track_results.iter().copied(),
+        results.iter().copied(),
         |line, frame, (id, _), index| {
             let Some(track) = database.get(id) else {
                 return;
@@ -270,15 +263,16 @@ fn render_search(
         },
     );
 
-    if !track_results.is_empty() {
+    if !results.is_empty() {
         frame.print_fmt(Sgr::Bg(bg));
-        render_shortcuts(shortcuts_area, &mut frame, &colors, state);
-        frame.print_fmt(Sgr::reset_bg());
+        render_shortcuts(shortcuts_area, &mut frame, colors, state);
     }
 
     frame.print_fmt(Sgr::Reset);
 
-    frame.set_cursor_pos_at_end(modal.prompt.get_cursor_pos());
+    // Update cursor state
+    cursor_state.set_visible(modal.state == State::Search);
+    cursor_state.set_pos_at_end(modal.prompt.get_cursor_pos());
 }
 
 fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state: State) {
@@ -325,7 +319,7 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state:
 
 fn update_search(
     mut modal: ResMut<SearchModal>,
-    mut results: ResMut<TrackResults>,
+    mut results: ResMut<SearchResults>,
     mut database: NonSendMut<Database>,
     mut actions: ResMut<Actions>,
 ) {

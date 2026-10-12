@@ -4,12 +4,11 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::{
     message::Messages,
     resource::Resource,
-    schedule::{IntoScheduleConfigs, Schedule, SystemSet},
+    schedule::{IntoScheduleConfigs, Schedule, SystemSet, common_conditions::not},
     system::{NonSend, NonSendMut, Res, ResMut, ScheduleSystem},
     world::World,
 };
 use bevy_state::{
-    condition::in_state,
     state::{
         FreelyMutableState, NextState, OnEnter, OnExit, State, StateTransition,
         StateTransitionEvent, StateTransitionSystems, States,
@@ -29,6 +28,7 @@ use crate::{
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
     pages::{Page, PagesPlugin, Route, TracksPage},
+    settings::{Colors, Settings},
 };
 
 pub struct App {
@@ -42,6 +42,7 @@ impl App {
     pub fn new(
         database: Database,
         jukebox: Jukebox,
+        settings: Settings,
         media_controls: Option<MediaControls>,
     ) -> Self {
         let mut app = {
@@ -64,27 +65,23 @@ impl App {
             app.insert_non_send(media_controls);
         }
 
-        let colors = Colors::default();
-        let modal_colors = ModalColors(Colors::all(colors.neutral));
-
         app.insert_resource(Frame::default())
             .insert_resource(Input::default())
+            .insert_resource(AppCursorState::default())
             .insert_resource(Actions::default())
-            .insert_resource(colors)
-            .insert_resource(modal_colors)
+            .insert_resource(ModalColors::new(settings.colors().neutral))
+            .insert_resource(settings)
             .insert_resource(PageArea::default())
             .insert_resource(ShortcutsArea::default());
 
-        app.add_state(InputState::default());
-
-        app.add_render(RenderSet::SetColors, swap_colors)
+        app.add_input(InputSet::App, input_app)
+            .add_render(
+                RenderSet::First,
+                (hide_cursor, swap_colors.run_if(is_in_modal)),
+            )
             .add_render(RenderSet::App, render_app)
-            .add_render(RenderSet::ResetColors, swap_colors)
+            .add_render(RenderSet::BeforeModal, (hide_cursor, swap_colors))
             .add_update(update_app);
-
-        app.schedules
-            .input
-            .add_systems(input_app.in_set(InputSet::Global));
 
         PagesPlugin::build(&mut app);
         ModalsPlugin::build(&mut app);
@@ -121,6 +118,10 @@ impl App {
         }
 
         Ok(())
+    }
+
+    pub const fn world(&self) -> &World {
+        &self.world
     }
 
     pub fn insert_resource(&mut self, value: impl Resource) -> &mut Self {
@@ -205,12 +206,10 @@ impl App {
 
     pub fn add_input<M>(
         &mut self,
-        state: InputState,
+        set: InputSet,
         systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
     ) -> &mut Self {
-        self.schedules
-            .input
-            .add_systems(systems.in_set(InputSet::Normal).run_if(in_state(state)));
+        self.schedules.input.add_systems(systems.in_set(set));
         self
     }
 
@@ -261,7 +260,9 @@ impl App {
 
             self.schedules.render.run(&mut self.world);
 
+            let cursor_state = self.world.resource_mut::<AppCursorState>().take();
             let mut frame = self.world.resource_mut::<Frame>();
+            frame.print_fmt(cursor_state);
             std::mem::swap(&mut frame.0, buffer);
 
             Ok(())
@@ -312,10 +313,7 @@ impl App {
                     if modal.is_active() {
                         self.world
                             .resource_mut::<NextState<Modal>>()
-                            .set(Modal::Canceled);
-                        self.world
-                            .resource_mut::<NextState<InputState>>()
-                            .set(InputState::Normal);
+                            .set(Modal::None);
                     }
 
                     self.world
@@ -330,19 +328,16 @@ impl App {
                     }
                 }
                 Action::Modal(modal) => {
-                    let current = *self.world.resource::<State<Modal>>().get();
+                    let current = **self.world.resource::<State<Modal>>();
                     let next = match (current, modal) {
-                        (Modal::Search, Modal::Search) => Modal::Canceled,
-                        (Modal::Logs, Modal::Logs) => Modal::Canceled,
+                        (Modal::Search, Modal::Search) => Modal::None,
+                        (Modal::Logs, Modal::Logs) => Modal::None,
                         (_, _) => modal,
                     };
 
                     if current != next {
                         render = true;
                         self.world.resource_mut::<NextState<Modal>>().set(next);
-                        self.world
-                            .resource_mut::<NextState<InputState>>()
-                            .set(next.as_input_state());
                     }
                 }
                 Action::Quit => {
@@ -414,16 +409,23 @@ struct Schedules {
 impl Schedules {
     fn new() -> Self {
         let mut input = Schedule::default();
-        input.configure_sets((InputSet::Global, InputSet::Normal).chain());
+        input.configure_sets(
+            (
+                InputSet::App,
+                InputSet::Page.run_if(not(is_in_modal)),
+                InputSet::Modal.run_if(is_in_modal),
+            )
+                .chain(),
+        );
 
         let mut render = Schedule::default();
         render.configure_sets(
             (
-                RenderSet::SetColors,
+                RenderSet::First,
                 RenderSet::App,
                 RenderSet::Page,
-                RenderSet::ResetColors,
-                RenderSet::Modal,
+                RenderSet::BeforeModal.run_if(is_in_modal),
+                RenderSet::Modal.run_if(is_in_modal),
             )
                 .chain(),
         );
@@ -439,25 +441,19 @@ impl Schedules {
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct Frame(Framebuffer);
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, SystemSet)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
 pub enum RenderSet {
-    SetColors,
+    First,
     App,
     Page,
-    ResetColors,
+    BeforeModal,
     Modal,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, SystemSet)]
-enum InputSet {
-    Global,
-    Normal,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, States)]
-pub enum InputState {
-    #[default]
-    Normal,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
+pub enum InputSet {
+    App,
+    Page,
     Modal,
 }
 
@@ -478,6 +474,62 @@ impl Input {
     }
 }
 
+// TODO: Rename
+#[derive(Debug, Default, Resource)]
+pub struct AppCursorState {
+    current_visibility: bool,
+    next_visibility: bool,
+    pos_at_end: Option<Pos>,
+}
+
+impl AppCursorState {
+    pub const fn set_visible(&mut self, value: bool) {
+        self.next_visibility = value;
+    }
+
+    pub const fn set_pos_at_end(&mut self, pos: Pos) {
+        self.pos_at_end = Some(pos);
+    }
+
+    const fn take(&mut self) -> CursorStateCommand {
+        if self.current_visibility != self.next_visibility {
+            self.current_visibility = self.next_visibility;
+            CursorStateCommand {
+                visibility: Some(self.next_visibility),
+                position: self.pos_at_end.take(),
+            }
+        } else {
+            CursorStateCommand {
+                visibility: None,
+                position: self.pos_at_end.take(),
+            }
+        }
+    }
+}
+
+struct CursorStateCommand {
+    visibility: Option<bool>,
+    position: Option<Pos>,
+}
+
+impl std::fmt::Display for CursorStateCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(visible) = self.visibility {
+            let cursor = match visible {
+                true => Cursor::Show,
+                false => Cursor::Hide,
+            };
+            f.write_fmt(format_args!("{cursor}"))?;
+        }
+
+        if let Some(pos) = self.position {
+            f.write_fmt(format_args!("{}", Cursor::from(pos)))?;
+        }
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
     Render,
@@ -489,41 +541,14 @@ pub enum Action {
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct Actions(Vec<Action>);
 
-#[derive(Debug, Clone, Resource)]
-pub struct Colors {
-    pub normal: Color,
-    pub primary: Color,
-    pub secondary: Color,
-    pub neutral: Color,
-    pub red: Color,
-}
-
-impl Colors {
-    const fn all(color: Color) -> Self {
-        Self {
-            normal: color,
-            primary: color,
-            secondary: color,
-            neutral: color,
-            red: color,
-        }
-    }
-}
-
-impl Default for Colors {
-    fn default() -> Self {
-        Self {
-            normal: Color::Default,
-            primary: Color::YellowBright,
-            secondary: Color::Yellow,
-            neutral: Color::Indexed(240),
-            red: Color::Red,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Resource, Deref, DerefMut)]
 struct ModalColors(Colors);
+
+impl ModalColors {
+    const fn new(color: Color) -> Self {
+        Self(Colors::all(color))
+    }
+}
 
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct PageArea(Rect);
@@ -546,7 +571,7 @@ fn input_app(
         KeyCode::Esc => actions.push(Action::Quit),
         KeyCode::Tab | KeyCode::BackTab => {
             if modal.is_active() {
-                actions.push(Action::Modal(Modal::Canceled));
+                actions.push(Action::Modal(Modal::None));
             } else {
                 let next_route = if let KeyCode::Tab = key.code {
                     page.next()
@@ -624,27 +649,30 @@ fn input_app(
     }
 }
 
-fn swap_colors(
-    modal: Res<State<Modal>>,
-    mut colors: ResMut<Colors>,
-    mut modal_colors: ResMut<ModalColors>,
-) {
-    if modal.is_active() {
-        std::mem::swap(&mut *colors, &mut **modal_colors);
-    }
+fn is_in_modal(modal: Res<State<Modal>>) -> bool {
+    modal.is_active()
+}
+
+fn swap_colors(mut settings: ResMut<Settings>, mut modal_colors: ResMut<ModalColors>) {
+    std::mem::swap(settings.colors_mut(), &mut modal_colors);
+}
+
+fn hide_cursor(mut cursor_state: ResMut<AppCursorState>) {
+    cursor_state.set_visible(false);
 }
 
 fn render_app(
     mut frame: ResMut<Frame>,
     mut page_area: ResMut<PageArea>,
     mut shortcuts_area: ResMut<ShortcutsArea>,
-    colors: Res<Colors>,
+    settings: Res<Settings>,
     current_page: Res<State<Page>>,
     logs: Res<Logs>,
     jukebox: NonSend<Jukebox>,
     database: NonSend<Database>,
 ) {
     let area = frame.area();
+    let colors = settings.colors();
 
     match frame.screen_height() {
         ScreenHeight::Short => {
@@ -654,7 +682,7 @@ fn render_app(
         ScreenHeight::Normal => {
             let (top, body, bottom) = area.split_ends(1, 1);
 
-            render_navigation(top, &mut frame, &colors, **current_page);
+            render_navigation(top, &mut frame, colors, **current_page);
 
             **page_area = body.inner(Margin::all(1));
             **shortcuts_area = bottom;
@@ -662,7 +690,7 @@ fn render_app(
         ScreenHeight::Tall => {
             let (top, body, mut bottom) = area.split_ends(1, 7);
 
-            render_navigation(top, &mut frame, &colors, **current_page);
+            render_navigation(top, &mut frame, colors, **current_page);
 
             **page_area = body.inner(Margin::all(1));
             **shortcuts_area = bottom.with_rows(1);
@@ -681,7 +709,7 @@ fn render_app(
                 title_area,
                 status_area,
                 &mut frame,
-                &colors,
+                colors,
                 &jukebox,
                 &database,
             );
@@ -690,7 +718,7 @@ fn render_app(
                 play_shortcuts_area,
                 app_shortcuts_area,
                 &mut frame,
-                &colors,
+                colors,
                 jukebox.volume(),
                 &logs,
             );

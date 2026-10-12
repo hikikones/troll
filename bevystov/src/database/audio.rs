@@ -347,6 +347,7 @@ impl AudioMetadata {
     Eq,
     PartialOrd,
     Ord,
+    Hash,
     serde_repr::Serialize_repr,
     serde_repr::Deserialize_repr,
 )]

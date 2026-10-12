@@ -10,8 +10,9 @@ use terminal::*;
 use widgets2::Block;
 
 use crate::{
-    app::{Action, Actions, App, Colors, Frame, Input, InputState, RenderSet},
+    app::{Action, Actions, App, Frame, Input, InputSet, RenderSet},
     modals::Modal,
+    settings::{Colors, Settings},
 };
 
 pub(super) struct LogsModalPlugin;
@@ -19,7 +20,7 @@ pub(super) struct LogsModalPlugin;
 impl LogsModalPlugin {
     pub(super) fn build(app: &mut App) {
         app.insert_resource(Logs::default())
-            .add_input(InputState::Modal, input_logs.run_if(in_state(Modal::Logs)))
+            .add_input(InputSet::Modal, input_logs.run_if(in_state(Modal::Logs)))
             .add_render(RenderSet::Modal, render_logs.run_if(in_state(Modal::Logs)));
     }
 }
@@ -134,10 +135,14 @@ fn input_logs(input: Res<Input>, mut logs: ResMut<Logs>, mut actions: ResMut<Act
         KeyCode::Delete => {
             if key.ctrl() {
                 logs.clear();
-                actions.push(Action::Modal(Modal::Confirmed));
+                actions.push(Action::Modal(Modal::None));
             } else {
                 logs.remove_current();
-                actions.push(Action::Render);
+                if logs.is_empty() {
+                    actions.push(Action::Modal(Modal::None));
+                } else {
+                    actions.push(Action::Render);
+                }
             }
         }
         KeyCode::Char('c') => {
@@ -147,8 +152,9 @@ fn input_logs(input: Res<Input>, mut logs: ResMut<Logs>, mut actions: ResMut<Act
     }
 }
 
-fn render_logs(mut frame: ResMut<Frame>, colors: Res<Colors>, mut logs: ResMut<Logs>) {
+fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, mut logs: ResMut<Logs>) {
     let area = frame.area().scale_and_center(0.6);
+    let colors = settings.colors();
 
     let bg = frame.palette().background().slight_offset().as_color();
     frame.fill(area, bg, false);
@@ -178,7 +184,7 @@ fn render_logs(mut frame: ResMut<Frame>, colors: Res<Colors>, mut logs: ResMut<L
     );
 
     let shortcuts_area = Rect::new(area.pos.with_row(area.bottom_row()), area.size.with_rows(1));
-    render_shortcuts(shortcuts_area, &mut frame, &colors);
+    render_shortcuts(shortcuts_area, &mut frame, colors);
 
     frame.print_fmt(Sgr::Reset);
 }

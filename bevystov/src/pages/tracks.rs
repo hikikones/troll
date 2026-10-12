@@ -8,13 +8,12 @@ use terminal::*;
 use widgets2::{Block, List, ListIndex, TableLayout};
 
 use crate::{
-    app::{
-        Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet, ShortcutsArea,
-    },
+    app::{Action, Actions, App, Frame, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::{AudioRating, Database, TrackId, TrackSort},
     jukebox::Jukebox,
     modals::Modal,
     pages::Page,
+    settings::{Colors, Settings},
 };
 
 pub struct TracksPagePlugin;
@@ -22,12 +21,9 @@ pub struct TracksPagePlugin;
 impl TracksPagePlugin {
     pub fn build(app: &mut App) {
         app.insert_resource(TracksPage::default())
+            .add_input(InputSet::Page, input_tracks.run_if(in_state(Page::Tracks)))
             .add_input(
-                InputState::Normal,
-                input_tracks.run_if(in_state(Page::Tracks)),
-            )
-            .add_input(
-                InputState::Modal,
+                InputSet::Modal,
                 input_tracks_modal.run_if(in_state(Page::Tracks).and_then(in_state(Modal::Custom))),
             )
             .add_enter(Page::Tracks, enter_tracks)
@@ -161,12 +157,13 @@ fn render_tracks(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Frame>,
-    colors: Res<Colors>,
+    settings: Res<Settings>,
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
     mut page: ResMut<TracksPage>,
 ) {
     let area = **area;
+    let colors = settings.colors();
 
     if database.is_empty() {
         frame.push_str_fg("No tracks to be found", colors.neutral);
@@ -305,15 +302,16 @@ fn input_tracks_modal(input: Res<Input>, mut actions: ResMut<Actions>) {
 
     match key.code {
         KeyCode::Char('m') => {
-            actions.push(Action::Modal(Modal::Canceled));
+            actions.push(Action::Modal(Modal::None));
         }
         _ => {}
     }
 }
 
-fn render_tracks_modal(mut frame: ResMut<Frame>, colors: Res<Colors>) {
+fn render_tracks_modal(mut frame: ResMut<Frame>, settings: Res<Settings>) {
     let area = frame.area();
     let area = area.with_size(area.size / 2).center(area);
+    let colors = settings.colors();
 
     let bg = frame.palette().background().slight_offset().as_color();
     frame.fill(area, bg, false);

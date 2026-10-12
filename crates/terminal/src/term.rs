@@ -23,8 +23,8 @@ impl Terminal {
     pub fn new() -> std::io::Result<Self> {
         let size = TerminalSize::query()?;
 
-        let mut backend = std::io::stdout();
-        let palette = TerminalPalette::query(&mut backend, &mut std::io::stdin())?;
+        let backend = std::io::stdout();
+        let palette = TerminalPalette::query(&mut backend.lock(), &mut std::io::stdin().lock())?;
 
         Ok(Self {
             backend,
@@ -453,9 +453,11 @@ impl Rgb {
     }
 
     pub const fn slight_offset(self) -> Self {
-        Self(self.0, self.1, if self.2 == 255 { 254 } else { self.2 + 1 })
+        let Self(r, g, b) = self;
+        Self(r, g, if b == 255 { 254 } else { b + 1 })
     }
 
+    // TODO: Include both stdin response and source in error message.
     fn query(
         osc: &str,
         writer: &mut impl std::io::Write,
@@ -481,6 +483,7 @@ impl Rgb {
         Ok(Self::parse(&response))
     }
 
+    // TODO: Should return parse error.
     fn parse(response: &str) -> Option<Self> {
         // Parse response of pattern "\u{1b}]10;rgb:c4c4/c4c4/b5b5\u{1b}\\\u{1b}"
         let start = response.find(':')? + 1;
@@ -593,7 +596,8 @@ impl Framebuffer {
 
     pub fn query_term_size(&mut self) -> std::io::Result<()> {
         let win_size = crossterm::terminal::window_size()?;
-
+        // TODO: Window pixel dims might still be zero.
+        // Should probably store CellDims when non-zero, else skip.
         self.size = TerminalSize::from(win_size);
         self.screen = ScreenSize::new(self.size.window_size(), self.thresholds);
 

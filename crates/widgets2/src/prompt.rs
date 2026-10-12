@@ -180,6 +180,10 @@ impl Prompt {
         self.cursor += s.len();
     }
 
+    pub fn push_fmt(&mut self, s: impl std::fmt::Display) {
+        self.push_str(&format!("{s}"));
+    }
+
     pub fn move_forward(&mut self, shift: bool) -> bool {
         self.move_cursor(CursorMove::Forward, shift)
     }

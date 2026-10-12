@@ -11,6 +11,7 @@ bevy_ecs = { workspace = true }
 bevy_state = { workspace = true }
 clap = { workspace = true }
 clap-cargo = { workspace = true }
+directories = { workspace = true }
 fastrand = { workspace = true }
 indexmap = { workspace = true }
 lofty = { workspace = true }
@@ -20,6 +21,7 @@ serde = { workspace = true }
 serde_repr = { workspace = true }
 shared = { workspace = true }
 terminal = { workspace = true }
+toml = { workspace = true }
 utils = { workspace = true }
 walkdir = { workspace = true }
 widgets2 = { workspace = true }

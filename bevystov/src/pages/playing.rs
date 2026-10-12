@@ -12,12 +12,11 @@ use widgets2::{
 };
 
 use crate::{
-    app::{
-        Action, Actions, App, Colors, Frame, Input, InputState, PageArea, RenderSet, ShortcutsArea,
-    },
+    app::{Action, Actions, App, Frame, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::{AudioRating, Database, TrackId},
     jukebox::Jukebox,
     pages::{Page, Route},
+    settings::{Colors, Settings},
 };
 
 type ImageResult = Result<Option<Image>, KittyError>;
@@ -30,7 +29,7 @@ impl PlayingPagePlugin {
         app.insert_resource(PlayingPage::default())
             .insert_non_send(FrontCover::default())
             .add_input(
-                InputState::Normal,
+                InputSet::Page,
                 input_playing.run_if(in_state(Page::NowPlaying)),
             )
             .add_enter(Page::NowPlaying, update_cover)
@@ -263,12 +262,14 @@ fn render_playing(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Frame>,
-    colors: Res<Colors>,
+    settings: Res<Settings>,
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
     mut page: ResMut<PlayingPage>,
     cover: NonSend<FrontCover>,
 ) {
+    let colors = settings.colors();
+
     // Always delete image
     frame.print_fmt(KittyDeleteAll);
 
@@ -276,7 +277,7 @@ fn render_playing(
     page.view = ViewLayout::from(frame.screen_size());
     let (cover_area, queue_area) = match page.view {
         ViewLayout::Cover => {
-            render_cover(**area, &mut frame, &colors, &database, &jukebox, &cover);
+            render_cover(**area, &mut frame, colors, &database, &jukebox, &cover);
             return;
         }
         ViewLayout::Horizontal => area.split_left(area.cols() * 40 / 100, 2),
@@ -285,12 +286,12 @@ fn render_playing(
 
     page.update_scroll_on_new_track(&jukebox);
 
-    render_cover(cover_area, &mut frame, &colors, &database, &jukebox, &cover);
+    render_cover(cover_area, &mut frame, colors, &database, &jukebox, &cover);
     render_queue(
         queue_area,
         **shortcuts_area,
         &mut frame,
-        &colors,
+        colors,
         &database,
         &jukebox,
         &mut page.list,
