@@ -20,14 +20,14 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    pub fn new() -> std::io::Result<Self> {
+    pub fn new() -> Result<Self, TerminalError> {
         let size = TerminalSize::query()?;
 
-        let backend = std::io::stdout();
-        let palette = TerminalPalette::query(&mut backend.lock(), &mut std::io::stdin().lock())?;
+        let stdout = std::io::stdout();
+        let palette = TerminalPalette::query(&mut stdout.lock(), &mut std::io::stdin().lock())?;
 
         Ok(Self {
-            backend,
+            backend: stdout,
             buffer: Framebuffer::new(size, palette),
         })
     }
@@ -104,6 +104,35 @@ impl Terminal {
             }
             hook(info);
         }));
+    }
+}
+
+#[derive(Debug)]
+pub enum TerminalError {
+    Io(std::io::Error),
+    Query(RgbQueryError),
+}
+
+impl std::fmt::Display for TerminalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TerminalError::Io(err) => err.fmt(f),
+            TerminalError::Query(err) => err.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for TerminalError {}
+
+impl From<std::io::Error> for TerminalError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl From<RgbQueryError> for TerminalError {
+    fn from(err: RgbQueryError) -> Self {
+        Self::Query(err)
     }
 }
 
@@ -404,39 +433,24 @@ impl Rgb {
     fn query_fg(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
-    ) -> std::io::Result<Self> {
-        let Some(fg) = Self::query("\x1b]10;?\x07", writer, reader)? else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "terminal does not support OSC 10 color query",
-            ));
-        };
+    ) -> Result<Self, RgbQueryError> {
+        let fg = Self::query("\x1b]10;?\x07", writer, reader)?;
         Ok(fg)
     }
 
     fn query_bg(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
-    ) -> std::io::Result<Self> {
-        let Some(bg) = Self::query("\x1b]11;?\x07", writer, reader)? else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "terminal does not support OSC 11 color query",
-            ));
-        };
+    ) -> Result<Self, RgbQueryError> {
+        let bg = Self::query("\x1b]11;?\x07", writer, reader)?;
         Ok(bg)
     }
 
     fn query_cursor(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
-    ) -> std::io::Result<Self> {
-        let Some(cursor) = Self::query("\x1b]12;?\x07", writer, reader)? else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "terminal does not support OSC 12 color query",
-            ));
-        };
+    ) -> Result<Self, RgbQueryError> {
+        let cursor = Self::query("\x1b]12;?\x07", writer, reader)?;
         Ok(cursor)
     }
 
@@ -457,12 +471,45 @@ impl Rgb {
         Self(r, g, if b == 255 { 254 } else { b + 1 })
     }
 
-    // TODO: Include both stdin response and source in error message.
     fn query(
         osc: &str,
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
-    ) -> std::io::Result<Option<Self>> {
+    ) -> Result<Self, RgbQueryError> {
+        let mut buffer = [0; 32];
+
+        let n = Self::do_query(osc, &mut buffer, writer, reader).map_err(|err| RgbQueryError {
+            message: format!("Failed to run OSC color query '{osc}'."),
+            source: Some(RgbQueryErrorSource::Io(err)),
+        })?;
+
+        let response = String::from_utf8_lossy(&buffer[..n]);
+
+        let Some(rgb) = Self::get_hex_parts(&response) else {
+            return Err(RgbQueryError {
+                message: format!(
+                    "Failed to find hex color parts of response '{response}' from OSC color query '{osc}'."
+                ),
+                source: None,
+            });
+        };
+
+        let rgb = Self::parse_hex_parts(rgb).map_err(|err| RgbQueryError {
+            message: format!(
+                "Failed to parse hex colors from parts '{rgb:?}' obtained by the OSC color query '{osc}'."
+            ),
+            source: Some(RgbQueryErrorSource::Parse(err)),
+        })?;
+
+        Ok(rgb)
+    }
+
+    fn do_query(
+        osc: &str,
+        buffer: &mut [u8],
+        writer: &mut impl std::io::Write,
+        reader: &mut impl std::io::Read,
+    ) -> std::io::Result<usize> {
         /// Device Status Report control sequence that most terminals implement.
         /// Makes sure that stdin responds.
         const DEVICE_STATUS_REPORT: &str = "\x1b[5n";
@@ -474,35 +521,66 @@ impl Rgb {
         writer.flush()?;
 
         // Read response
-        let mut buffer = [0; 32];
-        let n = reader.read(&mut buffer)?;
+        let n = reader.read(buffer)?;
 
         crossterm::terminal::disable_raw_mode()?;
 
-        let response = String::from_utf8_lossy(&buffer[..n]);
-        Ok(Self::parse(&response))
+        Ok(n)
     }
 
-    // TODO: Should return parse error.
-    fn parse(response: &str) -> Option<Self> {
+    fn get_hex_parts(response: &str) -> Option<(&str, &str, &str)> {
         // Parse response of pattern "\u{1b}]10;rgb:c4c4/c4c4/b5b5\u{1b}\\\u{1b}"
         let start = response.find(':')? + 1;
         let end = response[start..].find('\x1b')?;
         let payload = &response[start..start + end];
         let mut parts = payload.split('/');
 
-        let parse_channel = |s: &str| match s.len() {
-            2 => u8::from_str_radix(s, 16).ok(),
-            4 => Some((u16::from_str_radix(s, 16).ok()? >> 8) as u8),
+        match (parts.next(), parts.next(), parts.next()) {
+            (Some(r), Some(g), Some(b)) => Some((r, g, b)),
             _ => None,
-        };
-
-        let r = parse_channel(parts.next()?)?;
-        let g = parse_channel(parts.next()?)?;
-        let b = parse_channel(parts.next()?)?;
-
-        Some(Self(r, g, b))
+        }
     }
+
+    fn parse_hex_parts((r, g, b): (&str, &str, &str)) -> Result<Self, std::num::ParseIntError> {
+        fn parse_channel(hex: &str) -> Result<u8, std::num::ParseIntError> {
+            let value = u32::from_str_radix(hex, 16)?;
+            let max = (1u32 << (hex.len() * 4)) - 1;
+            Ok(((value * 255 + max / 2) / max) as u8)
+        }
+
+        let r = parse_channel(r)?;
+        let g = parse_channel(g)?;
+        let b = parse_channel(b)?;
+
+        Ok(Self(r, g, b))
+    }
+}
+
+#[derive(Debug)]
+pub struct RgbQueryError {
+    message: String,
+    source: Option<RgbQueryErrorSource>,
+}
+
+impl std::fmt::Display for RgbQueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for RgbQueryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|source| match source {
+            RgbQueryErrorSource::Io(err) => err as _,
+            RgbQueryErrorSource::Parse(err) => err as _,
+        })
+    }
+}
+
+#[derive(Debug)]
+enum RgbQueryErrorSource {
+    Io(std::io::Error),
+    Parse(std::num::ParseIntError),
 }
 
 #[derive(Debug, Clone)]
@@ -516,7 +594,7 @@ impl TerminalPalette {
     fn query(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
-    ) -> std::io::Result<Self> {
+    ) -> Result<Self, RgbQueryError> {
         Ok(Self {
             fg: Rgb::query_fg(writer, reader)?,
             bg: Rgb::query_bg(writer, reader)?,
