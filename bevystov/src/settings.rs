@@ -125,7 +125,6 @@ impl Config {
 
     pub fn hash(&self) -> u64 {
         utils::hasher_fast(|hasher| {
-            hasher.write_u8(self.version);
             hasher.write_u8(self.general.skip_tracks_with_rating as u8);
             hasher.write_u8(self.general.keep_selected_track_on_sort as u8);
             hasher.write_u8(self.general.search_by_path as u8);
