@@ -34,7 +34,7 @@ impl Terminal {
 
     pub const fn with_thresholds(mut self, thresholds: ScreenSizeThresholds) -> Self {
         self.buffer.thresholds = thresholds;
-        self.buffer.screen = ScreenSize::new(self.buffer.size.window_size(), thresholds);
+        self.buffer.screen = ScreenSize::new(self.buffer.size, thresholds);
         self
     }
 
@@ -151,7 +151,7 @@ impl TerminalSize {
         if win_size.width == 0 || win_size.height == 0 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
-                "terminal does not support query for window size in pixel dimensions",
+                "Failed to query terminal for window size in pixel dimensions. Expected a non-zero value, but got zero.",
             ));
         }
 
@@ -271,7 +271,7 @@ impl ScreenSize {
 }
 
 /// Pixel dimensions.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Dims {
     pub width: u16,
     pub height: u16,
@@ -420,6 +420,12 @@ impl CellDims {
             width: self.width(size.cols),
             height: self.height(size.rows),
         }
+    }
+}
+
+impl Default for CellDims {
+    fn default() -> Self {
+        Self::DEFAULT
     }
 }
 
@@ -643,7 +649,9 @@ pub enum TerminalTheme {
 pub struct Framebuffer {
     buf: String,
     text: String,
-    size: TerminalSize,
+    size: Size,
+    dims: Dims,
+    cell_dims: CellDims,
     screen: ScreenSize,
     thresholds: ScreenSizeThresholds,
     palette: TerminalPalette,
@@ -663,7 +671,9 @@ impl Framebuffer {
         Self {
             buf: String::new(),
             text: String::new(),
-            size,
+            size: size.window_size(),
+            dims: size.window_dims(),
+            cell_dims: size.cell_dims(),
             screen: ScreenSize::new(size.window_size(), ScreenSizeThresholds::DEFAULT),
             thresholds: ScreenSizeThresholds::DEFAULT,
             palette,
@@ -673,17 +683,29 @@ impl Framebuffer {
     }
 
     pub fn query_term_size(&mut self) -> std::io::Result<()> {
-        let win_size = crossterm::terminal::window_size()?;
-        // TODO: Window pixel dims might still be zero.
-        // Should probably store CellDims when non-zero, else skip.
-        self.size = TerminalSize::from(win_size);
-        self.screen = ScreenSize::new(self.size.window_size(), self.thresholds);
+        let term_size = TerminalSize::from(crossterm::terminal::window_size()?);
+
+        self.size = term_size.window_size();
+        self.dims = term_size.window_dims();
+        self.screen = ScreenSize::new(self.size, self.thresholds);
+
+        if term_size.width != 0 && term_size.height != 0 {
+            self.cell_dims = term_size.cell_dims();
+        }
 
         Ok(())
     }
 
-    pub const fn term_size(&self) -> TerminalSize {
+    pub const fn window_size(&self) -> Size {
         self.size
+    }
+
+    pub const fn window_dims(&self) -> Dims {
+        self.dims
+    }
+
+    pub const fn cell_dims(&self) -> CellDims {
+        self.cell_dims
     }
 
     pub const fn screen_width(&self) -> ScreenWidth {
@@ -703,7 +725,7 @@ impl Framebuffer {
     }
 
     pub const fn area(&self) -> Rect {
-        Rect::new(Pos::ZERO, self.size.window_size())
+        Rect::new(Pos::ZERO, self.size)
     }
 
     pub const fn cursor_state(&self) -> CursorState {
@@ -808,7 +830,7 @@ impl Framebuffer {
     fn flush(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
         use crossterm::QueueableCommand;
 
-        if self.size.window_size().is_either_less(2) {
+        if self.size.is_either_less(2) {
             self.clear();
             return Ok(());
         }
