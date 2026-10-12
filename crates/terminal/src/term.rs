@@ -686,10 +686,10 @@ impl Framebuffer {
         let term_size = TerminalSize::from(crossterm::terminal::window_size()?);
 
         self.size = term_size.window_size();
-        self.dims = term_size.window_dims();
         self.screen = ScreenSize::new(self.size, self.thresholds);
 
-        if term_size.width != 0 && term_size.height != 0 {
+        if term_size.width > 0 && term_size.height > 0 {
+            self.dims = term_size.window_dims();
             self.cell_dims = term_size.cell_dims();
         }
 
