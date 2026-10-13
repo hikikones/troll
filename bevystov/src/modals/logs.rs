@@ -20,6 +20,7 @@ pub(super) struct LogsModalPlugin;
 impl LogsModalPlugin {
     pub(super) fn build(app: &mut App) {
         app.insert_resource(Logs::default())
+            .add_enter(Modal::Logs, enter_logs)
             .add_input(InputSet::Modal, input_logs.run_if(in_state(Modal::Logs)))
             .add_render(RenderSet::Modal, render_logs.run_if(in_state(Modal::Logs)));
     }
@@ -50,10 +51,10 @@ impl Logs {
         use std::fmt::Write;
 
         let start = self.text.len();
-        let _ = write!(self.text, "{error}");
+        let _ = writeln!(self.text, "{error}");
         let mut source = error.source();
         while let Some(cause) = source {
-            let _ = write!(self.text, ": {cause}");
+            let _ = writeln!(self.text, "Caused by: {cause}");
             source = cause.source();
         }
         self.add_log(start);
@@ -152,7 +153,14 @@ fn input_logs(input: Res<Input>, mut logs: ResMut<Logs>, mut actions: ResMut<Act
     }
 }
 
-fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, mut logs: ResMut<Logs>) {
+fn enter_logs(mut logs: ResMut<Logs>) {
+    if logs.len_new > 0 {
+        logs.len_new = 0;
+        logs.index = logs.len().saturating_sub(1);
+    }
+}
+
+fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, logs: Res<Logs>) {
     let area = frame.area().scale_and_center(0.6);
     let colors = settings.colors();
 
@@ -167,11 +175,6 @@ fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, mut logs: ResM
         format_args!(" Logs: {} / {} ", logs.index + 1, logs.len()),
         SpanOptions::center_top(),
     );
-
-    if logs.len_new > 0 {
-        logs.len_new = 0;
-        logs.index = logs.len().saturating_sub(1);
-    }
 
     let Some(log) = logs.current() else {
         return;

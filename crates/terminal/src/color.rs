@@ -98,7 +98,7 @@ impl std::str::FromStr for Color {
         } else if c.is_ascii_digit() {
             let indexed_value = s.parse::<u8>().map_err(|err| ParseColorError {
                 message: format!(
-                    "Failed to parse indexed color value from '{s}'. Number should be 0-255."
+                    "Failed to parse indexed color value from '{s}'.\nNumber should be 0-255."
                 ),
                 source: Some(err),
             })?;
