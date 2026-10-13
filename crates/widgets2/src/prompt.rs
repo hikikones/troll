@@ -142,18 +142,15 @@ impl Prompt {
             return false;
         }
 
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
-
         match key.code {
-            KeyCode::Right => self.move_forward(shift),
-            KeyCode::Left => self.move_backward(shift),
-            KeyCode::Home => self.move_to_start(shift),
-            KeyCode::End => self.move_to_end(shift),
+            KeyCode::Right => self.move_forward(key.shift()),
+            KeyCode::Left => self.move_backward(key.shift()),
+            KeyCode::Home => self.move_to_start(key.shift()),
+            KeyCode::End => self.move_to_end(key.shift()),
             KeyCode::Backspace => self.delete_backward(),
             KeyCode::Delete => self.delete_forward(),
             KeyCode::Char('a') => {
-                if ctrl {
+                if key.ctrl() {
                     self.select_all()
                 } else {
                     self.push_char('a');

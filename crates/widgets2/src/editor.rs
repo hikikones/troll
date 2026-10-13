@@ -137,21 +137,18 @@ impl Editor {
         self.scroll == 0 && self.area_pos.row == self.get_cursor_pos().row
     }
 
-    pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {
+    pub fn input(&mut self, key: Key) -> bool {
         if self.disabled {
             return false;
         }
 
-        let ctrl = key_modifiers.contains(KeyModifiers::CONTROL);
-        let shift = key_modifiers.contains(KeyModifiers::SHIFT);
-
-        match key_pressed {
-            KeyCode::Right => self.move_forward(shift),
-            KeyCode::Left => self.move_backward(shift),
-            KeyCode::Up => self.move_up(shift),
-            KeyCode::Down => self.move_down(shift),
-            KeyCode::Home => self.move_to_start(shift),
-            KeyCode::End => self.move_to_end(shift),
+        match key.code {
+            KeyCode::Right => self.move_forward(key.shift()),
+            KeyCode::Left => self.move_backward(key.shift()),
+            KeyCode::Up => self.move_up(key.shift()),
+            KeyCode::Down => self.move_down(key.shift()),
+            KeyCode::Home => self.move_to_start(key.shift()),
+            KeyCode::End => self.move_to_end(key.shift()),
             KeyCode::Backspace => self.delete_backward(),
             KeyCode::Delete => self.delete_forward(),
             KeyCode::Enter => {
@@ -160,7 +157,7 @@ impl Editor {
             }
             KeyCode::Char(c) => match c {
                 'a' => {
-                    if ctrl {
+                    if key.ctrl() {
                         return self.select_all();
                     }
 
