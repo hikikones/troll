@@ -3,7 +3,7 @@ use terminal::*;
 use widgets2::{Block, List, ListIndex, Prompt};
 
 use crate::{
-    app::{Action, Actions, App, AppCursorState, Frame, Input, InputSet, RenderSet},
+    app::{Action, Actions, App, Frame, Input, InputSet, RenderSet},
     database::{Database, TrackId},
     jukebox::Jukebox,
     modals::Modal,
@@ -56,9 +56,7 @@ impl Default for SearchModal {
             prompt: Prompt::new().with_placeholder("Search..."),
             prompt_hash: 0,
             include_path: false,
-            list: List::new()
-                .with_scrollbar(0)
-                .with_padding(Margin::horizontal(1)),
+            list: List::new().with_scrollbar(0).with_padding(Margin::all(1)),
         }
     }
 }
@@ -172,12 +170,11 @@ fn render_search(
     mut frame: ResMut<Frame>,
     settings: Res<Settings>,
     mut modal: ResMut<SearchModal>,
-    mut cursor_state: ResMut<AppCursorState>,
     results: Res<SearchResults>,
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
-    let area = frame.area().scale_and_center(0.8);
+    let area = frame.area().scale_and_center(0.7);
     let bg = frame.palette().background().slight_offset().as_color();
     frame.fill(area, bg, false);
 
@@ -199,7 +196,7 @@ fn render_search(
         .render(prompt_area.inner(Margin::horizontal(1)), &mut frame);
 
     if database.is_empty() {
-        cursor_state.set_visible(false);
+        frame.set_cursor_visibility(false);
         modal.prompt.set_disabled(true);
 
         frame.print_fmt(Sgr::Fg(colors.neutral));
@@ -214,7 +211,7 @@ fn render_search(
 
     // Results
     modal.list.set_colors(colors.list()).render(
-        results_area.inner(Margin::all(1)),
+        results_area.inner(Margin::horizontal(1)),
         &mut frame,
         results.iter().copied(),
         |line, frame, (id, _), index| {
@@ -260,8 +257,8 @@ fn render_search(
     frame.print_fmt(Sgr::Reset);
 
     // Update cursor state
-    cursor_state.set_visible(modal.state == SearchState::Prompt);
-    cursor_state.set_pos_at_end(modal.prompt.get_cursor_pos());
+    frame.set_cursor_visibility(modal.state == SearchState::Prompt);
+    frame.set_cursor_pos_at_end(modal.prompt.get_cursor_pos());
 }
 
 fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state: SearchState) {

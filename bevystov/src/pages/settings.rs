@@ -4,10 +4,7 @@ use terminal::*;
 use widgets2::{Block, List, ListIndex, Prompt, ScrollMargins};
 
 use crate::{
-    app::{
-        Action, Actions, App, AppCursorState, Frame, Input, InputSet, PageArea, RenderSet,
-        ShortcutsArea,
-    },
+    app::{Action, Actions, App, Frame, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::AudioRating,
     modals::Logs,
     pages::Page,
@@ -326,7 +323,6 @@ fn render_settings(
     mut frame: ResMut<Frame>,
     mut list: ResMut<SettingsList>,
     mut page: ResMut<SettingsPage>,
-    mut cursor_state: ResMut<AppCursorState>,
     settings: Res<Settings>,
 ) {
     let area = **area;
@@ -399,7 +395,6 @@ fn render_settings(
                         frame,
                         colors,
                         current == Setting::PrimaryColor,
-                        &mut cursor_state,
                     );
                 }
                 Setting::SecondaryColor => {
@@ -411,7 +406,6 @@ fn render_settings(
                         frame,
                         colors,
                         current == Setting::SecondaryColor,
-                        &mut cursor_state,
                     );
                 }
                 Setting::NeutralColor => {
@@ -423,7 +417,6 @@ fn render_settings(
                         frame,
                         colors,
                         current == Setting::NeutralColor,
-                        &mut cursor_state,
                     );
                 }
                 Setting::Empty => {}
@@ -442,7 +435,7 @@ fn render_settings(
         &page.config,
     );
 
-    cursor_state.set_visible(current.is_color());
+    frame.set_cursor_visibility(current.is_color());
 }
 
 fn render_shortcuts(
@@ -532,7 +525,6 @@ fn print_color(
     frame: &mut Framebuffer,
     colors: &Colors,
     is_active: bool,
-    cursor_state: &mut AppCursorState,
 ) {
     frame.push_str(text);
     frame.render(left, TextOptions::span_right());
@@ -542,6 +534,6 @@ fn print_color(
         .render(right, frame);
 
     if is_active {
-        cursor_state.set_pos_at_end(prompt.get_cursor_pos());
+        frame.set_cursor_pos_at_end(prompt.get_cursor_pos());
     }
 }

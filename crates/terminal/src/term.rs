@@ -317,6 +317,10 @@ impl Dims {
         self
     }
 
+    pub const fn is_empty(&self) -> bool {
+        self.width == 0 || self.height == 0
+    }
+
     pub const fn into_u32(self) -> (u32, u32) {
         (self.width as u32, self.height as u32)
     }
@@ -656,14 +660,6 @@ pub struct Framebuffer {
     thresholds: ScreenSizeThresholds,
     palette: TerminalPalette,
     cursor_state: CursorState,
-    cursor_pos_at_end: Option<Pos>,
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub enum CursorState {
-    #[default]
-    Hide,
-    Show,
 }
 
 impl Framebuffer {
@@ -677,8 +673,7 @@ impl Framebuffer {
             screen: ScreenSize::new(size.window_size(), ScreenSizeThresholds::DEFAULT),
             thresholds: ScreenSizeThresholds::DEFAULT,
             palette,
-            cursor_state: CursorState::Hide,
-            cursor_pos_at_end: None,
+            cursor_state: CursorState::new(),
         }
     }
 
@@ -688,8 +683,9 @@ impl Framebuffer {
         self.size = term_size.window_size();
         self.screen = ScreenSize::new(self.size, self.thresholds);
 
-        if term_size.width > 0 && term_size.height > 0 {
-            self.dims = term_size.window_dims();
+        let dims = term_size.window_dims();
+        if !dims.is_empty() {
+            self.dims = dims;
             self.cell_dims = term_size.cell_dims();
         }
 
@@ -728,21 +724,12 @@ impl Framebuffer {
         Rect::new(Pos::ZERO, self.size)
     }
 
-    pub const fn cursor_state(&self) -> CursorState {
-        self.cursor_state
-    }
-
-    pub fn set_cursor_state(&mut self, state: CursorState) {
-        let _ = match (self.cursor_state, state) {
-            (CursorState::Hide, CursorState::Show) => Show.write_ansi(&mut self.buf),
-            (CursorState::Show, CursorState::Hide) => Hide.write_ansi(&mut self.buf),
-            (_, _) => Ok(()),
-        };
-        self.cursor_state = state;
+    pub const fn set_cursor_visibility(&mut self, value: bool) {
+        self.cursor_state.set_visible(value);
     }
 
     pub const fn set_cursor_pos_at_end(&mut self, pos: Pos) {
-        self.cursor_pos_at_end = Some(pos);
+        self.cursor_state.set_pos(pos);
     }
 
     pub fn cursor(&mut self, cursor: impl Into<Cursor>) {
@@ -841,9 +828,7 @@ impl Framebuffer {
                 .queue(Clear(ClearType::CurrentLine))?;
         }
 
-        if let Some(cpos) = self.cursor_pos_at_end.take() {
-            self.cursor(cpos);
-        }
+        let _ = write!(self.buf, "{}", self.cursor_state.take());
 
         writer.write_all(self.buf.as_bytes())?;
         writer.flush()?;
@@ -856,7 +841,6 @@ impl Framebuffer {
     fn clear(&mut self) {
         self.buf.clear();
         self.text.clear();
-        self.cursor_pos_at_end = None;
     }
 
     pub fn push_ch(&mut self, ch: char) {
@@ -1007,6 +991,74 @@ fn print_span(
                 }
             }
         }
+    }
+}
+
+#[derive(Debug)]
+struct CursorState {
+    current_visibility: bool,
+    next_visibility: bool,
+    position: Option<Pos>,
+}
+
+impl CursorState {
+    const fn new() -> Self {
+        Self {
+            current_visibility: false,
+            next_visibility: false,
+            position: None,
+        }
+    }
+
+    const fn set_visible(&mut self, value: bool) {
+        self.next_visibility = value;
+    }
+
+    const fn set_pos(&mut self, pos: Pos) {
+        self.position = Some(pos);
+    }
+
+    const fn take(&mut self) -> CursorStateCommand {
+        if self.current_visibility != self.next_visibility {
+            self.current_visibility = self.next_visibility;
+            CursorStateCommand {
+                visibility: Some(self.next_visibility),
+                position: self.position.take(),
+            }
+        } else {
+            CursorStateCommand {
+                visibility: None,
+                position: self.position.take(),
+            }
+        }
+    }
+}
+
+impl Default for CursorState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+struct CursorStateCommand {
+    visibility: Option<bool>,
+    position: Option<Pos>,
+}
+
+impl std::fmt::Display for CursorStateCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(visible) = self.visibility {
+            match visible {
+                true => Show.write_ansi(f)?,
+                false => Hide.write_ansi(f)?,
+            }
+        }
+
+        if let Some(Pos { col, row }) = self.position {
+            MoveTo(col, row).write_ansi(f)?;
+        }
+
+        Ok(())
     }
 }
 

@@ -48,7 +48,6 @@ impl App {
 
         app.insert_resource(Frame::default())
             .insert_resource(Input::default())
-            .insert_resource(AppCursorState::default())
             .insert_resource(Actions::default())
             .insert_resource(ModalColors::new(settings.colors().neutral))
             .insert_resource(settings)
@@ -194,9 +193,7 @@ impl App {
 
             self.schedules.render.run(&mut self.world);
 
-            let cursor_state = self.world.resource_mut::<AppCursorState>().take();
             let mut frame = self.world.resource_mut::<Frame>();
-            frame.print_fmt(cursor_state);
             std::mem::swap(&mut frame.0, buffer);
 
             Ok(())
@@ -408,62 +405,6 @@ impl Input {
     }
 }
 
-// TODO: Rename
-#[derive(Debug, Default, Resource)]
-pub struct AppCursorState {
-    current_visibility: bool,
-    next_visibility: bool,
-    pos_at_end: Option<Pos>,
-}
-
-impl AppCursorState {
-    pub const fn set_visible(&mut self, value: bool) {
-        self.next_visibility = value;
-    }
-
-    pub const fn set_pos_at_end(&mut self, pos: Pos) {
-        self.pos_at_end = Some(pos);
-    }
-
-    const fn take(&mut self) -> CursorStateCommand {
-        if self.current_visibility != self.next_visibility {
-            self.current_visibility = self.next_visibility;
-            CursorStateCommand {
-                visibility: Some(self.next_visibility),
-                position: self.pos_at_end.take(),
-            }
-        } else {
-            CursorStateCommand {
-                visibility: None,
-                position: self.pos_at_end.take(),
-            }
-        }
-    }
-}
-
-struct CursorStateCommand {
-    visibility: Option<bool>,
-    position: Option<Pos>,
-}
-
-impl std::fmt::Display for CursorStateCommand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(visible) = self.visibility {
-            let cursor = match visible {
-                true => Cursor::Show,
-                false => Cursor::Hide,
-            };
-            f.write_fmt(format_args!("{cursor}"))?;
-        }
-
-        if let Some(pos) = self.position {
-            f.write_fmt(format_args!("{}", Cursor::from(pos)))?;
-        }
-
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum Action {
     Render,
@@ -591,8 +532,8 @@ fn swap_colors(mut settings: ResMut<Settings>, mut modal_colors: ResMut<ModalCol
     std::mem::swap(settings.colors_mut(), &mut modal_colors);
 }
 
-fn hide_cursor(mut cursor_state: ResMut<AppCursorState>) {
-    cursor_state.set_visible(false);
+fn hide_cursor(mut frame: ResMut<Frame>) {
+    frame.set_cursor_visibility(false);
 }
 
 fn render_app(

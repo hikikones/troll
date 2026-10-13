@@ -156,7 +156,7 @@ fn enter_logs(mut logs: ResMut<Logs>) {
 }
 
 fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, logs: Res<Logs>) {
-    let area = frame.area().scale_and_center(0.6);
+    let area = frame.area().scale_and_center(0.7);
     let colors = settings.colors();
 
     let bg = frame.palette().background().slight_offset().as_color();
