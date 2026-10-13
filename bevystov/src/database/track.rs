@@ -137,11 +137,11 @@ impl TrackSort {
 
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Title => "Rating",
-            Self::Artist => "Title",
-            Self::Album => "Artist",
-            Self::Time => "Album",
-            Self::Rating => "Time",
+            Self::Title => "Title",
+            Self::Artist => "Artist",
+            Self::Album => "Album",
+            Self::Time => "Time",
+            Self::Rating => "Rating",
         }
     }
 
