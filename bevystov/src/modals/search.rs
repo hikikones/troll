@@ -1,10 +1,4 @@
-use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::{
-    resource::Resource,
-    schedule::IntoScheduleConfigs,
-    system::{NonSend, NonSendMut, Res, ResMut},
-};
-use bevy_state::condition::in_state;
+use ecs::*;
 use terminal::*;
 use widgets2::{Block, List, ListIndex, Prompt};
 
@@ -38,7 +32,7 @@ impl SearchModalPlugin {
 
 #[derive(Debug, Resource)]
 struct SearchModal {
-    state: State,
+    state: SearchState,
     prompt: Prompt,
     prompt_hash: u64,
     include_path: bool,
@@ -47,7 +41,7 @@ struct SearchModal {
 
 impl SearchModal {
     fn reset(&mut self) {
-        self.state = State::Search;
+        self.state = SearchState::Prompt;
         self.prompt.clear();
         self.prompt.set_disabled(false);
         self.prompt_hash = 0;
@@ -58,7 +52,7 @@ impl SearchModal {
 impl Default for SearchModal {
     fn default() -> Self {
         Self {
-            state: State::Search,
+            state: SearchState::Prompt,
             prompt: Prompt::new().with_placeholder("Search..."),
             prompt_hash: 0,
             include_path: false,
@@ -70,8 +64,8 @@ impl Default for SearchModal {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum State {
-    Search,
+enum SearchState {
+    Prompt,
     Browse,
 }
 
@@ -108,10 +102,10 @@ fn input_search(
     };
 
     match modal.state {
-        State::Search => match key.code {
+        SearchState::Prompt => match key.code {
             KeyCode::Enter | KeyCode::Down => {
                 if !results.is_empty() {
-                    modal.state = State::Browse;
+                    modal.state = SearchState::Browse;
                     modal.list.reset();
                     actions.push(Action::Render);
                 }
@@ -122,7 +116,7 @@ fn input_search(
                 }
             }
         },
-        State::Browse => match key.code {
+        SearchState::Browse => match key.code {
             KeyCode::Enter => {
                 if let Some((id, _)) = results.get(modal.list.index()).copied() {
                     jukebox.play_id(id, &database);
@@ -131,7 +125,7 @@ fn input_search(
             }
             KeyCode::Up => {
                 if modal.list.index() == 0 {
-                    modal.state = State::Search;
+                    modal.state = SearchState::Prompt;
                     actions.push(Action::Render);
                 } else {
                     if modal.list.input(key) {
@@ -162,7 +156,7 @@ fn input_search(
                 actions.push(Action::Route(Route::Tracks(id)));
             }
             KeyCode::Char('s') => {
-                modal.state = State::Search;
+                modal.state = SearchState::Prompt;
                 actions.push(Action::Render);
             }
             _ => {
@@ -201,7 +195,7 @@ fn render_search(
     frame.print_ch_repeat(' ', prompt_area.cols());
     modal
         .prompt
-        .set_disabled(state == State::Browse)
+        .set_disabled(state == SearchState::Browse)
         .render(prompt_area.inner(Margin::horizontal(1)), &mut frame);
 
     if database.is_empty() {
@@ -229,8 +223,8 @@ fn render_search(
             };
 
             let mut style = match state {
-                State::Search => Style::fg(colors.neutral).with_bg(bg),
-                State::Browse => match index {
+                SearchState::Prompt => Style::fg(colors.neutral).with_bg(bg),
+                SearchState::Browse => match index {
                     ListIndex::Selected => {
                         frame.fill(line, colors.primary, true);
                         Style::fg(colors.primary).with_reverse()
@@ -266,13 +260,13 @@ fn render_search(
     frame.print_fmt(Sgr::Reset);
 
     // Update cursor state
-    cursor_state.set_visible(modal.state == State::Search);
+    cursor_state.set_visible(modal.state == SearchState::Prompt);
     cursor_state.set_pos_at_end(modal.prompt.get_cursor_pos());
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state: State) {
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state: SearchState) {
     match state {
-        State::Search => {
+        SearchState::Prompt => {
             frame.print_span_with_options(
                 area,
                 format_args!(
@@ -284,7 +278,7 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state:
                 SpanOptions::center_top(),
             );
         }
-        State::Browse => {
+        SearchState::Browse => {
             let key_color = colors.secondary;
             let name_color = colors.normal;
             let gap = 1;

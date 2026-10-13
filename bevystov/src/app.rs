@@ -1,25 +1,6 @@
 use std::time::{Duration, Instant};
 
-use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::{
-    message::Messages,
-    resource::Resource,
-    schedule::{IntoScheduleConfigs, Schedule, SystemSet, common_conditions::not},
-    system::{NonSend, NonSendMut, Res, ResMut, ScheduleSystem},
-    world::World,
-};
-use bevy_state::{
-    state::{
-        FreelyMutableState, NextState, OnEnter, OnExit, State, StateTransition,
-        StateTransitionEvent, StateTransitionSystems, States,
-    },
-    state_scoped::{
-        despawn_entities_on_enter_state, despawn_entities_on_exit_state,
-        despawn_entities_when_state, disable_entities_on_enter_state,
-        disable_entities_on_exit_state, disable_entities_when_state,
-        enable_entities_on_enter_state, enable_entities_on_exit_state, enable_entities_when_state,
-    },
-};
+use ecs::*;
 use terminal::*;
 
 use crate::{
@@ -49,7 +30,7 @@ impl App {
             let mut world = World::new();
             let timers = Timers::new(8, 1);
             let schedules = Schedules::new();
-            bevy_state::state::setup_state_transitions_in_world(&mut world);
+            setup_state_transitions_in_world(&mut world);
 
             Self {
                 world,
@@ -135,50 +116,7 @@ impl App {
     }
 
     pub fn add_state<S: FreelyMutableState + Copy>(&mut self, state: S) -> &mut Self {
-        // Insert state
-        self.insert_resource(State::new(state))
-            .insert_resource(NextState::<S>::default())
-            .insert_resource(Messages::<StateTransitionEvent<S>>::default());
-
-        // Register state
-        let mut schedules = self.world.resource_mut::<bevy_ecs::schedule::Schedules>();
-        let states = schedules.get_mut(StateTransition).unwrap();
-        S::register_state(states);
-
-        // Enable state scoped entities
-        states
-            .add_systems(
-                (
-                    despawn_entities_on_exit_state::<S>,
-                    disable_entities_on_exit_state::<S>,
-                    enable_entities_on_exit_state::<S>,
-                )
-                    .in_set(StateTransitionSystems::ExitSchedules),
-            )
-            .add_systems(
-                (
-                    despawn_entities_on_enter_state::<S>,
-                    disable_entities_on_enter_state::<S>,
-                    enable_entities_on_enter_state::<S>,
-                )
-                    .in_set(StateTransitionSystems::EnterSchedules),
-            )
-            .add_systems(
-                (
-                    despawn_entities_when_state::<S>,
-                    disable_entities_when_state::<S>,
-                    enable_entities_when_state::<S>,
-                )
-                    .in_set(StateTransitionSystems::TransitionSchedules),
-            );
-
-        // Send initial event
-        self.world.write_message(StateTransitionEvent {
-            exited: None,
-            entered: Some(state),
-            allow_same_state_transitions: true,
-        });
-
+        self.world.add_state(state);
         self
     }
 
@@ -187,9 +125,7 @@ impl App {
         state: S,
         systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
     ) -> &mut Self {
-        let mut schedules = self.world.resource_mut::<bevy_ecs::schedule::Schedules>();
-        let enter = schedules.entry(OnEnter(state));
-        enter.add_systems(systems);
+        self.world.add_enter(state, systems);
         self
     }
 
@@ -198,9 +134,7 @@ impl App {
         state: S,
         systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
     ) -> &mut Self {
-        let mut schedules = self.world.resource_mut::<bevy_ecs::schedule::Schedules>();
-        let exit = schedules.entry(OnExit(state));
-        exit.add_systems(systems);
+        self.world.add_exit(state, systems);
         self
     }
 

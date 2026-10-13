@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use bevy_ecs::resource::Resource;
+use ecs::Resource;
 use serde::{Deserialize, Serialize};
 use terminal::Color;
 use widgets2::{ListColors, PromptColors, ScrollbarColors};

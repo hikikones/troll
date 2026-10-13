@@ -22,6 +22,7 @@ clap-cargo = { version = "0.18", default-features = false }
 constcat = { version = "0.6", default-features = false }
 crossterm = { version = "0.29", default-features = false, features = ["events"] }
 directories = { version = "6.0", default-features = false }
+ecs = { path = "crates/ecs", default-features = false }
 edit = { version = "0.1", default-features = false, features = ["better-path"] }
 fastrand = { version = "2.5", default-features = false, features = ["std"] }
 fsrs = { version = "6.6", default-features = false }

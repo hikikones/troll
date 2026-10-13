@@ -1,10 +1,4 @@
-use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::{
-    resource::Resource,
-    schedule::IntoScheduleConfigs,
-    system::{Res, ResMut},
-};
-use bevy_state::condition::in_state;
+use ecs::*;
 use shared::symbols;
 use terminal::*;
 use widgets2::{Block, List, ListIndex, Prompt, ScrollMargins};

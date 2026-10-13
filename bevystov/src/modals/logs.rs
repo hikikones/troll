@@ -1,11 +1,6 @@
 use std::ops::Range;
 
-use bevy_ecs::{
-    resource::Resource,
-    schedule::IntoScheduleConfigs,
-    system::{Res, ResMut},
-};
-use bevy_state::condition::in_state;
+use ecs::*;
 use terminal::*;
 use widgets2::Block;
 

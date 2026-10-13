@@ -1,9 +1,4 @@
-use bevy_ecs::{
-    resource::Resource,
-    schedule::{IntoScheduleConfigs, SystemCondition},
-    system::{NonSend, NonSendMut, Res, ResMut},
-};
-use bevy_state::condition::in_state;
+use ecs::*;
 use terminal::*;
 use widgets2::{Block, List, ListIndex, TableLayout};
 

@@ -724,6 +724,7 @@ dependencies = [
  "clap",
  "clap-cargo",
  "directories",
+ "ecs",
  "fastrand 2.5.0",
  "indexmap",
  "lofty",
