@@ -116,7 +116,7 @@ impl Config {
         Ok(config)
     }
 
-    pub fn save(&self, path: &Path) -> Result<(), ConfigError> {
+    fn save(&self, path: &Path) -> Result<(), ConfigError> {
         let toml = toml::to_string(self).map_err(|err| ConfigError::from_ser(path, err))?;
         std::fs::write(path, &toml).map_err(|err| ConfigError::from_write(path, err))?;
 

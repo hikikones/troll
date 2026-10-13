@@ -202,8 +202,14 @@ fn input_settings(
         }
         KeyCode::Char('s') if key.ctrl() => {
             if settings.hash() != page.config.hash() {
-                page.config = settings.config().clone();
-                // TODO: write file
+                match settings.save() {
+                    Ok(_) => {
+                        page.config = settings.config().clone();
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
+                }
                 actions.push(Action::Render);
             }
         }
