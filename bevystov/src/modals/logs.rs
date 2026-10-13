@@ -167,11 +167,13 @@ fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, logs: Res<Logs
     let bg = frame.palette().background().slight_offset().as_color();
     frame.fill(area, bg, false);
 
+    let (top, body, bottom) = area.split_ends(1, 1);
+
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
     frame.print_fmt(Sgr::Fg(colors.normal));
     frame.print_span_with_options(
-        area,
+        top,
         format_args!(" Logs: {} / {} ", logs.index + 1, logs.len()),
         SpanOptions::center_top(),
     );
@@ -182,12 +184,11 @@ fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, logs: Res<Logs
 
     frame.push_str(log);
     frame.render(
-        area.inner(Margin::proportional(1)),
+        body.inner(Margin::proportional(1)),
         TextOptions::paragraph_center(),
     );
 
-    let shortcuts_area = Rect::new(area.pos.with_row(area.bottom_row()), area.size.with_rows(1));
-    render_shortcuts(shortcuts_area, &mut frame, colors);
+    render_shortcuts(bottom, &mut frame, colors);
 
     frame.print_fmt(Sgr::Reset);
 }

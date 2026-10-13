@@ -229,6 +229,16 @@ impl Rect {
         )
     }
 
+    pub const fn scale_cols_and_center(self, factor: f32) -> Self {
+        let r = self;
+        self.scale_cols(factor).center_horizontal(r)
+    }
+
+    pub const fn scale_rows_and_center(self, factor: f32) -> Self {
+        let r = self;
+        self.scale_rows(factor).center_vertical(r)
+    }
+
     pub const fn scale_and_align(
         self,
         factor: f32,

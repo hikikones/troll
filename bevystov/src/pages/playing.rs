@@ -375,7 +375,7 @@ fn render_queue(
     let hlen = jukebox.history();
     let current_qi = jukebox.current_queue_index();
 
-    list.render(
+    list.set_colors(colors.list()).render(
         inner,
         frame,
         jukebox.iter(),

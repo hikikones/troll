@@ -344,7 +344,7 @@ fn render_settings(
     frame.print_fmt(Sgr::reset_fg());
 
     let current = list.current();
-    list.render(
+    list.set_colors(colors.list()).render(
         area.inner(Margin::all(1)),
         &mut frame,
         SETTINGS.into_iter(),
@@ -358,7 +358,7 @@ fn render_settings(
 
             match setting {
                 Setting::General => {
-                    print_section("GENERAL", line, frame, colors.neutral);
+                    print_section("GENERAL", line, frame, colors);
                 }
                 Setting::SkipRating => {
                     frame.push_str("Skip tracks with rating:");
@@ -394,7 +394,7 @@ fn render_settings(
                     );
                 }
                 Setting::Colors => {
-                    print_section("COLORS", line, frame, colors.neutral);
+                    print_section("COLORS", line, frame, colors);
                 }
                 Setting::PrimaryColor => {
                     print_color(
@@ -403,6 +403,7 @@ fn render_settings(
                         left,
                         right,
                         frame,
+                        colors,
                         current == Setting::PrimaryColor,
                         &mut cursor_state,
                     );
@@ -414,6 +415,7 @@ fn render_settings(
                         left,
                         right,
                         frame,
+                        colors,
                         current == Setting::SecondaryColor,
                         &mut cursor_state,
                     );
@@ -425,6 +427,7 @@ fn render_settings(
                         left,
                         right,
                         frame,
+                        colors,
                         current == Setting::NeutralColor,
                         &mut cursor_state,
                     );
@@ -505,8 +508,8 @@ fn render_shortcuts(
     frame.render(area, TextOptions::span_center_top());
 }
 
-fn print_section(title: &str, line: Rect, frame: &mut Framebuffer, color: Color) {
-    frame.print_fmt(Sgr::Fg(color));
+fn print_section(title: &str, line: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    frame.print_fmt(Sgr::Fg(colors.neutral));
     frame.print_span_with_options(line, title, SpanOptions::center_top());
     frame.print_fmt(Sgr::reset_fg());
 }
@@ -533,15 +536,18 @@ fn print_color(
     left: Rect,
     right: Rect,
     frame: &mut Framebuffer,
+    colors: &Colors,
     is_active: bool,
     cursor_state: &mut AppCursorState,
 ) {
     frame.push_str(text);
     frame.render(left, TextOptions::span_right());
-    prompt.set_disabled(!is_active).render(right, frame);
+    prompt
+        .set_colors(colors.prompt())
+        .set_disabled(!is_active)
+        .render(right, frame);
 
     if is_active {
-        // frame.set_cursor_pos_at_end(prompt.get_cursor_pos());
         cursor_state.set_pos_at_end(prompt.get_cursor_pos());
     }
 }

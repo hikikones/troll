@@ -6,6 +6,7 @@ use std::{
 use bevy_ecs::resource::Resource;
 use serde::{Deserialize, Serialize};
 use terminal::Color;
+use widgets2::{ListColors, PromptColors, ScrollbarColors};
 
 use crate::database::AudioRating;
 
@@ -172,6 +173,27 @@ impl Colors {
             neutral: color,
             normal: color,
             red: color,
+        }
+    }
+
+    pub const fn list(&self) -> ListColors {
+        ListColors {
+            scrollbar: self.scrollbar(),
+        }
+    }
+
+    pub const fn prompt(&self) -> PromptColors {
+        PromptColors {
+            normal: self.normal,
+            placeholder: self.neutral,
+            disabled: self.neutral,
+        }
+    }
+
+    pub const fn scrollbar(&self) -> ScrollbarColors {
+        ScrollbarColors {
+            thumb: self.neutral,
+            track: None,
         }
     }
 }

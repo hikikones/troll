@@ -183,22 +183,20 @@ fn render_search(
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
-    let colors = settings.colors();
-    let area = frame.area().scale_and_center(0.6);
+    let area = frame.area().scale_and_center(0.8);
     let bg = frame.palette().background().slight_offset().as_color();
     frame.fill(area, bg, false);
+
+    let colors = settings.colors();
+    let state = modal.state;
 
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
 
-    let state = modal.state;
-
-    // TODO: Should probably use area.split_ends(1, 1).
+    let (prompt_area, results_area, shortcuts_area) = area.split_ends(1, 1);
 
     // Prompt
-    let prompt_area = area
-        .with_size(Size::new(area.cols() / 2, 1))
-        .center_horizontal(area);
+    let prompt_area = prompt_area.scale_cols_and_center(0.5);
     frame.cursor(prompt_area.pos);
     frame.print_ch_repeat(' ', prompt_area.cols());
     modal
@@ -221,11 +219,8 @@ fn render_search(
     }
 
     // Results
-    let shortcuts_area = Rect::new(area.pos.with_row(area.bottom_row()), area.size.with_rows(1));
-    let results_area = area.inner(Margin::all(1));
-
-    modal.list.render(
-        results_area,
+    modal.list.set_colors(colors.list()).render(
+        results_area.inner(Margin::all(1)),
         &mut frame,
         results.iter().copied(),
         |line, frame, (id, _), index| {

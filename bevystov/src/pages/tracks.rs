@@ -186,7 +186,7 @@ fn render_tracks(
     let reverse = page.reverse_sort;
     let current = jukebox.current_track_id();
 
-    page.list.render_table(
+    page.list.set_colors(colors.list()).render_table(
         inner,
         &mut frame,
         database.iter(),
@@ -308,6 +308,7 @@ fn input_tracks_modal(input: Res<Input>, mut actions: ResMut<Actions>) {
     }
 }
 
+// TODO: remove
 fn render_tracks_modal(mut frame: ResMut<Frame>, settings: Res<Settings>) {
     let area = frame.area();
     let area = area.with_size(area.size / 2).center(area);
