@@ -11,7 +11,7 @@ use lofty::{
     flac::FlacFile,
     id3::v2::{Frame, FrameId, Id3v2Tag, PopularimeterFrame},
     mpeg::MpegFile,
-    ogg::{OpusFile, VorbisComments, VorbisFile},
+    ogg::{OpusFile, VorbisFile, tag::VorbisComments},
     picture::PictureType,
     tag::Accessor,
 };

@@ -13,12 +13,12 @@ license = "MIT"
 [workspace.dependencies]
 ahash = { version = "0.8", default-features = false, features = ["runtime-rng", "std"] }
 base64 = { version = "0.23", default-features = false, features = ["alloc", "simd-unsafe", "std"] }
-bevy_derive = { version = "0.19", default-features = false }
-bevy_ecs = { version = "0.19", default-features = false, features = ["debug", "std"] }
-bevy_state = { version = "0.19", default-features = false, features = ["std"] }
+bevy_derive = { version = "0.20", default-features = false }
+bevy_ecs = { version = "0.20", default-features = false, features = ["std"] }
+bevy_state = { version = "0.20", default-features = false, features = ["std"] }
 bitflags = { version = "2.13", default-features = false, features = ["std"] }
 clap = { version = "4.6", default-features = false, features = ["color", "derive", "error-context", "help", "std", "usage"] }
-clap-cargo = { version = "0.18", default-features = false }
+clap-cargo = { version = "0.19", default-features = false }
 constcat = { version = "0.6", default-features = false }
 crossterm = { version = "0.29", default-features = false, features = ["events"] }
 directories = { version = "6.0", default-features = false }
@@ -41,7 +41,7 @@ image = {
 }
 indexmap = { version = "2.14", default-features = false, features = ["std"] }
 itoa = { version = "1.0", default-features = false }
-lofty = { version = "0.24", default-features = false, features = ["id3v2_compression_support"] }
+lofty = { version = "0.25", default-features = false, features = ["id3v2_compression_support"] }
 nucleo-matcher = { version = "0.3", default-features = false, features = ["unicode-casefold", "unicode-normalization", "unicode-segmentation"] }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "serde"] }
 ratatui-image = { version = "11.0", default-features = false, features = ["crossterm"] }
