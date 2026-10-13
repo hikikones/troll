@@ -344,12 +344,14 @@ impl Rect {
 
     pub const fn split_lines<const N: usize>(self) -> [Self; N] {
         let mut rects = [self; N];
+        let mut rows = self.size.rows;
 
         let mut i = 0;
         while i < N {
             let r = &mut rects[i];
             r.pos.row = r.pos.row + i as u16;
-            r.size.rows = 1;
+            r.size.rows = if rows > 0 { 1 } else { 0 };
+            rows = rows.saturating_sub(1);
             i += 1;
         }
 
