@@ -241,8 +241,7 @@ impl App {
                 Action::Route(route) => {
                     render = true;
 
-                    let modal = **self.world.resource::<State<Modal>>();
-                    if modal.is_active() {
+                    if self.world.resource::<State<Modal>>().is_active() {
                         self.world
                             .resource_mut::<NextState<Modal>>()
                             .set(Modal::None);
