@@ -2,7 +2,6 @@ use std::time::{Duration, Instant};
 
 use ecs::*;
 use terminal::*;
-use widgets2::{Text, TextOptions};
 
 use crate::{
     database::{Database, DatabaseEvent},
@@ -48,7 +47,6 @@ impl App {
 
         app.insert_resource(Framebuffer::default())
             .insert_resource(ScreenSize::default())
-            .insert_resource(Text::default())
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
             .insert_resource(ModalColors::new(&settings))
@@ -538,7 +536,6 @@ fn hide_cursor(mut frame: ResMut<Framebuffer>) {
 fn render_app(
     screen_size: Res<ScreenSize>,
     mut frame: ResMut<Framebuffer>,
-    mut text: ResMut<Text>,
     mut page_area: ResMut<PageArea>,
     mut shortcuts_area: ResMut<ShortcutsArea>,
     settings: Res<Settings>,
@@ -558,7 +555,7 @@ fn render_app(
         ScreenHeight::Normal => {
             let (top, body, bottom) = area.split_ends(1, 1);
 
-            render_navigation(top, &mut frame, &mut text, colors, **current_page);
+            render_navigation(top, &mut frame, colors, **current_page);
 
             **page_area = body.inner(Margin::all(1));
             **shortcuts_area = bottom;
@@ -566,7 +563,7 @@ fn render_app(
         ScreenHeight::Tall => {
             let (top, body, mut bottom) = area.split_ends(1, 7);
 
-            render_navigation(top, &mut frame, &mut text, colors, **current_page);
+            render_navigation(top, &mut frame, colors, **current_page);
 
             **page_area = body.inner(Margin::all(1));
             **shortcuts_area = bottom.with_rows(1);
@@ -585,7 +582,6 @@ fn render_app(
                 title_area,
                 status_area,
                 &mut frame,
-                &mut text,
                 colors,
                 &jukebox,
                 &database,
@@ -595,7 +591,6 @@ fn render_app(
                 play_shortcuts_area,
                 app_shortcuts_area,
                 &mut frame,
-                &mut text,
                 colors,
                 jukebox.volume(),
                 &logs,
@@ -604,33 +599,26 @@ fn render_app(
     }
 }
 
-fn render_navigation(
-    area: Rect,
-    frame: &mut Framebuffer,
-    text: &mut Text,
-    colors: &Colors,
-    current_page: Page,
-) {
+fn render_navigation(area: Rect, frame: &mut Framebuffer, colors: &Colors, current_page: Page) {
     for (page, name, gap) in [
         (Page::Tracks, "Tracks", 3),
         (Page::NowPlaying, "Now Playing", 3),
         (Page::Settings, "Settings", 0),
     ] {
         if current_page == page {
-            text.push_fmt(Styled::new(name, Style::fg(colors.primary).with_bold()));
+            frame.push_fmt(Styled::new(name, Style::fg(colors.primary).with_bold()));
         } else {
-            text.push_str_fg(name, colors.normal);
+            frame.push_str_fg(name, colors.normal);
         }
-        text.push_ch_repeat(' ', gap);
+        frame.push_ch_repeat(' ', gap);
     }
-    text.render(area, frame, TextOptions::span_center_top());
+    frame.render(area, TextOptions::span_center_top());
 }
 
 fn render_playback(
     title_area: Rect,
     status_area: Rect,
     frame: &mut Framebuffer,
-    text: &mut Text,
     colors: &Colors,
     jukebox: &Jukebox,
     database: &Database,
@@ -641,12 +629,12 @@ fn render_playback(
 
     let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) else {
         // Neutral playback status
-        text.push_fmt(Sgr::Fg(colors.neutral));
-        text.push_str("00:00 ");
-        text.push_ch_repeat(progress_ch, status_width);
-        text.push_str(" 00:00");
-        text.push_fmt(Sgr::reset_fg());
-        text.render(status_area, frame, TextOptions::span_center_top());
+        frame.push_fmt(Sgr::Fg(colors.neutral));
+        frame.push_str("00:00 ");
+        frame.push_ch_repeat(progress_ch, status_width);
+        frame.push_str(" 00:00");
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(status_area, TextOptions::span_center_top());
         return;
     };
 
@@ -657,51 +645,49 @@ fn render_playback(
     };
 
     // Stats
-    text.push_fmt(Sgr::Fg(normal));
-    text.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
+    frame.push_fmt(Sgr::Fg(normal));
+    frame.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
 
     if let Some(bit_depth) = track.bit_depth()
         && let Some(sample_rate) = track.sample_rate()
     {
-        text.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
+        frame.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
     }
 
-    text.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
+    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
 
     // Title
-    text.push_str(track.artist());
+    frame.push_str(track.artist());
     if !(track.artist().is_empty() || track.title().is_empty()) {
-        text.push_str(" - ");
+        frame.push_str(" - ");
     }
-    text.push_str(track.title());
-
-    text.render(title_area, frame, TextOptions::span_center_top());
+    frame.push_str(track.title());
+    frame.render(title_area, TextOptions::span_center_top());
 
     // Playback status
     let track_pos = jukebox.current_track_pos();
-    text.push_iter(utils::format_duration_on_stack(track_pos));
-    text.push_ch(' ');
+    frame.push_iter(utils::format_duration_on_stack(track_pos));
+    frame.push_ch(' ');
 
     let progress = track_pos.as_secs_f32() / track.duration().as_secs_f32();
     let highlights = (status_width as f32 * progress).ceil() as u16;
     let remaining = status_width.saturating_sub(highlights);
-    text.push_fmt(Sgr::Fg(primary));
-    text.push_ch_repeat(highlight_ch, highlights);
-    text.push_fmt(Sgr::Fg(normal));
-    text.push_ch_repeat(progress_ch, remaining);
+    frame.push_fmt(Sgr::Fg(primary));
+    frame.push_ch_repeat(highlight_ch, highlights);
+    frame.push_fmt(Sgr::Fg(normal));
+    frame.push_ch_repeat(progress_ch, remaining);
 
-    text.push_ch(' ');
-    text.push_iter(utils::format_duration_on_stack(track.duration()));
+    frame.push_ch(' ');
+    frame.push_iter(utils::format_duration_on_stack(track.duration()));
 
-    text.push_fmt(Sgr::reset_fg());
-    text.render(status_area, frame, TextOptions::span_center_top());
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(status_area, TextOptions::span_center_top());
 }
 
 fn render_shortcuts(
     play_area: Rect,
     app_area: Rect,
     frame: &mut Framebuffer,
-    text: &mut Text,
     colors: &Colors,
     volume: f32,
     logs: &Logs,
@@ -718,15 +704,15 @@ fn render_shortcuts(
         ("⎇⇄", "Seek", gap),
         ("⎇⇵", "Volume", 0),
     ] {
-        text.push_fmt(Sgr::Fg(key_color));
-        text.push_str(key);
-        text.push_fmt(Sgr::Fg(name_color));
-        text.push_ch(' ');
-        text.push_str(name);
-        text.push_ch_repeat(' ', gap);
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
     }
-    text.push_fmt(format_args!(" {}%", (volume * 100.0).round() as u8));
-    text.render(play_area, frame, TextOptions::span_center_top());
+    frame.push_fmt(format_args!(" {}%", (volume * 100.0).round() as u8));
+    frame.render(play_area, TextOptions::span_center_top());
 
     // Shortcuts for app
     for (key, name, gap) in [
@@ -734,29 +720,29 @@ fn render_shortcuts(
         ("(⇧)Tab", "Navigate", gap),
         ("^f", "Find", 0),
     ] {
-        text.push_fmt(Sgr::Fg(key_color));
-        text.push_str(key);
-        text.push_fmt(Sgr::Fg(name_color));
-        text.push_ch(' ');
-        text.push_str(name);
-        text.push_ch_repeat(' ', gap);
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
     }
 
     if logs.len() > 0 {
-        text.push_ch(' ');
-        text.push_fmt(Sgr::Fg(key_color));
-        text.push_str("^l");
-        text.push_fmt(Sgr::Fg(name_color));
-        text.push_ch(' ');
+        frame.push_ch(' ');
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str("^l");
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
         if logs.len_new() > 0 {
-            text.push_fmt(format_args!("Logs({})", logs.len_new()));
+            frame.push_fmt(format_args!("Logs({})", logs.len_new()));
         } else {
-            text.push_str("Logs");
+            frame.push_str("Logs");
         }
     }
 
-    text.push_fmt(Sgr::reset_fg());
-    text.render(app_area, frame, TextOptions::span_center_top());
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(app_area, TextOptions::span_center_top());
 }
 
 fn update_app(

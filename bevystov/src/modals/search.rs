@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, List, ListIndex, Prompt, Text, TextOptions};
+use widgets2::{Block, List, ListIndex, Prompt};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, RenderSet},
@@ -168,7 +168,6 @@ fn input_search(
 
 fn render_search(
     mut frame: ResMut<Framebuffer>,
-    mut text: ResMut<Text>,
     settings: Res<Settings>,
     mut modal: ResMut<SearchModal>,
     results: Res<SearchResults>,
@@ -201,10 +200,9 @@ fn render_search(
         modal.prompt.set_disabled(true);
 
         frame.print_fmt(Sgr::Fg(colors.neutral));
-        text.push_str("No tracks to search for");
-        text.render(
+        frame.push_str("No tracks to search for");
+        frame.render(
             area.inner(Margin::proportional(1)),
-            &mut frame,
             TextOptions::paragraph_center(),
         );
         frame.print_fmt(Sgr::Reset);
@@ -240,20 +238,20 @@ fn render_search(
                 style.insert(Attributes::CROSSED_OUT);
             }
 
-            text.push_fmt(style);
-            text.push_str(track.title());
-            text.push_ch(' ');
-            text.push_str(track.artist());
-            text.push_ch(' ');
-            text.push_str(track.album());
-            text.push_fmt(Sgr::Reset);
-            text.render(line, frame, TextOptions::span());
+            frame.push_fmt(style);
+            frame.push_str(track.title());
+            frame.push_ch(' ');
+            frame.push_str(track.artist());
+            frame.push_ch(' ');
+            frame.push_str(track.album());
+            frame.push_fmt(Sgr::Reset);
+            frame.render(line, TextOptions::span());
         },
     );
 
     if !results.is_empty() {
         frame.print_fmt(Sgr::Bg(bg));
-        render_shortcuts(shortcuts_area, &mut frame, &mut text, colors, state);
+        render_shortcuts(shortcuts_area, &mut frame, colors, state);
     }
 
     frame.print_fmt(Sgr::Reset);
@@ -263,29 +261,23 @@ fn render_search(
     frame.set_cursor_pos_at_end(modal.prompt.get_cursor_pos());
 }
 
-fn render_shortcuts(
-    area: Rect,
-    frame: &mut Framebuffer,
-    text: &mut Text,
-    colors: &Colors,
-    state: SearchState,
-) {
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state: SearchState) {
     match state {
         SearchState::Prompt => {
-            text.push_fmt(format_args!(
+            frame.push_fmt(format_args!(
                 " {}↵{} Browse {}",
                 Sgr::Fg(colors.secondary),
                 Sgr::Fg(colors.normal),
                 Sgr::reset_fg()
             ));
-            text.render(area, frame, TextOptions::span_center_top());
+            frame.render(area, TextOptions::span_center_top());
         }
         SearchState::Browse => {
             let key_color = colors.secondary;
             let name_color = colors.normal;
             let gap = 1;
 
-            text.push_ch(' ');
+            frame.push_ch(' ');
 
             for (key, name, gap) in [
                 ("↵", "Play", gap),
@@ -294,16 +286,16 @@ fn render_shortcuts(
                 ("g", "Goto", gap),
                 ("s", "Search", 0),
             ] {
-                text.push_fmt(Sgr::Fg(key_color));
-                text.push_str(key);
-                text.push_fmt(Sgr::Fg(name_color));
-                text.push_ch(' ');
-                text.push_str(name);
-                text.push_ch_repeat(' ', gap);
+                frame.push_fmt(Sgr::Fg(key_color));
+                frame.push_str(key);
+                frame.push_fmt(Sgr::Fg(name_color));
+                frame.push_ch(' ');
+                frame.push_str(name);
+                frame.push_ch_repeat(' ', gap);
             }
 
-            text.push_ch(' ');
-            text.render(area, frame, TextOptions::span_center_top());
+            frame.push_ch(' ');
+            frame.render(area, TextOptions::span_center_top());
         }
     }
 }

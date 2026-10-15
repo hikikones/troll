@@ -6,7 +6,6 @@ mod list;
 mod prompt;
 mod scroll;
 mod tag_list;
-mod text;
 
 pub use ansi::*;
 pub use block::*;
@@ -16,4 +15,3 @@ pub use list::*;
 pub use prompt::*;
 pub use scroll::*;
 pub use tag_list::*;
-pub use text::*;
