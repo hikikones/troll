@@ -110,11 +110,11 @@ impl Framebuffer {
         let pos = area.pos.with_row(row);
         let max_width = area.size.cols;
 
-        let display_width = utils::display_width(text) as u16;
-        match display_width.cmp(&max_width) {
+        let text_width = utils::str_width(text);
+        match text_width.cmp(&max_width) {
             Ordering::Less => {
                 // Room to spare, apply alignment
-                let start_text_col = horizontal.calc(pos.col, max_width, display_width);
+                let start_text_col = horizontal.calc(pos.col, max_width, text_width);
 
                 if fill {
                     // Fill remaining empty cells with spaces
@@ -125,7 +125,7 @@ impl Framebuffer {
 
                     self.buffer.push_str(text);
 
-                    let empty_right_count = max_width - (empty_left_count + display_width);
+                    let empty_right_count = max_width - (empty_left_count + text_width);
                     self.print_ch_repeat(' ', empty_right_count);
                 } else {
                     self.cursor(pos.with_col(start_text_col));

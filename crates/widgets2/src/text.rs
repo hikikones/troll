@@ -105,7 +105,7 @@ fn print_span(
     fill: bool,
     frame: &mut Framebuffer,
 ) {
-    let display_width = utils::display_width(text) as u16;
+    let display_width = utils::display_width(text);
     match display_width.cmp(&max_width) {
         Ordering::Less => {
             // Room to spare, apply alignment
