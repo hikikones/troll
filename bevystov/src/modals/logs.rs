@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, Text, TextOptions};
+use widgets2::Block;
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, RenderSet},
@@ -155,12 +155,7 @@ fn enter_logs(mut logs: ResMut<Logs>) {
     }
 }
 
-fn render_logs(
-    mut frame: ResMut<Framebuffer>,
-    mut text: ResMut<Text>,
-    settings: Res<Settings>,
-    logs: Res<Logs>,
-) {
+fn render_logs(mut frame: ResMut<Framebuffer>, settings: Res<Settings>, logs: Res<Logs>) {
     let area = frame.area().scale_and_center(0.7);
     let colors = settings.colors();
 
@@ -172,45 +167,44 @@ fn render_logs(
     Block::rectangle().render(area, &mut frame);
 
     frame.print_fmt(Sgr::Fg(colors.normal));
-    text.push_fmt(format_args!(" Logs: {} / {} ", logs.index + 1, logs.len()));
-    text.render(top, &mut frame, TextOptions::span_center_top());
+    frame.push_fmt(format_args!(" Logs: {} / {} ", logs.index + 1, logs.len()));
+    frame.render(top, TextOptions::span_center_top());
 
     let Some(log) = logs.current() else {
         return;
     };
 
-    text.push_str(log);
-    text.render(
+    frame.push_str(log);
+    frame.render(
         body.inner(Margin::proportional(1)),
-        &mut frame,
         TextOptions::paragraph_center(),
     );
 
-    render_shortcuts(bottom, &mut frame, &mut text, colors);
+    render_shortcuts(bottom, &mut frame, colors);
 
     frame.print_fmt(Sgr::Reset);
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, text: &mut Text, colors: &Colors) {
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
     let key_color = colors.secondary;
     let name_color = colors.normal;
     let gap = 1;
 
-    text.push_ch(' ');
+    frame.push_ch(' ');
 
     for (key, name, gap) in [
         ("⇄", "Next/Prev", gap),
         ("c", "Copy (todo)", gap),
         ("(^)Del", "Delete (all)", 0),
     ] {
-        text.push_fmt(Sgr::Fg(key_color));
-        text.push_str(key);
-        text.push_fmt(Sgr::Fg(name_color));
-        text.push_ch(' ');
-        text.push_str(name);
-        text.push_ch_repeat(' ', gap);
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
     }
 
-    text.push_ch(' ');
-    text.render(area, frame, TextOptions::span_center_top());
+    frame.push_ch(' ');
+    frame.render(area, TextOptions::span_center_top());
 }

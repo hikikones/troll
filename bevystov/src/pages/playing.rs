@@ -3,7 +3,7 @@ use shared::symbols;
 use terminal::*;
 use widgets2::{
     Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, List, ListIndex,
-    ScrollMargins, Text, TextOptions,
+    ScrollMargins,
 };
 
 use crate::{
@@ -116,13 +116,7 @@ impl FrontCover {
         self.handle = None;
     }
 
-    fn render(
-        &self,
-        area: Rect,
-        frame: &mut Framebuffer,
-        text: &mut Text,
-        colors: &Colors,
-    ) -> Rect {
+    fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) -> Rect {
         match self.result.as_ref() {
             Some(Ok(Some(image))) => {
                 return image.render(area, frame, ImageOptions::fit_center());
@@ -136,10 +130,9 @@ impl FrontCover {
             Some(Err(err)) => {
                 frame.print_fmt(Sgr::Fg(colors.red));
                 Block::rectangle().render(area, frame);
-                text.push_fmt(format_args!("ERROR\n{err}"));
-                text.render(
+                frame.push_fmt(format_args!("ERROR\n{err}"));
+                frame.render(
                     area.inner(Margin::proportional(1)),
-                    frame,
                     TextOptions::paragraph_center(),
                 );
                 frame.print_fmt(Sgr::reset_fg());
@@ -266,7 +259,6 @@ fn render_playing(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Framebuffer>,
-    mut text: ResMut<Text>,
     screen_size: Res<ScreenSize>,
     settings: Res<Settings>,
     database: NonSend<Database>,
@@ -283,9 +275,7 @@ fn render_playing(
     page.view = ViewLayout::from(screen_size.both());
     let (cover_area, queue_area) = match page.view {
         ViewLayout::Cover => {
-            render_cover(
-                **area, &mut frame, &mut text, colors, &database, &jukebox, &cover,
-            );
+            render_cover(**area, &mut frame, colors, &database, &jukebox, &cover);
             return;
         }
         ViewLayout::Horizontal => area.split_left(area.cols() * 40 / 100, 2),
@@ -294,14 +284,11 @@ fn render_playing(
 
     page.update_scroll_on_new_track(&jukebox);
 
-    render_cover(
-        cover_area, &mut frame, &mut text, colors, &database, &jukebox, &cover,
-    );
+    render_cover(cover_area, &mut frame, colors, &database, &jukebox, &cover);
     render_queue(
         queue_area,
         **shortcuts_area,
         &mut frame,
-        &mut text,
         colors,
         &database,
         &jukebox,
@@ -312,7 +299,6 @@ fn render_playing(
 fn render_cover(
     area: Rect,
     frame: &mut Framebuffer,
-    text: &mut Text,
     colors: &Colors,
     database: &Database,
     jukebox: &Jukebox,
@@ -322,31 +308,29 @@ fn render_cover(
         .current_track_id()
         .and_then(|id| database.get(id).map(|t| t.rating()))
     else {
-        text.push_str_fg("No track currently playing", colors.neutral);
-        text.render(
+        frame.push_str_fg("No track currently playing", colors.neutral);
+        frame.render(
             area.inner(Margin::proportional(1)),
-            frame,
             TextOptions::paragraph_center(),
         );
         return;
     };
 
     if area.size.rows > 15 {
-        let image_area = cover.render(area.inner(Margin::vertical(1)), frame, text, colors);
+        let image_area = cover.render(area.inner(Margin::vertical(1)), frame, colors);
 
         let (filled_stars, empty_stars) = rating.stars_split();
-        text.push_fmt(Sgr::Fg(colors.primary));
-        text.push_str(filled_stars);
-        text.push_fmt(Sgr::Fg(colors.neutral));
-        text.push_str(empty_stars);
-        text.push_fmt(Sgr::reset_fg());
-        text.render(
+        frame.push_fmt(Sgr::Fg(colors.primary));
+        frame.push_str(filled_stars);
+        frame.push_fmt(Sgr::Fg(colors.neutral));
+        frame.push_str(empty_stars);
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(
             image_area.with_row(image_area.bottom_out()),
-            frame,
             TextOptions::span_center_top(),
         );
     } else {
-        cover.render(area, frame, text, colors);
+        cover.render(area, frame, colors);
     }
 }
 
@@ -354,7 +338,6 @@ fn render_queue(
     area: Rect,
     shortcuts_area: Rect,
     frame: &mut Framebuffer,
-    text: &mut Text,
     colors: &Colors,
     database: &Database,
     jukebox: &Jukebox,
@@ -364,12 +347,12 @@ fn render_queue(
     Block::rectangle().render(area, frame);
 
     frame.print_fmt(Sgr::Fg(colors.normal));
-    text.push_fmt(format_args!(
+    frame.push_fmt(format_args!(
         " History ({}) / Queue ({}) ",
         jukebox.history(),
         jukebox.queue()
     ));
-    text.render(area, frame, TextOptions::span_center_top());
+    frame.render(area, TextOptions::span_center_top());
 
     if jukebox.is_empty() {
         frame.print_fmt(Sgr::Fg(colors.neutral));
@@ -412,28 +395,28 @@ fn render_queue(
                 ListIndex::Normal => "",
             };
 
-            text.push_fmt(Sgr::Fg(fg));
-            text.push_str(symbol);
+            frame.push_fmt(Sgr::Fg(fg));
+            frame.push_str(symbol);
 
             if jukebox.is_faulty(id) {
-                text.push_fmt(Sgr::CrossedOut);
+                frame.push_fmt(Sgr::CrossedOut);
             }
 
-            text.push_fmt(track.title());
-            text.push_ch(' ');
-            text.push_fmt(track.artist());
-            text.push_ch(' ');
-            text.push_fmt(track.album());
-            text.push_ch(' ');
-            text.push_fmt(Sgr::Reset);
-            text.render(line, frame, TextOptions::span());
+            frame.push_fmt(track.title());
+            frame.push_ch(' ');
+            frame.push_fmt(track.artist());
+            frame.push_ch(' ');
+            frame.push_fmt(track.album());
+            frame.push_ch(' ');
+            frame.push_fmt(Sgr::Reset);
+            frame.render(line, TextOptions::span());
         },
     );
 
-    render_shortcuts(shortcuts_area, frame, text, colors);
+    render_shortcuts(shortcuts_area, frame, colors);
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, text: &mut Text, colors: &Colors) {
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
     let key_color = colors.secondary;
     let name_color = colors.normal;
     let gap = 1;
@@ -447,16 +430,16 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, text: &mut Text, colors
         ("c", "Clear", gap),
         ("g", "Goto", 0),
     ] {
-        text.push_fmt(Sgr::Fg(key_color));
-        text.push_str(key);
-        text.push_fmt(Sgr::Fg(name_color));
-        text.push_ch(' ');
-        text.push_str(name);
-        text.push_ch_repeat(' ', gap);
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
     }
 
-    text.push_fmt(Sgr::reset_fg());
-    text.render(area, frame, TextOptions::span_center_top());
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(area, TextOptions::span_center_top());
 }
 
 fn exit_playing(mut frame: ResMut<Framebuffer>) {
