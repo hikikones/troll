@@ -758,6 +758,9 @@ fn update_app(
         render = true;
 
         match event {
+            DatabaseEvent::FinishedLoading => {
+                // TODO?
+            }
             DatabaseEvent::Rating(_id) => {
                 // TODO?
             }
