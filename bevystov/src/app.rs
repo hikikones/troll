@@ -662,7 +662,6 @@ fn render_playback(
         frame.push_str(" - ");
     }
     frame.push_str(track.title());
-
     frame.render(title_area, TextOptions::span_center_top());
 
     // Playback status
