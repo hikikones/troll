@@ -25,6 +25,7 @@ pub struct Database {
 }
 
 pub enum DatabaseEvent {
+    FinishedLoading,
     Rating(TrackId),
     Error(AudioFileReport),
 }
@@ -168,6 +169,7 @@ impl Database {
                             break;
                         }
                         mpsc::TryRecvError::Disconnected => {
+                            on_event(DatabaseEvent::FinishedLoading);
                             self.receiver = None;
                             break;
                         }
