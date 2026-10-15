@@ -28,7 +28,7 @@ impl Framebuffer {
         }
     }
 
-    pub fn query_term_size(&mut self) -> std::io::Result<()> {
+    pub fn query_size(&mut self) -> std::io::Result<()> {
         self.size = TerminalSize::query()?;
         Ok(())
     }

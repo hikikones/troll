@@ -204,7 +204,7 @@ impl App {
 
     fn update_size(&mut self) -> std::io::Result<()> {
         let mut frame = self.world.resource_mut::<Framebuffer>();
-        frame.query_term_size()?;
+        frame.query_size()?;
         let size = frame.window_size();
 
         let mut screen_size = self.world.resource_mut::<ScreenSize>();
