@@ -43,7 +43,6 @@ impl SearchModal {
     fn reset(&mut self) {
         self.state = SearchState::Prompt;
         self.prompt.clear();
-        self.prompt.set_disabled(false);
         self.prompt_hash = 0;
         self.list.reset();
     }
@@ -192,6 +191,7 @@ fn render_search(
     frame.print_ch_repeat(' ', prompt_area.cols());
     modal
         .prompt
+        .set_colors(colors.prompt())
         .set_disabled(state == SearchState::Browse || database.is_empty())
         .render(prompt_area.inner(Margin::horizontal(1)), &mut frame);
 
