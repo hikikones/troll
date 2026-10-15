@@ -1,41 +1,18 @@
-use std::{
-    fmt::{Display, Write},
-    io::Stdout,
-};
+use std::io::Stdout;
 
 use crossterm::{
-    Command,
-    cursor::{Hide, MoveTo, Show},
+    cursor::Hide,
     execute,
-    terminal::{Clear, ClearType, DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{
-    Color, Cursor, HorizontalAlignment, Pos, Rect, Sgr, Size, TerminalEvent, VerticalAlignment,
-};
+use crate::{Color, Size, TerminalEvent};
 
-pub struct Terminal {
-    backend: Stdout,
-    buffer: Framebuffer,
-}
+pub struct Terminal<W: std::io::Write = Stdout>(W);
 
-impl Terminal {
-    pub fn new() -> Result<Self, TerminalError> {
-        let size = TerminalSize::query()?;
-
-        let stdout = std::io::stdout();
-        let palette = TerminalPalette::query(&mut stdout.lock(), &mut std::io::stdin().lock())?;
-
-        Ok(Self {
-            backend: stdout,
-            buffer: Framebuffer::new(size, palette),
-        })
-    }
-
-    pub const fn with_thresholds(mut self, thresholds: ScreenSizeThresholds) -> Self {
-        self.buffer.thresholds = thresholds;
-        self.buffer.screen = ScreenSize::new(self.buffer.size, thresholds);
-        self
+impl Terminal<Stdout> {
+    pub fn stdout() -> Self {
+        Self(std::io::stdout())
     }
 
     pub fn enter<T>(
@@ -44,9 +21,9 @@ impl Terminal {
     ) -> Result<T, Box<dyn std::error::Error>> {
         Self::set_panic_hook();
 
-        Self::enter_alternate_screen(&mut self.backend)?;
+        Self::enter_alternate_screen(&mut self.0)?;
         let res = f(&mut self);
-        Self::leave_alternate_screen(&mut self.backend)?;
+        Self::leave_alternate_screen(&mut self.0)?;
 
         res
     }
@@ -65,23 +42,10 @@ impl Terminal {
         }
     }
 
-    pub const fn frame(&mut self) -> &mut Framebuffer {
-        &mut self.buffer
-    }
-
-    pub fn render(
-        &mut self,
-        f: impl FnOnce(&mut Framebuffer) -> std::io::Result<()>,
-    ) -> std::io::Result<()> {
-        f(&mut self.buffer)?;
-
-        self.buffer.flush(&mut self.backend.lock())
-    }
-
     pub fn temp_leave<T>(&mut self, f: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
-        Self::leave_alternate_screen(&mut self.backend)?;
+        Self::leave_alternate_screen(&mut self.0)?;
         let t = f();
-        Self::enter_alternate_screen(&mut self.backend)?;
+        Self::enter_alternate_screen(&mut self.0)?;
 
         t
     }
@@ -107,32 +71,17 @@ impl Terminal {
     }
 }
 
-#[derive(Debug)]
-pub enum TerminalError {
-    Io(std::io::Error),
-    Query(RgbQueryError),
-}
+impl<W: std::io::Write> std::ops::Deref for Terminal<W> {
+    type Target = W;
 
-impl std::fmt::Display for TerminalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TerminalError::Io(err) => err.fmt(f),
-            TerminalError::Query(err) => err.fmt(f),
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
-impl std::error::Error for TerminalError {}
-
-impl From<std::io::Error> for TerminalError {
-    fn from(err: std::io::Error) -> Self {
-        Self::Io(err)
-    }
-}
-
-impl From<RgbQueryError> for TerminalError {
-    fn from(err: RgbQueryError) -> Self {
-        Self::Query(err)
+impl<W: std::io::Write> std::ops::DerefMut for Terminal<W> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -145,26 +94,23 @@ pub struct TerminalSize {
 }
 
 impl TerminalSize {
-    fn query() -> std::io::Result<Self> {
-        let win_size = crossterm::terminal::window_size()?;
-
-        if win_size.width == 0 || win_size.height == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "Failed to query terminal for window size in pixel dimensions. Expected a non-zero value, but got zero.",
-            ));
+    pub const fn new() -> Self {
+        Self {
+            cols: 0,
+            rows: 0,
+            width: 0,
+            height: 0,
         }
-
-        Ok(Self::from(win_size))
     }
 
-    const fn from(win_size: crossterm::terminal::WindowSize) -> Self {
-        Self {
+    pub fn query() -> std::io::Result<Self> {
+        let win_size = crossterm::terminal::window_size()?;
+        Ok(Self {
             cols: win_size.columns,
             rows: win_size.rows,
             width: win_size.width,
             height: win_size.height,
-        }
+        })
     }
 
     pub const fn window_size(&self) -> Size {
@@ -174,18 +120,26 @@ impl TerminalSize {
         }
     }
 
-    pub const fn window_dims(&self) -> Dims {
-        Dims {
+    pub const fn window_dims(&self) -> Option<Dims> {
+        if self.width == 0 || self.height == 0 {
+            return None;
+        }
+
+        Some(Dims {
             width: self.width,
             height: self.height,
-        }
+        })
     }
 
-    pub const fn cell_dims(&self) -> CellDims {
-        CellDims {
+    pub const fn cell_dims(&self) -> Option<CellDims> {
+        if self.width == 0 || self.height == 0 {
+            return None;
+        }
+
+        Some(CellDims {
             width: self.width / self.cols,
             height: self.height / self.rows,
-        }
+        })
     }
 }
 
@@ -214,7 +168,7 @@ pub struct ScreenSizeThresholds {
 }
 
 impl ScreenSizeThresholds {
-    const DEFAULT: Self = Self {
+    pub const DEFAULT: Self = Self {
         width_normal: 60,
         width_wide: 80,
         height_normal: 20,
@@ -229,13 +183,14 @@ impl Default for ScreenSizeThresholds {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct ScreenSize {
     width: ScreenWidth,
     height: ScreenHeight,
 }
 
 impl ScreenSize {
-    const fn new(window_size: Size, thresholds: ScreenSizeThresholds) -> ScreenSize {
+    pub const fn new(window_size: Size, thresholds: ScreenSizeThresholds) -> ScreenSize {
         let ScreenSizeThresholds {
             width_normal,
             width_wide,
@@ -440,7 +395,7 @@ impl Rgb {
     pub const BLACK: Self = Self(0, 0, 0);
     pub const WHITE: Self = Self(255, 255, 255);
 
-    fn query_fg(
+    pub fn query_fg(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
     ) -> Result<Self, RgbQueryError> {
@@ -448,7 +403,7 @@ impl Rgb {
         Ok(fg)
     }
 
-    fn query_bg(
+    pub fn query_bg(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
     ) -> Result<Self, RgbQueryError> {
@@ -456,7 +411,7 @@ impl Rgb {
         Ok(bg)
     }
 
-    fn query_cursor(
+    pub fn query_cursor(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
     ) -> Result<Self, RgbQueryError> {
@@ -594,6 +549,7 @@ enum RgbQueryErrorSource {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct TerminalPalette {
     fg: Rgb,
     bg: Rgb,
@@ -601,7 +557,7 @@ pub struct TerminalPalette {
 }
 
 impl TerminalPalette {
-    fn query(
+    pub fn query(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
     ) -> Result<Self, RgbQueryError> {
@@ -647,567 +603,4 @@ impl Default for TerminalPalette {
 pub enum TerminalTheme {
     Dark,
     Light,
-}
-
-#[derive(Debug, Default)]
-pub struct Framebuffer {
-    buf: String,
-    text: String,
-    size: Size,
-    dims: Dims,
-    cell_dims: CellDims,
-    screen: ScreenSize,
-    thresholds: ScreenSizeThresholds,
-    palette: TerminalPalette,
-    cursor_state: CursorState,
-}
-
-impl Framebuffer {
-    const fn new(size: TerminalSize, palette: TerminalPalette) -> Self {
-        Self {
-            buf: String::new(),
-            text: String::new(),
-            size: size.window_size(),
-            dims: size.window_dims(),
-            cell_dims: size.cell_dims(),
-            screen: ScreenSize::new(size.window_size(), ScreenSizeThresholds::DEFAULT),
-            thresholds: ScreenSizeThresholds::DEFAULT,
-            palette,
-            cursor_state: CursorState::new(),
-        }
-    }
-
-    pub fn query_term_size(&mut self) -> std::io::Result<()> {
-        let term_size = TerminalSize::from(crossterm::terminal::window_size()?);
-
-        self.size = term_size.window_size();
-        self.screen = ScreenSize::new(self.size, self.thresholds);
-
-        let dims = term_size.window_dims();
-        if !dims.is_empty() {
-            self.dims = dims;
-            self.cell_dims = term_size.cell_dims();
-        }
-
-        Ok(())
-    }
-
-    pub const fn window_size(&self) -> Size {
-        self.size
-    }
-
-    pub const fn window_dims(&self) -> Dims {
-        self.dims
-    }
-
-    pub const fn cell_dims(&self) -> CellDims {
-        self.cell_dims
-    }
-
-    pub const fn screen_width(&self) -> ScreenWidth {
-        self.screen.width
-    }
-
-    pub const fn screen_height(&self) -> ScreenHeight {
-        self.screen.height
-    }
-
-    pub const fn screen_size(&self) -> (ScreenWidth, ScreenHeight) {
-        (self.screen.width, self.screen.height)
-    }
-
-    pub const fn palette(&self) -> &TerminalPalette {
-        &self.palette
-    }
-
-    pub const fn area(&self) -> Rect {
-        Rect::new(Pos::ZERO, self.size)
-    }
-
-    pub const fn set_cursor_visibility(&mut self, value: bool) {
-        self.cursor_state.set_visible(value);
-    }
-
-    pub const fn set_cursor_pos_at_end(&mut self, pos: Pos) {
-        self.cursor_state.set_pos(pos);
-    }
-
-    pub fn cursor(&mut self, cursor: impl Into<Cursor>) {
-        let _ = write!(self.buf, "{}", cursor.into());
-    }
-
-    pub fn print_ch(&mut self, ch: char) {
-        self.buf.push(ch);
-    }
-
-    pub fn print_ch_repeat(&mut self, ch: char, n: u16) {
-        self.buf.extend(std::iter::repeat_n(ch, n as usize));
-    }
-
-    pub fn print_str(&mut self, s: &str) {
-        self.buf.push_str(s);
-    }
-
-    pub fn print_str_fg(&mut self, s: &str, fg: Color) {
-        let _ = write!(self.buf, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
-    }
-
-    pub fn print_fmt(&mut self, text: impl Display) {
-        let _ = write!(self.buf, "{text}");
-    }
-
-    pub fn print_fmt_fg(&mut self, text: impl Display, fg: Color) {
-        let _ = write!(self.buf, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
-    }
-
-    pub fn print_iter<I>(&mut self, iter: I)
-    where
-        I: IntoIterator,
-        String: Extend<I::Item>,
-    {
-        self.buf.extend(iter);
-    }
-
-    pub fn print_span(&mut self, area: Rect, text: impl Display) {
-        self.print_span_with_options(area, text, SpanOptions::left());
-    }
-
-    pub fn print_span_with_options(
-        &mut self,
-        area: Rect,
-        text: impl Display,
-        options: SpanOptions,
-    ) {
-        if area.is_empty() {
-            return;
-        }
-
-        // TODO: Newlines should be ignored?
-
-        let start = self.text.len();
-        self.push_fmt(text);
-        let text = &self.text[start..];
-
-        let row = options.vertical.calc(area.pos.row, area.size.rows, 1);
-        print_span(
-            area.pos.with_row(row),
-            area.size.cols,
-            text,
-            options.horizontal,
-            options.fill,
-            &mut self.buf,
-        );
-
-        self.text.truncate(start);
-    }
-
-    pub fn fill(&mut self, area: Rect, bg: Color, reset: bool) {
-        self.print_fmt(Sgr::Bg(bg));
-
-        for i in 0..area.size.rows {
-            self.cursor(area.pos.with_row(area.pos.row + i));
-            self.print_ch_repeat(' ', area.size.cols);
-        }
-
-        if reset {
-            self.print_fmt(Sgr::reset_bg());
-        }
-    }
-
-    fn flush(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
-        use crossterm::QueueableCommand;
-
-        if self.size.is_either_less(2) {
-            self.clear();
-            return Ok(());
-        }
-
-        for i in 0..self.size.rows {
-            writer
-                .queue(MoveTo(0, i))?
-                .queue(Clear(ClearType::CurrentLine))?;
-        }
-
-        let _ = write!(self.buf, "{}", self.cursor_state.take());
-
-        writer.write_all(self.buf.as_bytes())?;
-        writer.flush()?;
-
-        self.clear();
-
-        Ok(())
-    }
-
-    fn clear(&mut self) {
-        self.buf.clear();
-        self.text.clear();
-    }
-
-    pub fn push_ch(&mut self, ch: char) {
-        self.text.push(ch);
-    }
-
-    pub fn push_ch_repeat(&mut self, ch: char, n: u16) {
-        self.text.extend(std::iter::repeat_n(ch, n as usize));
-    }
-
-    pub fn push_str(&mut self, s: &str) {
-        self.text.push_str(s);
-    }
-
-    pub fn push_str_fg(&mut self, s: &str, fg: Color) {
-        let _ = write!(self.text, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
-    }
-
-    pub fn push_fmt(&mut self, text: impl Display) {
-        let _ = write!(self.text, "{text}");
-    }
-
-    pub fn push_fmt_fg(&mut self, text: impl Display, fg: Color) {
-        let _ = write!(self.text, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
-    }
-
-    pub fn push_iter<I>(&mut self, iter: I)
-    where
-        I: IntoIterator,
-        String: Extend<I::Item>,
-    {
-        self.text.extend(iter);
-    }
-
-    pub fn render(&mut self, mut area: Rect, opts: TextOptions) {
-        if area.is_empty() {
-            self.text.clear();
-            return;
-        }
-
-        match opts.mode {
-            TextMode::Span => {
-                let row = opts.vertical.calc(area.pos.row, area.size.rows, 1);
-                print_span(
-                    area.pos.with_row(row),
-                    area.size.cols,
-                    &self.text, // TODO: Newlines should be ignored?
-                    opts.horizontal,
-                    opts.fill,
-                    &mut self.buf,
-                );
-            }
-            TextMode::Paragraph => {
-                utils::text_wrap(&mut self.text, area.size.cols);
-                let lines = self.text.lines().count() as u16;
-
-                area.pos.row = opts.vertical.calc(area.pos.row, area.size.rows, lines);
-                area.size.rows = area.size.rows.min(lines);
-
-                for line in self.text.lines().take(area.size.rows as usize) {
-                    print_span(
-                        area.pos,
-                        area.size.cols,
-                        line,
-                        opts.horizontal,
-                        opts.fill,
-                        &mut self.buf,
-                    );
-                    area.pos.row += 1;
-                }
-
-                if lines > area.size.rows {
-                    self.print_fmt(Sgr::Reset);
-                }
-            }
-        }
-
-        self.text.clear();
-    }
-}
-
-fn print_span(
-    pos: Pos,
-    max_width: u16,
-    text: &str,
-    align: HorizontalAlignment,
-    fill: bool,
-    output: &mut String,
-) {
-    use std::{cmp::Ordering, fmt::Write};
-
-    let display_width = utils::display_width(text) as u16;
-    match display_width.cmp(&max_width) {
-        Ordering::Less => {
-            // Room to spare, apply alignment
-            let start_text_col = align.calc(pos.col, max_width, display_width);
-
-            if fill {
-                // Fill remaining empty cells with spaces
-                let _ = write!(output, "{}", Cursor::Move(pos.col, pos.row));
-
-                let empty_left_count = start_text_col - pos.col;
-                output.extend(std::iter::repeat_n(' ', empty_left_count as usize));
-
-                output.push_str(text);
-
-                let empty_right_count = max_width - (empty_left_count + display_width);
-                output.extend(std::iter::repeat_n(' ', empty_right_count as usize));
-            } else {
-                let _ = write!(output, "{}", Cursor::Move(start_text_col, pos.row));
-                output.push_str(text);
-            }
-        }
-        Ordering::Equal => {
-            // Perfect fit, just print
-            let _ = write!(output, "{}", Cursor::Move(pos.col, pos.row));
-            output.push_str(text);
-        }
-        Ordering::Greater => {
-            // No fit, print what we can and keep ansi codes
-            let _ = write!(output, "{}", Cursor::Move(pos.col, pos.row));
-
-            let mut width = 0;
-            for g in utils::GraphemeAnsiIter::new(text) {
-                match g {
-                    utils::GraphemeOrAnsi::Grapheme(g) => {
-                        if width == max_width {
-                            continue;
-                        }
-
-                        let w = utils::str_width(g.0);
-
-                        if width + w > max_width {
-                            if fill {
-                                let remaining = max_width - width;
-                                output.extend(std::iter::repeat_n(' ', remaining as usize));
-                            }
-                            width = max_width;
-                            continue;
-                        }
-
-                        width += w;
-                        output.push_str(g.0);
-                    }
-                    utils::GraphemeOrAnsi::Ansi(s) => {
-                        output.push_str(s);
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-struct CursorState {
-    current_visibility: bool,
-    next_visibility: bool,
-    position: Option<Pos>,
-}
-
-impl CursorState {
-    const fn new() -> Self {
-        Self {
-            current_visibility: false,
-            next_visibility: false,
-            position: None,
-        }
-    }
-
-    const fn set_visible(&mut self, value: bool) {
-        self.next_visibility = value;
-    }
-
-    const fn set_pos(&mut self, pos: Pos) {
-        self.position = Some(pos);
-    }
-
-    const fn take(&mut self) -> CursorStateCommand {
-        if self.current_visibility != self.next_visibility {
-            self.current_visibility = self.next_visibility;
-            CursorStateCommand {
-                visibility: Some(self.next_visibility),
-                position: self.position.take(),
-            }
-        } else {
-            CursorStateCommand {
-                visibility: None,
-                position: self.position.take(),
-            }
-        }
-    }
-}
-
-impl Default for CursorState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-struct CursorStateCommand {
-    visibility: Option<bool>,
-    position: Option<Pos>,
-}
-
-impl std::fmt::Display for CursorStateCommand {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(visible) = self.visibility {
-            match visible {
-                true => Show.write_ansi(f)?,
-                false => Hide.write_ansi(f)?,
-            }
-        }
-
-        if let Some(Pos { col, row }) = self.position {
-            MoveTo(col, row).write_ansi(f)?;
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SpanOptions {
-    pub horizontal: HorizontalAlignment,
-    pub vertical: VerticalAlignment,
-    pub fill: bool,
-}
-
-impl SpanOptions {
-    pub const fn left() -> Self {
-        Self {
-            horizontal: HorizontalAlignment::Left,
-            vertical: VerticalAlignment::Top,
-            fill: false,
-        }
-    }
-
-    pub const fn center() -> Self {
-        Self {
-            horizontal: HorizontalAlignment::Center,
-            vertical: VerticalAlignment::Center,
-            fill: false,
-        }
-    }
-
-    pub const fn center_top() -> Self {
-        Self {
-            horizontal: HorizontalAlignment::Center,
-            vertical: VerticalAlignment::Top,
-            fill: false,
-        }
-    }
-
-    pub const fn right() -> Self {
-        Self {
-            horizontal: HorizontalAlignment::Right,
-            vertical: VerticalAlignment::Top,
-            fill: false,
-        }
-    }
-
-    pub const fn fill() -> Self {
-        Self {
-            horizontal: HorizontalAlignment::Left,
-            vertical: VerticalAlignment::Top,
-            fill: true,
-        }
-    }
-
-    pub const fn with_fill(mut self) -> Self {
-        self.fill = true;
-        self
-    }
-}
-
-impl Default for SpanOptions {
-    fn default() -> Self {
-        Self::left()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum TextMode {
-    Span,
-    Paragraph,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct TextOptions {
-    pub mode: TextMode,
-    pub horizontal: HorizontalAlignment,
-    pub vertical: VerticalAlignment,
-    pub fill: bool,
-}
-
-impl TextOptions {
-    pub const fn span() -> Self {
-        Self {
-            mode: TextMode::Span,
-            horizontal: HorizontalAlignment::Left,
-            vertical: VerticalAlignment::Top,
-            fill: false,
-        }
-    }
-
-    pub const fn span_center() -> Self {
-        Self {
-            mode: TextMode::Span,
-            horizontal: HorizontalAlignment::Center,
-            vertical: VerticalAlignment::Center,
-            fill: false,
-        }
-    }
-
-    pub const fn span_center_top() -> Self {
-        Self {
-            mode: TextMode::Span,
-            horizontal: HorizontalAlignment::Center,
-            vertical: VerticalAlignment::Top,
-            fill: false,
-        }
-    }
-
-    pub const fn span_right() -> Self {
-        Self {
-            mode: TextMode::Span,
-            horizontal: HorizontalAlignment::Right,
-            vertical: VerticalAlignment::Top,
-            fill: false,
-        }
-    }
-
-    pub const fn paragraph() -> Self {
-        Self {
-            mode: TextMode::Paragraph,
-            horizontal: HorizontalAlignment::Left,
-            vertical: VerticalAlignment::Top,
-            fill: false,
-        }
-    }
-
-    pub const fn paragraph_center() -> Self {
-        Self {
-            mode: TextMode::Paragraph,
-            horizontal: HorizontalAlignment::Center,
-            vertical: VerticalAlignment::Center,
-            fill: false,
-        }
-    }
-
-    pub const fn paragraph_right() -> Self {
-        Self {
-            mode: TextMode::Paragraph,
-            horizontal: HorizontalAlignment::Right,
-            vertical: VerticalAlignment::Top,
-            fill: false,
-        }
-    }
-
-    pub const fn with_fill(mut self) -> Self {
-        self.fill = true;
-        self
-    }
-}
-
-impl Default for TextOptions {
-    fn default() -> Self {
-        Self::span()
-    }
 }

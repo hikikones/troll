@@ -4976,6 +4976,7 @@ dependencies = [
 name = "terminal"
 version = "0.1.0"
 dependencies = [
+ "bevy_ecs",
  "bitflags 2.13.2",
  "crossterm 0.29.0",
  "serde",
@@ -5808,6 +5809,7 @@ name = "widgets2"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "bevy_ecs",
  "image",
  "terminal",
  "utils",

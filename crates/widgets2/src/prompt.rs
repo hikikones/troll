@@ -291,10 +291,9 @@ impl Prompt {
     }
 
     fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
-        frame.push_fmt(Sgr::Fg(color));
-        frame.push_str(self.placeholder);
-        frame.push_fmt(Sgr::Fg(Color::Default));
-        frame.render(area, TextOptions::span());
+        frame.print_fmt(Sgr::Fg(color));
+        frame.print_span(area, self.placeholder);
+        frame.print_fmt(Sgr::Fg(Color::Default));
     }
 
     fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Color) {

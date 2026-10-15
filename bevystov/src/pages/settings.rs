@@ -1,10 +1,10 @@
 use ecs::*;
 use shared::symbols;
 use terminal::*;
-use widgets2::{Block, List, ListIndex, Prompt, ScrollMargins};
+use widgets2::{Block, List, ListIndex, Prompt, ScrollMargins, Text, TextOptions};
 
 use crate::{
-    app::{Action, Actions, App, Frame, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
+    app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::AudioRating,
     modals::Logs,
     pages::Page,
@@ -320,7 +320,8 @@ fn handle_setting(
 fn render_settings(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
-    mut frame: ResMut<Frame>,
+    mut frame: ResMut<Framebuffer>,
+    mut text: ResMut<Text>,
     mut list: ResMut<SettingsList>,
     mut page: ResMut<SettingsPage>,
     settings: Res<Settings>,
@@ -330,38 +331,43 @@ fn render_settings(
 
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
-    frame.print_span_with_options(area, " Settings ", SpanOptions::center_top());
+
+    let (top, body, bottom) = area.split_ends(1, 1);
+
+    frame.print_span_with(top, " Settings ", SpanOptions::center_top());
     frame.print_fmt(Sgr::reset_fg());
 
     let current = list.current();
     list.set_colors(colors.list()).render(
-        area.inner(Margin::all(1)),
+        body.inner(Margin::horizontal(1)),
         &mut frame,
         SETTINGS.into_iter(),
         |line, frame, setting, index| {
             let (left, right) = line.split_vertically_with_gap(0);
 
             if index == ListIndex::Selected {
-                frame.print_fmt(Sgrs([Sgr::Fg(colors.normal), Sgr::Bold]));
-                frame.push_str("> ");
+                frame.print_fmt(Sgr::Bold);
+                text.push_str("> ");
             }
+
+            frame.print_fmt(Sgr::Fg(colors.normal));
 
             match setting {
                 Setting::General => {
                     print_section("GENERAL", line, frame, colors);
                 }
                 Setting::SkipRating => {
-                    frame.push_str("Skip tracks with rating:");
-                    frame.render(left, TextOptions::span_right());
+                    text.push_str("Skip tracks with rating:");
+                    text.render(left, frame, TextOptions::span_right());
 
                     let (filled_stars, empty_stars) =
                         settings.general().skip_tracks_with_rating.stars_split();
-                    frame.push_fmt(Sgr::Fg(colors.primary));
-                    frame.push_str(filled_stars);
-                    frame.push_fmt(Sgr::Fg(colors.neutral));
-                    frame.push_str(empty_stars);
-                    frame.push_fmt(Sgr::reset_fg());
-                    frame.render(right, TextOptions::span());
+                    text.push_fmt(Sgr::Fg(colors.primary));
+                    text.push_str(filled_stars);
+                    text.push_fmt(Sgr::Fg(colors.neutral));
+                    text.push_str(empty_stars);
+                    text.push_fmt(Sgr::reset_fg());
+                    text.render(right, frame, TextOptions::span());
                 }
                 Setting::KeepTrackSort => {
                     print_toggle(
@@ -370,6 +376,7 @@ fn render_settings(
                         left,
                         right,
                         frame,
+                        &mut text,
                         colors,
                     );
                 }
@@ -380,6 +387,7 @@ fn render_settings(
                         left,
                         right,
                         frame,
+                        &mut text,
                         colors,
                     );
                 }
@@ -393,6 +401,7 @@ fn render_settings(
                         left,
                         right,
                         frame,
+                        &mut text,
                         colors,
                         current == Setting::PrimaryColor,
                     );
@@ -404,6 +413,7 @@ fn render_settings(
                         left,
                         right,
                         frame,
+                        &mut text,
                         colors,
                         current == Setting::SecondaryColor,
                     );
@@ -415,6 +425,7 @@ fn render_settings(
                         left,
                         right,
                         frame,
+                        &mut text,
                         colors,
                         current == Setting::NeutralColor,
                     );
@@ -426,9 +437,26 @@ fn render_settings(
         },
     );
 
+    let description = match current {
+        Setting::SkipRating => "Skips tracks that are less than or equal to set rating",
+        Setting::KeepTrackSort => "Scrolls to selected track when sorting",
+        Setting::SearchByPath => "Includes directories and filename when searching",
+        Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor => {
+            "Set color by name, hex code or indexed value"
+        }
+        Setting::General | Setting::Colors | Setting::Empty => "",
+    };
+
+    frame.print_fmt(Sgr::Fg(colors.neutral));
+    text.push_ch(' ');
+    text.push_str(description);
+    text.push_ch(' ');
+    text.render(bottom, &mut frame, TextOptions::span_center_top());
+
     render_shortcuts(
         **shortcuts_area,
         &mut frame,
+        &mut text,
         colors,
         current,
         &settings,
@@ -441,6 +469,7 @@ fn render_settings(
 fn render_shortcuts(
     area: Rect,
     frame: &mut Framebuffer,
+    text: &mut Text,
     colors: &Colors,
     current: Setting,
     settings: &Settings,
@@ -450,84 +479,81 @@ fn render_shortcuts(
     let name_color = colors.normal;
     let gap = 1;
 
-    fn push_shortcut(
-        key: &str,
-        name: &str,
-        key_color: Color,
-        name_color: Color,
-        frame: &mut Framebuffer,
-    ) {
-        frame.push_fmt(Sgr::Fg(key_color));
-        frame.push_str(key);
-        frame.push_fmt(Sgr::Fg(name_color));
-        frame.push_ch(' ');
-        frame.push_str(name);
+    fn push_shortcut(key: &str, name: &str, key_color: Color, name_color: Color, text: &mut Text) {
+        text.push_fmt(Sgr::Fg(key_color));
+        text.push_str(key);
+        text.push_fmt(Sgr::Fg(name_color));
+        text.push_ch(' ');
+        text.push_str(name);
     }
 
     match current {
         Setting::SkipRating => {
-            push_shortcut("0-5", "Rating", key_color, name_color, frame);
-            frame.push_ch_repeat(' ', gap);
+            push_shortcut("0-5", "Rating", key_color, name_color, text);
+            text.push_ch_repeat(' ', gap);
         }
         Setting::KeepTrackSort => {
-            push_shortcut("Space", "Toggle", key_color, name_color, frame);
-            frame.push_ch_repeat(' ', gap);
+            push_shortcut("Space", "Toggle", key_color, name_color, text);
+            text.push_ch_repeat(' ', gap);
         }
         Setting::SearchByPath => {
-            push_shortcut("Space", "Toggle", key_color, name_color, frame);
-            frame.push_ch_repeat(' ', gap);
+            push_shortcut("Space", "Toggle", key_color, name_color, text);
+            text.push_ch_repeat(' ', gap);
         }
         Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor => {
-            push_shortcut("↵", "Set Color", key_color, name_color, frame);
-            frame.push_ch_repeat(' ', gap);
+            push_shortcut("↵", "Set Color", key_color, name_color, text);
+            text.push_ch_repeat(' ', gap);
         }
         Setting::General | Setting::Colors | Setting::Empty => {}
     };
 
     if settings.hash() != config.hash() {
-        push_shortcut("^s", "Save", key_color, name_color, frame);
-        frame.push_ch_repeat(' ', gap);
+        push_shortcut("^s", "Save", key_color, name_color, text);
+        text.push_ch_repeat(' ', gap);
     }
 
-    push_shortcut("^r", "Reset All", key_color, name_color, frame);
+    push_shortcut("^r", "Reset All", key_color, name_color, text);
 
-    frame.push_fmt(Sgr::reset_fg());
-    frame.render(area, TextOptions::span_center_top());
+    text.push_fmt(Sgr::reset_fg());
+    text.render(area, frame, TextOptions::span_center_top());
 }
 
 fn print_section(title: &str, line: Rect, frame: &mut Framebuffer, colors: &Colors) {
     frame.print_fmt(Sgr::Fg(colors.neutral));
-    frame.print_span_with_options(line, title, SpanOptions::center_top());
+    frame.print_span_with(line, title, SpanOptions::center_top());
     frame.print_fmt(Sgr::reset_fg());
 }
 
 fn print_toggle(
-    text: &str,
+    description: &str,
     value: bool,
     left: Rect,
     right: Rect,
     frame: &mut Framebuffer,
+    text: &mut Text,
     colors: &Colors,
 ) {
-    frame.push_str(text);
-    frame.render(left, TextOptions::span_right());
+    text.push_str(description);
+    text.render(left, frame, TextOptions::span_right());
 
     let (toggle, color) = symbols::checkmark_with_value(value, colors.primary, colors.neutral);
-    frame.push_str_fg(toggle, color);
-    frame.render(right, TextOptions::span());
+    frame.print_fmt(Sgr::Fg(color));
+    frame.print_span(right, toggle);
+    frame.print_fmt(Sgr::reset_fg());
 }
 
 fn print_color(
-    text: &str,
+    description: &str,
     prompt: &mut Prompt,
     left: Rect,
     right: Rect,
     frame: &mut Framebuffer,
+    text: &mut Text,
     colors: &Colors,
     is_active: bool,
 ) {
-    frame.push_str(text);
-    frame.render(left, TextOptions::span_right());
+    text.push_str(description);
+    text.render(left, frame, TextOptions::span_right());
     prompt
         .set_colors(colors.prompt())
         .set_disabled(!is_active)

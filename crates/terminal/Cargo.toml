@@ -6,7 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+bevy_ecs = { workspace = true, optional = true }
 bitflags = { workspace = true }
 crossterm = { workspace = true }
 serde = { workspace = true }
 utils = { workspace = true }
+
+[features]
+bevy = ["dep:bevy_ecs"]

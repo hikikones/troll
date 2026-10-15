@@ -162,6 +162,8 @@ pub struct Colors {
     #[serde(skip)]
     pub normal: Color,
     #[serde(skip)]
+    pub background: Color,
+    #[serde(skip)]
     pub red: Color,
 }
 
@@ -172,6 +174,7 @@ impl Colors {
             secondary: color,
             neutral: color,
             normal: color,
+            background: color,
             red: color,
         }
     }
@@ -205,6 +208,7 @@ impl Default for Colors {
             secondary: Color::Yellow,
             neutral: Color::Indexed(240),
             normal: Color::Default,
+            background: Color::Default,
             red: Color::Red,
         }
     }

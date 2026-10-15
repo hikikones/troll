@@ -21,11 +21,11 @@ rodio = { workspace = true }
 serde = { workspace = true }
 serde_repr = { workspace = true }
 shared = { workspace = true }
-terminal = { workspace = true }
+terminal = { workspace = true, features = ["bevy"] }
 toml = { workspace = true }
 utils = { workspace = true }
 walkdir = { workspace = true }
-widgets2 = { workspace = true }
+widgets2 = { workspace = true, features = ["bevy"] }
 zbus = { workspace = true }
 
 [features]

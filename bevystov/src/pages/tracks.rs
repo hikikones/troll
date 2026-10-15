@@ -1,9 +1,9 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, List, ListIndex, TableLayout};
+use widgets2::{Block, List, ListIndex, TableLayout, Text, TextOptions};
 
 use crate::{
-    app::{Action, Actions, App, Frame, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
+    app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::{AudioRating, Database, TrackId, TrackSort},
     jukebox::Jukebox,
     modals::Modal,
@@ -151,7 +151,8 @@ fn enter_tracks(mut page: ResMut<TracksPage>, database: NonSend<Database>) {
 fn render_tracks(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
-    mut frame: ResMut<Frame>,
+    mut frame: ResMut<Framebuffer>,
+    mut text: ResMut<Text>,
     settings: Res<Settings>,
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
@@ -161,18 +162,19 @@ fn render_tracks(
     let colors = settings.colors();
 
     if database.is_empty() {
-        frame.push_str_fg("No tracks to be found", colors.neutral);
-        frame.render(area, TextOptions::span_center());
+        frame.print_fmt(Sgr::Fg(colors.neutral));
+        frame.print_span_with(area, "No tracks to be found", SpanOptions::center());
+        frame.print_fmt(Sgr::reset_fg());
         return;
     }
 
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
-    frame.push_fmt_fg(
+    text.push_fmt_fg(
         format_args!(" All Tracks ({}) ", database.len()),
         colors.normal,
     );
-    frame.render(area, TextOptions::span_center_top());
+    text.render(area, &mut frame, TextOptions::span_center_top());
     frame.print_fmt(Sgr::reset_fg());
 
     let inner = area.inner(Margin::all(1));
@@ -212,21 +214,21 @@ fn render_tracks(
 
             frame.print_fmt(Sgr::Fg(colors.normal));
 
-            frame.push_str("Title");
-            frame.push_str(sort_symbol(sort, TrackSort::Title, reverse));
-            frame.render(title_area, TextOptions::span());
-            frame.push_str("Artist");
-            frame.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
-            frame.render(artist_area, TextOptions::span());
-            frame.push_str("Album");
-            frame.push_str(sort_symbol(sort, TrackSort::Album, reverse));
-            frame.render(album_area, TextOptions::span());
-            frame.push_str("Time");
-            frame.push_str(sort_symbol(sort, TrackSort::Time, reverse));
-            frame.render(time_area, TextOptions::span());
-            frame.push_str("Rating");
-            frame.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
-            frame.render(rating_area, TextOptions::span());
+            text.push_str("Title");
+            text.push_str(sort_symbol(sort, TrackSort::Title, reverse));
+            text.render(title_area, frame, TextOptions::span());
+            text.push_str("Artist");
+            text.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
+            text.render(artist_area, frame, TextOptions::span());
+            text.push_str("Album");
+            text.push_str(sort_symbol(sort, TrackSort::Album, reverse));
+            text.render(album_area, frame, TextOptions::span());
+            text.push_str("Time");
+            text.push_str(sort_symbol(sort, TrackSort::Time, reverse));
+            text.render(time_area, frame, TextOptions::span());
+            text.push_str("Rating");
+            text.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
+            text.render(rating_area, frame, TextOptions::span());
 
             frame.print_fmt(Sgr::reset_fg());
         },
@@ -263,10 +265,10 @@ fn render_tracks(
         },
     );
 
-    render_shortcuts(**shortcuts_area, &mut frame, &colors);
+    render_shortcuts(**shortcuts_area, &mut frame, &mut text, &colors);
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, text: &mut Text, colors: &Colors) {
     let key_color = colors.secondary;
     let name_color = colors.normal;
     let gap = 1;
@@ -278,16 +280,16 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         ("0-5", "Rating", gap),
         ("(⇧)s", "Sort", 0),
     ] {
-        frame.push_fmt(Sgr::Fg(key_color));
-        frame.push_str(key);
-        frame.push_fmt(Sgr::Fg(name_color));
-        frame.push_ch(' ');
-        frame.push_str(name);
-        frame.push_ch_repeat(' ', gap);
+        text.push_fmt(Sgr::Fg(key_color));
+        text.push_str(key);
+        text.push_fmt(Sgr::Fg(name_color));
+        text.push_ch(' ');
+        text.push_str(name);
+        text.push_ch_repeat(' ', gap);
     }
 
-    frame.push_fmt(Sgr::reset_fg());
-    frame.render(area, TextOptions::span_center_top());
+    text.push_fmt(Sgr::reset_fg());
+    text.render(area, frame, TextOptions::span_center_top());
 }
 
 fn input_tracks_modal(input: Res<Input>, mut actions: ResMut<Actions>) {
@@ -304,21 +306,25 @@ fn input_tracks_modal(input: Res<Input>, mut actions: ResMut<Actions>) {
 }
 
 // TODO: remove
-fn render_tracks_modal(mut frame: ResMut<Frame>, settings: Res<Settings>) {
+fn render_tracks_modal(
+    mut frame: ResMut<Framebuffer>,
+    mut text: ResMut<Text>,
+    settings: Res<Settings>,
+) {
     let area = frame.area();
     let area = area.with_size(area.size / 2).center(area);
     let colors = settings.colors();
 
-    let bg = frame.palette().background().slight_offset().as_color();
-    frame.fill(area, bg, false);
+    frame.fill(area, colors.background, false);
 
     frame.print_fmt(Sgr::Fg(colors.normal));
     Block::rectangle().render(area, &mut frame);
-    frame.print_span_with_options(area, " Custom ", SpanOptions::center_top());
+    frame.print_span_with(area, " Custom ", SpanOptions::center_top());
 
-    frame.push_str("A custom modal only for the tracks page.");
-    frame.render(
+    text.push_str("A custom modal only for the tracks page.");
+    text.render(
         area.inner(Margin::proportional(1)),
+        &mut frame,
         TextOptions::paragraph_center(),
     );
     frame.print_fmt(Sgr::Reset);
