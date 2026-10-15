@@ -192,7 +192,7 @@ fn render_search(
     frame.print_ch_repeat(' ', prompt_area.cols());
     modal
         .prompt
-        .set_disabled(state == SearchState::Browse && !database.is_empty())
+        .set_disabled(state == SearchState::Browse || database.is_empty())
         .render(prompt_area.inner(Margin::horizontal(1)), &mut frame);
 
     if database.is_empty() {
