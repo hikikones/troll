@@ -6,6 +6,7 @@ use std::{
 use terminal::*;
 
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Text(String);
 
 impl Text {

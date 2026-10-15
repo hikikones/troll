@@ -8,7 +8,7 @@ use crossterm::{
 
 use crate::{Color, Size, TerminalEvent};
 
-pub struct Terminal<W: std::io::Write>(W);
+pub struct Terminal<W: std::io::Write = Stdout>(W);
 
 impl Terminal<Stdout> {
     pub fn stdout() -> Self {
@@ -212,6 +212,7 @@ impl Default for ScreenSizeThresholds {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct ScreenSize {
     width: ScreenWidth,
     height: ScreenHeight,
@@ -417,6 +418,7 @@ impl Default for CellDims {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Rgb(u8, u8, u8);
 
 impl Rgb {
@@ -577,6 +579,7 @@ enum RgbQueryErrorSource {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct TerminalPalette {
     fg: Rgb,
     bg: Rgb,
@@ -627,6 +630,7 @@ impl Default for TerminalPalette {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub enum TerminalTheme {
     Dark,
     Light,

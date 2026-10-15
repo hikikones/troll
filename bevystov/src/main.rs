@@ -7,7 +7,7 @@ use bevystov::{
     mpris::MediaControls,
     settings::{ConfigError, ConfigErrorSource, Settings},
 };
-use terminal::Terminal;
+use terminal::{Rgb, Terminal};
 
 fn main() -> std::process::ExitCode {
     let args: Args = clap::Parser::parse();
@@ -28,11 +28,12 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let terminal = Terminal::new()?;
+    let terminal = Terminal::stdout();
 
     let jukebox = Jukebox::new(AudioPlayer::new()?);
     let database = Database::new(args.dir);
     let settings = read_settings(args.settings)?;
+    let bg_color = Rgb::query_bg(&mut terminal.lock(), &mut std::io::stdin().lock())?;
 
     let media_controls = if args.media_controls {
         Some(MediaControls::spawn()?)
@@ -40,7 +41,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let mut app = App::new(database, jukebox, settings, media_controls);
+    let mut app = App::new(database, jukebox, settings, bg_color, media_controls);
 
     terminal.enter(|term| app.run(term))
 }

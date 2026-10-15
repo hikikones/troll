@@ -12,6 +12,7 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Framebuffer {
     size: TerminalSize,
     buffer: Buffer,
