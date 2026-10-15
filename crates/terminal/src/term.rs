@@ -85,35 +85,6 @@ impl<W: std::io::Write> std::ops::DerefMut for Terminal<W> {
     }
 }
 
-#[derive(Debug)]
-pub enum TerminalError {
-    Io(std::io::Error),
-    Query(RgbQueryError),
-}
-
-impl std::fmt::Display for TerminalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TerminalError::Io(err) => err.fmt(f),
-            TerminalError::Query(err) => err.fmt(f),
-        }
-    }
-}
-
-impl std::error::Error for TerminalError {}
-
-impl From<std::io::Error> for TerminalError {
-    fn from(err: std::io::Error) -> Self {
-        Self::Io(err)
-    }
-}
-
-impl From<RgbQueryError> for TerminalError {
-    fn from(err: RgbQueryError) -> Self {
-        Self::Query(err)
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy)]
 pub struct TerminalSize {
     cols: u16,
