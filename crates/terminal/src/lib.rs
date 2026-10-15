@@ -1,3 +1,4 @@
+mod buffer;
 mod color;
 mod escape;
 mod event;
@@ -5,6 +6,7 @@ mod layout;
 mod style;
 mod term;
 
+pub use buffer::*;
 pub use color::*;
 pub use escape::*;
 pub use event::*;
