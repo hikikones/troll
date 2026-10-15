@@ -331,12 +331,15 @@ fn render_settings(
 
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
-    frame.print_span_with(area, " Settings ", SpanOptions::center_top());
+
+    let (top, body, bottom) = area.split_ends(1, 1);
+
+    frame.print_span_with(top, " Settings ", SpanOptions::center_top());
     frame.print_fmt(Sgr::reset_fg());
 
     let current = list.current();
     list.set_colors(colors.list()).render(
-        area.inner(Margin::all(1)),
+        body.inner(Margin::horizontal(1)),
         &mut frame,
         SETTINGS.into_iter(),
         |line, frame, setting, index| {
@@ -433,6 +436,22 @@ fn render_settings(
             frame.print_fmt(Sgr::NotBold);
         },
     );
+
+    let description = match current {
+        Setting::SkipRating => "Skips tracks that are less than or equal to set rating",
+        Setting::KeepTrackSort => "Scrolls to selected track when sorting",
+        Setting::SearchByPath => "Includes directories and filename when searching",
+        Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor => {
+            "Set color by name, hex code or indexed value"
+        }
+        Setting::General | Setting::Colors | Setting::Empty => "",
+    };
+
+    frame.print_fmt(Sgr::Fg(colors.neutral));
+    text.push_ch(' ');
+    text.push_str(description);
+    text.push_ch(' ');
+    text.render(bottom, &mut frame, TextOptions::span_center_top());
 
     render_shortcuts(
         **shortcuts_area,
