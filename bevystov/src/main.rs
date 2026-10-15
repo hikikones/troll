@@ -32,8 +32,12 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let jukebox = Jukebox::new(AudioPlayer::new()?);
     let database = Database::new(args.dir);
-    let settings = read_settings(args.settings)?;
-    let bg_color = Rgb::query_bg(&mut terminal.lock(), &mut std::io::stdin().lock())?;
+
+    let mut settings = read_settings(args.settings)?;
+    settings.colors_mut().background =
+        Rgb::query_bg(&mut terminal.lock(), &mut std::io::stdin().lock())?
+            .slight_offset()
+            .as_color();
 
     let media_controls = if args.media_controls {
         Some(MediaControls::spawn()?)
@@ -41,7 +45,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
-    let mut app = App::new(database, jukebox, settings, bg_color, media_controls);
+    let mut app = App::new(database, jukebox, settings, media_controls);
 
     terminal.enter(|term| app.run(term))
 }

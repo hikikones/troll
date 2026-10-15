@@ -24,8 +24,7 @@ impl App {
     pub fn new(
         database: Database,
         jukebox: Jukebox,
-        mut settings: Settings,
-        background_color: Rgb,
+        settings: Settings,
         media_controls: Option<MediaControls>,
     ) -> Self {
         let mut app = {
@@ -47,25 +46,23 @@ impl App {
             app.insert_non_send(media_controls);
         }
 
-        settings.colors_mut().background = background_color.slight_offset().as_color();
-
         app.insert_resource(Framebuffer::default())
             .insert_resource(ScreenSize::default())
             .insert_resource(Text::default())
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
+            .insert_resource(ModalColors::new(&settings))
             .insert_resource(settings)
-            .insert_resource(ModalColors::default())
             .insert_resource(PageArea::default())
             .insert_resource(ShortcutsArea::default());
 
         app.add_input(InputSet::App, input_app)
             .add_render(
                 RenderSet::First,
-                (hide_cursor, set_modal_colors.run_if(is_in_modal)),
+                (hide_cursor, swap_colors.run_if(is_in_modal)),
             )
             .add_render(RenderSet::App, render_app)
-            .add_render(RenderSet::BeforeModal, (hide_cursor, reset_colors))
+            .add_render(RenderSet::BeforeModal, (hide_cursor, swap_colors))
             .add_update(update_app);
 
         PagesPlugin::build(&mut app);
@@ -417,8 +414,16 @@ pub enum Action {
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct Actions(Vec<Action>);
 
-#[derive(Debug, Default, Clone, Resource, Deref, DerefMut)]
+#[derive(Debug, Resource, Deref, DerefMut)]
 struct ModalColors(Colors);
+
+impl ModalColors {
+    const fn new(settings: &Settings) -> Self {
+        let mut colors = Colors::all(Color::Indexed(240));
+        colors.background = settings.colors().background;
+        Self(colors)
+    }
+}
 
 #[derive(Default, Resource, Deref, DerefMut)]
 pub struct PageArea(Rect);
@@ -523,13 +528,7 @@ fn is_in_modal(modal: Res<State<Modal>>) -> bool {
     modal.is_active()
 }
 
-fn set_modal_colors(mut modal_colors: ResMut<ModalColors>, mut settings: ResMut<Settings>) {
-    **modal_colors = Colors::all(Color::Indexed(240));
-    modal_colors.background = settings.colors().background;
-    std::mem::swap(settings.colors_mut(), &mut modal_colors);
-}
-
-fn reset_colors(mut modal_colors: ResMut<ModalColors>, mut settings: ResMut<Settings>) {
+fn swap_colors(mut settings: ResMut<Settings>, mut modal_colors: ResMut<ModalColors>) {
     std::mem::swap(settings.colors_mut(), &mut modal_colors);
 }
 
