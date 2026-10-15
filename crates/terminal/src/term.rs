@@ -418,7 +418,6 @@ impl Default for CellDims {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Rgb(u8, u8, u8);
 
 impl Rgb {
@@ -630,7 +629,6 @@ impl Default for TerminalPalette {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub enum TerminalTheme {
     Dark,
     Light,
