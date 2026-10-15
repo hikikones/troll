@@ -129,14 +129,6 @@ impl Prompt {
         utils::hash_fast(self.input.as_str().trim())
     }
 
-    pub fn get_cursor_pos(&self) -> Pos {
-        self.cursor_render_pos()
-    }
-
-    pub const fn get_render_pos(&self) -> Pos {
-        self.area_pos
-    }
-
     pub fn input(&mut self, key: Key) -> bool {
         if self.disabled {
             return false;
@@ -274,7 +266,8 @@ impl Prompt {
         if self.input.is_empty() {
             self.scroll = 0;
             self.render_placeholder(area, frame, self.colors.placeholder);
-            frame.cursor(area.pos);
+            frame.set_cursor_pos_at_end(area.pos);
+            frame.set_cursor_visibility(true);
             return;
         }
 
@@ -287,7 +280,10 @@ impl Prompt {
             Some(range) => self.render_text_with_selection(area, frame, range),
             None => self.render_text(area, frame, self.colors.normal),
         }
-        frame.cursor(self.cursor_render_pos());
+
+        // Cursor
+        frame.set_cursor_pos_at_end(self.cursor_render_pos());
+        frame.set_cursor_visibility(true);
     }
 
     fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {

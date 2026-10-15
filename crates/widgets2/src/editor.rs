@@ -125,16 +125,8 @@ impl Editor {
         self.scroll
     }
 
-    pub fn get_cursor_pos(&self) -> Pos {
-        self.cursor_render_pos()
-    }
-
-    pub const fn get_render_pos(&self) -> Pos {
-        self.area_pos
-    }
-
     pub fn is_cursor_on_first_row(&self) -> bool {
-        self.scroll == 0 && self.area_pos.row == self.get_cursor_pos().row
+        self.scroll == 0 && self.area_pos.row == self.cursor_render_pos().row
     }
 
     pub fn input(&mut self, key: Key) -> bool {
@@ -288,7 +280,8 @@ impl Editor {
         if self.input.is_empty() {
             self.scroll = 0;
             self.render_placeholder(area, frame, self.colors.placeholder);
-            frame.cursor(area.pos);
+            frame.set_cursor_pos_at_end(area.pos);
+            frame.set_cursor_visibility(true);
             return;
         }
 
@@ -301,7 +294,10 @@ impl Editor {
             Some(range) => self.render_text_with_selection(area, frame, range),
             None => self.render_text(area, frame, self.colors.normal),
         }
-        frame.cursor(self.cursor_render_pos());
+
+        // Cursor
+        frame.set_cursor_pos_at_end(self.cursor_render_pos());
+        frame.set_cursor_visibility(true);
     }
 
     pub fn clear(&mut self) {

@@ -145,13 +145,6 @@ impl Setting {
             Self::Empty => false,
         }
     }
-
-    const fn is_color(self) -> bool {
-        matches!(
-            self,
-            Self::PrimaryColor | Self::SecondaryColor | Self::NeutralColor
-        )
-    }
 }
 
 const SETTINGS: [Setting; 11] = [
@@ -455,8 +448,6 @@ fn render_settings(
         &settings,
         &page.config,
     );
-
-    frame.set_cursor_visibility(current.is_color());
 }
 
 fn render_shortcuts(
@@ -555,8 +546,4 @@ fn print_color(
         .set_colors(colors.prompt())
         .set_disabled(!is_active)
         .render(right, frame);
-
-    if is_active {
-        frame.set_cursor_pos_at_end(prompt.get_cursor_pos());
-    }
 }

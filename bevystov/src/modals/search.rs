@@ -192,13 +192,10 @@ fn render_search(
     frame.print_ch_repeat(' ', prompt_area.cols());
     modal
         .prompt
-        .set_disabled(state == SearchState::Browse)
+        .set_disabled(state == SearchState::Browse && !database.is_empty())
         .render(prompt_area.inner(Margin::horizontal(1)), &mut frame);
 
     if database.is_empty() {
-        frame.set_cursor_visibility(false);
-        modal.prompt.set_disabled(true);
-
         frame.print_fmt(Sgr::Fg(colors.neutral));
         frame.push_str("No tracks to search for");
         frame.render(
@@ -255,10 +252,6 @@ fn render_search(
     }
 
     frame.print_fmt(Sgr::Reset);
-
-    // Update cursor state
-    frame.set_cursor_visibility(modal.state == SearchState::Prompt);
-    frame.set_cursor_pos_at_end(modal.prompt.get_cursor_pos());
 }
 
 fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state: SearchState) {
