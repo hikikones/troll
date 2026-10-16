@@ -25,7 +25,7 @@ The name is a norwegian word play for a substance with magical properties. You h
 The application is only available on GitHub for now, but will probably come to `crates.io` at a later time. Do note that for `opus` support you need `libopus` installed along with `cmake`.
 
 ```sh
-cargo install --bin trollstov --git https://github.com/hikikones/trollstov --features opus
+cargo install --git https://github.com/hikikones/troll trollstov --features opus
 ```
 
 ## ⚡ Usage
