@@ -106,7 +106,7 @@ def add(a, b):
 ## 🔖 Install
 
 ```sh
-cargo install --bin trollink --git https://github.com/hikikones/trollstov
+cargo install --git https://github.com/hikikones/troll trollink
 ```
 
 ## ⚡ Usage
