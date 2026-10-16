@@ -34,6 +34,8 @@ pub trait RedbTable: 'static {
     const TABLE: TableDefinition<'_, Self::Id, Self::Value> = TableDefinition::new(Self::NAME);
 }
 
+type Value<'a, T> = <T as RedbValue>::SelfType<'a>;
+
 pub struct Redb(redb::Database);
 
 type Version = u8;
@@ -80,8 +82,8 @@ impl Redb {
 
     pub fn get<T: RedbTable>(
         &self,
-        id: <T::Id as RedbValue>::SelfType<'_>,
-        f: impl FnOnce(<T::Value as RedbValue>::SelfType<'_>),
+        id: Value<'_, T::Id>,
+        f: impl FnOnce(Value<'_, T::Value>),
     ) -> Result<(), RedbError> {
         let read = self.0.begin_read()?;
         let table = read.open_table(T::TABLE)?;
