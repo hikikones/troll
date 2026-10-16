@@ -1,21 +1,37 @@
 use std::borrow::Borrow;
 
-use redb::{Key as RedbKey, ReadableDatabase, TableDefinition, Value as RedbValue};
+pub use redb::{Key as RedbKey, TypeName as RedbTypeName, Value as RedbValue};
+use redb::{ReadableDatabase, TableDefinition};
 
-pub trait RedbItem:
-    RedbValue
-    + Sized
-    + for<'a> RedbValue<SelfType<'a> = Self>
-    + for<'a> Borrow<<Self as RedbValue>::SelfType<'a>>
-    + 'static
-{
+// pub trait RedbTable:
+//     RedbValue
+//     + Sized
+//     + for<'a> RedbValue<SelfType<'a> = Self>
+//     + for<'a> Borrow<<Self as RedbValue>::SelfType<'a>>
+//     + 'static
+// {
+//     type Id: RedbKey
+//         + for<'a> RedbKey<SelfType<'a> = Self::Id>
+//         + for<'a> Borrow<<Self::Id as RedbValue>::SelfType<'a>>
+//         + Copy;
+
+//     const NAME: &str;
+//     const TABLE: TableDefinition<'_, Self::Id, Self> = TableDefinition::new(Self::NAME);
+// }
+
+pub trait RedbTable: 'static {
     type Id: RedbKey
-        + for<'a> RedbKey<SelfType<'a> = Self::Id>
-        + for<'a> Borrow<<Self::Id as RedbValue>::SelfType<'a>>
-        + Default
+        // + for<'a> RedbKey<SelfType<'a> = Self::Id>
+        // + for<'a> Borrow<<Self::Id as RedbValue>::SelfType<'a>>
         + Copy;
 
-    const TABLE: TableDefinition<'_, Self::Id, Self>;
+    // type Value: RedbValue
+    //     + for<'a> RedbKey<SelfType<'a> = Self::Value>
+    //     + for<'a> Borrow<<Self::Value as RedbValue>::SelfType<'a>>;
+    type Value: RedbValue;
+
+    const NAME: &str;
+    const TABLE: TableDefinition<'_, Self::Id, Self::Value> = TableDefinition::new(Self::NAME);
 }
 
 pub struct Redb(redb::Database);
@@ -38,6 +54,9 @@ impl Redb {
         Ok(db)
     }
 
+    // TODO: Make init_table<T:RedbTable>.
+    // TODO: Add a bulk writer.
+
     pub fn version(&self) -> Result<Version, RedbError> {
         Ok(self
             .0
@@ -48,18 +67,50 @@ impl Redb {
             .unwrap())
     }
 
-    pub fn get<T: RedbItem>(&self, id: T::Id) -> Result<Option<T>, RedbError> {
-        let value = self
-            .0
-            .begin_read()?
-            .open_table(T::TABLE)?
-            .get(id)?
-            .map(|guard| guard.value());
+    // pub fn get<T: RedbTable>(&self, id: T::Id) -> Result<Option<T::Value>, RedbError> {
+    //     let value = self
+    //         .0
+    //         .begin_read()?
+    //         .open_table(T::TABLE)?
+    //         .get(id)?
+    //         .map(|guard| guard.value());
 
-        Ok(value)
+    //     Ok(value)
+    // }
+
+    pub fn get<T: RedbTable>(
+        &self,
+        id: <T::Id as RedbValue>::SelfType<'_>,
+        f: impl FnOnce(<T::Value as RedbValue>::SelfType<'_>),
+    ) -> Result<(), RedbError> {
+        let read = self.0.begin_read()?;
+        let table = read.open_table(T::TABLE)?;
+
+        if let Some(guard) = table.get(id)? {
+            f(guard.value());
+        }
+
+        Ok(())
     }
 
-    pub fn insert<T: RedbItem>(&self, id: T::Id, value: T) -> Result<Option<T>, RedbError> {
+    // pub fn get<T: RedbTable>(
+    //     &self,
+    //     id: <T::Id as RedbValue>::SelfType<'_>,
+    // ) -> Result<Option<&<T::Value as RedbValue>::SelfType<'_>>, RedbError> {
+    //     let read = self.0.begin_read()?;
+    //     let table = read.open_table(T::TABLE)?;
+    //     let value = table.get(id)?;
+    //     match value {
+    //         Some(guard) => Ok(Some(&guard.value())),
+    //         None => Ok(None),
+    //     }
+    // }
+
+    pub fn insert<T: RedbTable>(
+        &self,
+        id: T::Id,
+        value: T::Value,
+    ) -> Result<Option<T::Value>, RedbError> {
         let write = self.0.begin_write()?;
         let value = {
             let mut table = write.open_table(T::TABLE)?;
@@ -71,7 +122,7 @@ impl Redb {
         Ok(value)
     }
 
-    pub fn iter<T: RedbItem>(&self) -> Result<impl Iterator<Item = (T::Id, T)>, RedbError> {
+    pub fn iter<T: RedbTable>(&self) -> Result<impl Iterator<Item = (T::Id, T::Value)>, RedbError> {
         let iter = self
             .0
             .begin_read()?
@@ -82,7 +133,7 @@ impl Redb {
         Ok(iter)
     }
 
-    pub fn _iter_keys<T: RedbItem>(&self) -> Result<impl Iterator<Item = T::Id>, RedbError> {
+    pub fn _iter_keys<T: RedbTable>(&self) -> Result<impl Iterator<Item = T::Id>, RedbError> {
         let iter = self
             .0
             .begin_read()?
@@ -93,9 +144,9 @@ impl Redb {
         Ok(iter)
     }
 
-    pub fn _iter_raw<T: RedbItem>(
+    pub fn _iter_raw<T: RedbTable>(
         &self,
-    ) -> Result<impl Iterator<Item = (T::Id, redb::AccessGuard<'_, T>)>, RedbError> {
+    ) -> Result<impl Iterator<Item = (T::Id, redb::AccessGuard<'_, T::Value>)>, RedbError> {
         let iter = self
             .0
             .begin_read()?
