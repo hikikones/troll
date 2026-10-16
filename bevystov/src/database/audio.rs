@@ -43,44 +43,51 @@ impl AudioFile {
         })?;
         let audio_format = match extension {
             AudioFileExtension::Flac => {
-                let flac = FlacFile::read_from(&mut file, ParseOptions::new()).map_err(|err| {
-                    AudioFileReport(format!(
-                        "Failed to read \"{}\" due to {}",
-                        path.display(),
-                        err
-                    ))
-                })?;
+                let flac =
+                    FlacFile::read_from(&mut file, ParseOptions::new().read_cover_art(false))
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to read \"{}\" due to {}",
+                                path.display(),
+                                err
+                            ))
+                        })?;
                 AudioFileFormat::Flac(flac)
             }
             AudioFileExtension::Opus => {
-                let opus = OpusFile::read_from(&mut file, ParseOptions::new()).map_err(|err| {
-                    AudioFileReport(format!(
-                        "Failed to read \"{}\" due to {}",
-                        path.display(),
-                        err
-                    ))
-                })?;
+                let opus =
+                    OpusFile::read_from(&mut file, ParseOptions::new().read_cover_art(false))
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to read \"{}\" due to {}",
+                                path.display(),
+                                err
+                            ))
+                        })?;
                 AudioFileFormat::Opus(opus)
             }
             AudioFileExtension::Ogg => {
                 let ogg_vorbis =
-                    VorbisFile::read_from(&mut file, ParseOptions::new()).map_err(|err| {
-                        AudioFileReport(format!(
-                            "Failed to read \"{}\" due to {}",
-                            path.display(),
-                            err
-                        ))
-                    })?;
+                    VorbisFile::read_from(&mut file, ParseOptions::new().read_cover_art(false))
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to read \"{}\" due to {}",
+                                path.display(),
+                                err
+                            ))
+                        })?;
                 AudioFileFormat::Vorbis(ogg_vorbis)
             }
             AudioFileExtension::Mp3 => {
-                let mpeg = MpegFile::read_from(&mut file, ParseOptions::new()).map_err(|err| {
-                    AudioFileReport(format!(
-                        "Failed to read \"{}\" due to {}",
-                        path.display(),
-                        err
-                    ))
-                })?;
+                let mpeg =
+                    MpegFile::read_from(&mut file, ParseOptions::new().read_cover_art(false))
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to read \"{}\" due to {}",
+                                path.display(),
+                                err
+                            ))
+                        })?;
                 AudioFileFormat::Mpeg(mpeg)
             }
             _ => {
