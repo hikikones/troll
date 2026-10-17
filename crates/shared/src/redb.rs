@@ -1,5 +1,5 @@
 pub use redb::{Key as RedbKey, TypeName as RedbTypeName, Value as RedbValue};
-use redb::{ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{MultimapTableDefinition, ReadableDatabase, ReadableTable, TableDefinition};
 
 // pub trait RedbTable:
 //     RedbValue
@@ -18,7 +18,7 @@ use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 // }
 
 pub trait RedbTable: 'static {
-    type Id: RedbKey
+    type Key: RedbKey
         // + for<'a> RedbKey<SelfType<'a> = Self::Id>
         // + for<'a> Borrow<<Self::Id as RedbValue>::SelfType<'a>>
         + Copy;
@@ -29,23 +29,20 @@ pub trait RedbTable: 'static {
     type Value: RedbValue;
 
     const NAME: &str;
-    const TABLE: TableDefinition<'_, Self::Id, Self::Value> = TableDefinition::new(Self::NAME);
+    const TABLE: TableDefinition<'_, Self::Key, Self::Value> = TableDefinition::new(Self::NAME);
 }
 
-// TODO
-// pub trait DbMultiMap {
-//     type Key: RedbKey + 'static;
-//     type Value: RedbKey + 'static;
+pub trait RedbMultimap: 'static {
+    type Key: RedbKey + Copy;
+    type Value: RedbKey + Copy;
 
-//     const TABLE: MultimapTableDefinition<
-//         'static,
-//         Self::Key,
-//         Self::Value,
-//     >;
-// }
+    const NAME: &str;
+    const TABLE: MultimapTableDefinition<'_, Self::Key, Self::Value> =
+        MultimapTableDefinition::new(Self::NAME);
+}
 
+type Key<'a, T> = <T as RedbValue>::SelfType<'a>;
 type Value<'a, T> = <T as RedbValue>::SelfType<'a>;
-// type KeyOf<'a, T: RedbKey> = <T as RedbValue>::SelfType<'a>;
 
 pub struct Redb(redb::Database);
 
@@ -93,13 +90,13 @@ impl Redb {
 
     pub fn get<T: RedbTable>(
         &self,
-        id: Value<'_, T::Id>,
+        key: Key<'_, T::Key>,
         f: impl FnOnce(Value<'_, T::Value>),
     ) -> Result<(), RedbError> {
         let read = self.0.begin_read()?;
         let table = read.open_table(T::TABLE)?;
 
-        if let Some(guard) = table.get(id)? {
+        if let Some(guard) = table.get(key)? {
             f(guard.value());
         }
 
@@ -121,39 +118,22 @@ impl Redb {
 
     pub fn insert<T: RedbTable>(
         &self,
-        id: Value<'_, T::Id>,
+        key: Key<'_, T::Key>,
         value: Value<'_, T::Value>,
     ) -> Result<(), RedbError> {
         let write = self.0.begin_write()?;
         {
             let mut table = write.open_table(T::TABLE)?;
-            table.insert(id, value)?;
+            table.insert(key, value)?;
         }
         write.commit()?;
 
         Ok(())
     }
 
-    // TODO
-    // pub fn insert_multi<M: DbMultiMap>(
-    //     &self,
-    //     key: KeyOf<'_, M::Key>,
-    //     value: KeyOf<'_, M::Value>,
-    // ) -> DbResult<()> {
-    //     let write_txn = self.0.begin_write()?;
-
-    //     {
-    //         let mut table = write_txn.open_multimap_table(M::TABLE)?;
-    //         table.insert(key, value)?;
-    //     }
-
-    //     write_txn.commit()?;
-    //     Ok(())
-    // }
-
     pub fn for_each<T: RedbTable>(
         &self,
-        mut f: impl for<'a> FnMut(Value<'a, T::Id>, Value<'a, T::Value>),
+        mut f: impl for<'a> FnMut(Key<'a, T::Key>, Value<'a, T::Value>),
     ) -> Result<(), RedbError> {
         let read = self.0.begin_read()?;
         let table = read.open_table(T::TABLE)?;
@@ -166,22 +146,36 @@ impl Redb {
         Ok(())
     }
 
-    // TODO
-    // pub fn for_each_multi_value<M: DbMultiMap>(
-    //     &self,
-    //     key: KeyOf<'_, M::Key>,
-    //     mut f: impl for<'a> FnMut(KeyOf<'a, M::Value>),
-    // ) -> DbResult<()> {
-    //     let read_txn = self.0.begin_read()?;
-    //     let table = read_txn.open_multimap_table(M::TABLE)?;
+    pub fn get_multi<M: RedbMultimap>(
+        &self,
+        key: Key<'_, M::Key>,
+        mut f: impl for<'a> FnMut(Key<'a, M::Value>),
+    ) -> Result<(), RedbError> {
+        let read = self.0.begin_read()?;
+        let table = read.open_multimap_table(M::TABLE)?;
 
-    //     for entry in table.get(key)? {
-    //         let value = entry?;
-    //         f(value.value());
-    //     }
+        for entry in table.get(key)? {
+            let guard = entry?;
+            f(guard.value());
+        }
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
+
+    pub fn insert_multi<M: RedbMultimap>(
+        &self,
+        key: Key<'_, M::Key>,
+        value: Value<'_, M::Value>,
+    ) -> Result<(), RedbError> {
+        let write = self.0.begin_write()?;
+        {
+            let mut table = write.open_multimap_table(M::TABLE)?;
+            table.insert(key, value)?;
+        }
+        write.commit()?;
+
+        Ok(())
+    }
 
     // pub fn keys<T: RedbTable>(&self) -> Result<impl Iterator<Item = Value<'_, T::Id>>, RedbError> {
     //     let read = self.0.begin_read()?;

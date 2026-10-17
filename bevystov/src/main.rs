@@ -128,9 +128,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     db.insert::<Albums>(AlbumId(1), Album::new("Album"))?;
 
-    db.insert::<AlbumTracks>((AlbumId(1), TrackId(1)), ())?;
-    db.insert::<AlbumTracks>((AlbumId(1), TrackId(2)), ())?;
-    db.insert::<AlbumTracks>((AlbumId(1), TrackId(3)), ())?;
+    db.insert_multi::<AlbumTracks>(AlbumId(1), TrackId(1))?;
+    db.insert_multi::<AlbumTracks>(AlbumId(1), TrackId(2))?;
+    db.insert_multi::<AlbumTracks>(AlbumId(1), TrackId(3))?;
+    db.insert_multi::<AlbumTracks>(AlbumId(1), TrackId(3))?;
 
     println!("Tracks:");
     db.for_each::<Tracks>(|id, track| {
@@ -142,9 +143,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Id: {id:?}, Title: {}", track.title);
     })?;
 
-    println!("\nAlbumTracks:");
-    db.for_each::<AlbumTracks>(|(aid, tid), _| {
-        println!("AlbumId: {aid:?}, TrackId: {tid:?}");
+    println!("\nTracks for AlbumId(1):");
+    db.get_multi::<AlbumTracks>(AlbumId(1), |tid| {
+        println!("TrackId: {tid:?}");
     })?;
 
     Ok(())
@@ -180,16 +181,16 @@ impl<'a> Album<'a> {
 
 struct AlbumTracks;
 
-impl RedbTable for AlbumTracks {
-    type Id = (AlbumId, TrackId);
-    type Value = ();
+impl RedbMultimap for AlbumTracks {
+    type Key = AlbumId;
+    type Value = TrackId;
     const NAME: &str = "AlbumTracks";
 }
 
 struct Tracks;
 
 impl RedbTable for Tracks {
-    type Id = TrackId;
+    type Key = TrackId;
     type Value = TrackValue;
     const NAME: &str = "Tracks";
 }
@@ -262,7 +263,7 @@ impl RedbKey for TrackId {
 struct Albums;
 
 impl RedbTable for Albums {
-    type Id = AlbumId;
+    type Key = AlbumId;
     type Value = AlbumValue;
     const NAME: &str = "Albums";
 }
