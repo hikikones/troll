@@ -462,7 +462,7 @@ impl CardId {
 }
 
 impl ToSql for CardId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
     }
 }
@@ -494,7 +494,7 @@ impl CardKind {
 }
 
 impl ToSql for CardKind {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(*self as i64)))
     }
 }
@@ -516,7 +516,7 @@ impl FromSql for CardKind {
 pub struct ReviewId(SqliteId);
 
 impl ToSql for ReviewId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
     }
 }
@@ -531,7 +531,7 @@ impl FromSql for ReviewId {
 pub struct TagId(SqliteId);
 
 impl ToSql for TagId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
     }
 }
@@ -552,7 +552,7 @@ impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DatabaseError::Sqlite(err) => err.fmt(f),
-            &DatabaseError::Version(v) => f.write_fmt(format_args!("unknown version: {v}")),
+            DatabaseError::Version(v) => f.write_fmt(format_args!("unknown version: {v}")),
         }
     }
 }
