@@ -118,12 +118,40 @@ use serde::{Deserialize, Serialize};
 use shared::redb::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut db = Redb::in_memory()?;
+    let db = Redb::in_memory()?;
 
-    db.insert(TrackId(0), Track::new("Track0"))?;
+    db.insert::<Tracks>(TrackId(1), Track::new("Track1"))?;
+    db.insert::<Tracks>(TrackId(2), Track::new("Track2"))?;
+    db.insert::<Tracks>(TrackId(3), Track::new("Track3"))?;
+
+    db.insert::<Tracks>(TrackId(4), Track::new("Track Unknown"))?;
+
+    db.insert::<Albums>(AlbumId(1), Album::new("Album"))?;
+
+    db.insert::<AlbumTracks>((AlbumId(1), TrackId(1)), ())?;
+    db.insert::<AlbumTracks>((AlbumId(1), TrackId(2)), ())?;
+    db.insert::<AlbumTracks>((AlbumId(1), TrackId(3)), ())?;
+
+    println!("Tracks:");
+    db.for_each::<Tracks>(|id, track| {
+        println!("Id: {id:?}, Title: {}", track.title);
+    })?;
+
+    println!("\nAlbums:");
+    db.for_each::<Albums>(|id, track| {
+        println!("Id: {id:?}, Title: {}", track.title);
+    })?;
+
+    println!("\nAlbumTracks:");
+    db.for_each::<AlbumTracks>(|(aid, tid), _| {
+        println!("AlbumId: {aid:?}, TrackId: {tid:?}");
+    })?;
 
     Ok(())
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TrackId(u64);
 
 #[derive(Debug)]
 struct Track<'a> {
@@ -136,8 +164,27 @@ impl<'a> Track<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TrackId(u64);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AlbumId(u64);
+
+#[derive(Debug)]
+struct Album<'a> {
+    title: &'a str,
+}
+
+impl<'a> Album<'a> {
+    fn new(title: &'a str) -> Self {
+        Self { title }
+    }
+}
+
+struct AlbumTracks;
+
+impl RedbTable for AlbumTracks {
+    type Id = (AlbumId, TrackId);
+    type Value = ();
+    const NAME: &str = "AlbumTracks";
+}
 
 struct Tracks;
 
@@ -147,6 +194,7 @@ impl RedbTable for Tracks {
     const NAME: &str = "Tracks";
 }
 
+#[derive(Debug)]
 struct TrackValue;
 
 impl RedbValue for TrackValue {
@@ -161,18 +209,20 @@ impl RedbValue for TrackValue {
     where
         Self: 'a,
     {
-        todo!()
+        Track {
+            title: <&str as RedbValue>::from_bytes(data),
+        }
     }
 
     fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
     where
         Self: 'b,
     {
-        todo!()
+        value.title
     }
 
     fn type_name() -> RedbTypeName {
-        todo!()
+        RedbTypeName::new("Track")
     }
 }
 
@@ -209,8 +259,75 @@ impl RedbKey for TrackId {
     }
 }
 
-struct AlbumId(u64);
+struct Albums;
 
-struct Album<'a> {
-    title: &'a str,
+impl RedbTable for Albums {
+    type Id = AlbumId;
+    type Value = AlbumValue;
+    const NAME: &str = "Albums";
+}
+
+#[derive(Debug)]
+struct AlbumValue;
+
+impl RedbValue for AlbumValue {
+    type SelfType<'a> = Album<'a>;
+    type AsBytes<'a> = &'a str;
+
+    fn fixed_width() -> Option<usize> {
+        None
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        Album {
+            title: <&str as RedbValue>::from_bytes(data),
+        }
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+    where
+        Self: 'b,
+    {
+        value.title
+    }
+
+    fn type_name() -> RedbTypeName {
+        RedbTypeName::new("Album")
+    }
+}
+
+impl RedbValue for AlbumId {
+    type SelfType<'a> = Self;
+    type AsBytes<'a> = <u64 as RedbValue>::AsBytes<'a>;
+
+    fn fixed_width() -> Option<usize> {
+        <u64 as RedbValue>::fixed_width()
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+    where
+        Self: 'a,
+    {
+        Self(<u64 as RedbValue>::from_bytes(data))
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+    where
+        Self: 'b,
+    {
+        <u64 as RedbValue>::as_bytes(&value.0)
+    }
+
+    fn type_name() -> RedbTypeName {
+        RedbTypeName::new("AlbumId")
+    }
+}
+
+impl RedbKey for AlbumId {
+    fn compare(data1: &[u8], data2: &[u8]) -> std::cmp::Ordering {
+        <u64 as RedbKey>::compare(data1, data2)
+    }
 }

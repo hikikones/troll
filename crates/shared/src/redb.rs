@@ -1,7 +1,5 @@
-use std::borrow::Borrow;
-
 pub use redb::{Key as RedbKey, TypeName as RedbTypeName, Value as RedbValue};
-use redb::{ReadableDatabase, TableDefinition};
+use redb::{ReadableDatabase, ReadableTable, TableDefinition};
 
 // pub trait RedbTable:
 //     RedbValue
@@ -34,7 +32,20 @@ pub trait RedbTable: 'static {
     const TABLE: TableDefinition<'_, Self::Id, Self::Value> = TableDefinition::new(Self::NAME);
 }
 
+// TODO
+// pub trait DbMultiMap {
+//     type Key: RedbKey + 'static;
+//     type Value: RedbKey + 'static;
+
+//     const TABLE: MultimapTableDefinition<
+//         'static,
+//         Self::Key,
+//         Self::Value,
+//     >;
+// }
+
 type Value<'a, T> = <T as RedbValue>::SelfType<'a>;
+// type KeyOf<'a, T: RedbKey> = <T as RedbValue>::SelfType<'a>;
 
 pub struct Redb(redb::Database);
 
@@ -110,54 +121,116 @@ impl Redb {
 
     pub fn insert<T: RedbTable>(
         &self,
-        id: T::Id,
-        value: T::Value,
-    ) -> Result<Option<T::Value>, RedbError> {
+        id: Value<'_, T::Id>,
+        value: Value<'_, T::Value>,
+    ) -> Result<(), RedbError> {
         let write = self.0.begin_write()?;
-        let value = {
+        {
             let mut table = write.open_table(T::TABLE)?;
-            let value = table.insert(id, value)?.map(|guard| guard.value());
-            value
-        };
+            table.insert(id, value)?;
+        }
         write.commit()?;
 
-        Ok(value)
+        Ok(())
     }
 
-    pub fn iter<T: RedbTable>(&self) -> Result<impl Iterator<Item = (T::Id, T::Value)>, RedbError> {
-        let iter = self
-            .0
-            .begin_read()?
-            .open_table(T::TABLE)?
-            .range::<T::Id>(..)?
-            .flat_map(|result| result.map(|(id, value)| (id.value(), value.value())));
+    // TODO
+    // pub fn insert_multi<M: DbMultiMap>(
+    //     &self,
+    //     key: KeyOf<'_, M::Key>,
+    //     value: KeyOf<'_, M::Value>,
+    // ) -> DbResult<()> {
+    //     let write_txn = self.0.begin_write()?;
 
-        Ok(iter)
-    }
+    //     {
+    //         let mut table = write_txn.open_multimap_table(M::TABLE)?;
+    //         table.insert(key, value)?;
+    //     }
 
-    pub fn _iter_keys<T: RedbTable>(&self) -> Result<impl Iterator<Item = T::Id>, RedbError> {
-        let iter = self
-            .0
-            .begin_read()?
-            .open_table(T::TABLE)?
-            .range::<T::Id>(..)?
-            .flat_map(|result| result.map(|(id, _)| id.value()));
+    //     write_txn.commit()?;
+    //     Ok(())
+    // }
 
-        Ok(iter)
-    }
-
-    pub fn _iter_raw<T: RedbTable>(
+    pub fn for_each<T: RedbTable>(
         &self,
-    ) -> Result<impl Iterator<Item = (T::Id, redb::AccessGuard<'_, T::Value>)>, RedbError> {
-        let iter = self
-            .0
-            .begin_read()?
-            .open_table(T::TABLE)?
-            .range::<T::Id>(..)?
-            .flat_map(|result| result.map(|(id, value)| (id.value(), value)));
+        mut f: impl for<'a> FnMut(Value<'a, T::Id>, Value<'a, T::Value>),
+    ) -> Result<(), RedbError> {
+        let read = self.0.begin_read()?;
+        let table = read.open_table(T::TABLE)?;
 
-        Ok(iter)
+        for entry in table.iter()? {
+            let (key, value) = entry?;
+            f(key.value(), value.value());
+        }
+
+        Ok(())
     }
+
+    // TODO
+    // pub fn for_each_multi_value<M: DbMultiMap>(
+    //     &self,
+    //     key: KeyOf<'_, M::Key>,
+    //     mut f: impl for<'a> FnMut(KeyOf<'a, M::Value>),
+    // ) -> DbResult<()> {
+    //     let read_txn = self.0.begin_read()?;
+    //     let table = read_txn.open_multimap_table(M::TABLE)?;
+
+    //     for entry in table.get(key)? {
+    //         let value = entry?;
+    //         f(value.value());
+    //     }
+
+    //     Ok(())
+    // }
+
+    // pub fn keys<T: RedbTable>(&self) -> Result<impl Iterator<Item = Value<'_, T::Id>>, RedbError> {
+    //     let read = self.0.begin_read()?;
+    //     let table = read.open_table(T::TABLE)?;
+
+    //     let iter = table.iter()?.flat_map(|s| s.map(|(id, _)| id.value()));
+    //     Ok(iter)
+    //     // for entry in table.iter()? {
+    //     //     let (key, value) = entry?;
+    //     //     f(key.value(), value.value());
+    //     // }
+
+    //     // Ok(())
+    // }
+
+    // pub fn iter<T: RedbTable>(&self) -> Result<impl Iterator<Item = (T::Id, T::Value)>, RedbError> {
+    //     let iter = self
+    //         .0
+    //         .begin_read()?
+    //         .open_table(T::TABLE)?
+    //         .range::<T::Id>(..)?
+    //         .flat_map(|result| result.map(|(id, value)| (id.value(), value.value())));
+
+    //     Ok(iter)
+    // }
+
+    // pub fn _iter_keys<T: RedbTable>(&self) -> Result<impl Iterator<Item = T::Id>, RedbError> {
+    //     let iter = self
+    //         .0
+    //         .begin_read()?
+    //         .open_table(T::TABLE)?
+    //         .range::<T::Id>(..)?
+    //         .flat_map(|result| result.map(|(id, _)| id.value()));
+
+    //     Ok(iter)
+    // }
+
+    // pub fn _iter_raw<T: RedbTable>(
+    //     &self,
+    // ) -> Result<impl Iterator<Item = (T::Id, redb::AccessGuard<'_, T::Value>)>, RedbError> {
+    //     let iter = self
+    //         .0
+    //         .begin_read()?
+    //         .open_table(T::TABLE)?
+    //         .range::<T::Id>(..)?
+    //         .flat_map(|result| result.map(|(id, value)| (id.value(), value)));
+
+    //     Ok(iter)
+    // }
 }
 
 #[derive(Debug)]
@@ -219,3 +292,20 @@ impl From<redb::TransactionError> for RedbError {
         Self::Transaction(err)
     }
 }
+
+impl std::fmt::Display for RedbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RedbError::Error(err) => err.fmt(f),
+            RedbError::Table(err) => err.fmt(f),
+            RedbError::Commit(err) => err.fmt(f),
+            RedbError::Storage(err) => err.fmt(f),
+            RedbError::Database(err) => err.fmt(f),
+            RedbError::Savepoint(err) => err.fmt(f),
+            RedbError::Compaction(err) => err.fmt(f),
+            RedbError::Transaction(err) => err.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for RedbError {}
