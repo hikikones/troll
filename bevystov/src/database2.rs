@@ -2,6 +2,12 @@ use std::path::Path;
 
 use shared::sqlite::*;
 
+mod audio2;
+mod track2;
+
+pub use audio2::*;
+pub use track2::*;
+
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub struct Database {
@@ -19,9 +25,34 @@ impl Database {
         Ok(db)
     }
 
-    pub fn open_in_memory() -> DatabaseResult<Self> {
+    pub fn open_in_memory(music_dir: &Path) -> DatabaseResult<Self> {
         let db = Self::new(Sqlite::open_in_memory()?);
         db.migrate()?;
+
+        // TODO: remove
+        traverse_files(music_dir, true, |path, ext| {
+            let Ok(audio) = AudioFile::read(path, ext) else {
+                // TODO: write log to db
+                return;
+            };
+
+            let Some(vorbis_comments) = audio.vorbis_comments() else {
+                // TODO: write log to db
+                return;
+            };
+
+            println!("------------------------");
+
+            for (key, value) in vorbis_comments.items() {
+                match key {
+                    "TITLE" | "ARTIST" | "ARTISTS" | "ALBUM" | "ALBUMARTIST" => {
+                        println!("{key} -> {value}")
+                    }
+                    _ => {}
+                }
+            }
+        });
+
         Ok(db)
     }
 
@@ -40,7 +71,7 @@ impl Database {
                 self.sqlite.set_version(VERSION);
             }
             VERSION => {}
-            _ => return DatabaseResult::Err(DatabaseError::Version(version)),
+            _ => return Err(DatabaseError::Version(version)),
         }
 
         Ok(())
@@ -102,7 +133,7 @@ impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DatabaseError::Sqlite(err) => err.fmt(f),
-            DatabaseError::Version(v) => f.write_fmt(format_args!("unknown version: {v}")),
+            DatabaseError::Version(v) => f.write_fmt(format_args!("Unknown version: {v}")),
         }
     }
 }
@@ -113,4 +144,18 @@ impl From<SqliteError> for DatabaseError {
     fn from(err: SqliteError) -> Self {
         Self::Sqlite(err)
     }
+}
+
+fn traverse_files(root: &Path, follow_links: bool, f: impl Fn(&Path, AudioExt)) {
+    walkdir::WalkDir::new(root)
+        .follow_links(follow_links)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|entry| entry.file_type().is_file())
+        .for_each(|entry| {
+            let path = entry.path();
+            if let Some(ext) = AudioExt::from_path(path) {
+                f(path, ext);
+            }
+        });
 }

@@ -447,7 +447,7 @@ impl Database {
                 add_dev_data(self);
             }
             VERSION => {}
-            _ => return DatabaseResult::Err(DatabaseError::Version(version)),
+            _ => return Err(DatabaseError::Version(version)),
         }
 
         Ok(())
