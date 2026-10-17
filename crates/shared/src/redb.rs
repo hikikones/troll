@@ -1,34 +1,12 @@
 pub use redb::{Key as RedbKey, TypeName as RedbTypeName, Value as RedbValue};
 use redb::{MultimapTableDefinition, ReadableDatabase, ReadableTable, TableDefinition};
 
-// pub trait RedbTable:
-//     RedbValue
-//     + Sized
-//     + for<'a> RedbValue<SelfType<'a> = Self>
-//     + for<'a> Borrow<<Self as RedbValue>::SelfType<'a>>
-//     + 'static
-// {
-//     type Id: RedbKey
-//         + for<'a> RedbKey<SelfType<'a> = Self::Id>
-//         + for<'a> Borrow<<Self::Id as RedbValue>::SelfType<'a>>
-//         + Copy;
-
-//     const NAME: &str;
-//     const TABLE: TableDefinition<'_, Self::Id, Self> = TableDefinition::new(Self::NAME);
-// }
-
 pub trait RedbTable: 'static {
-    type Key: RedbKey
-        // + for<'a> RedbKey<SelfType<'a> = Self::Id>
-        // + for<'a> Borrow<<Self::Id as RedbValue>::SelfType<'a>>
-        + Copy;
-
-    // type Value: RedbValue
-    //     + for<'a> RedbKey<SelfType<'a> = Self::Value>
-    //     + for<'a> Borrow<<Self::Value as RedbValue>::SelfType<'a>>;
+    type Key: RedbKey + Copy;
     type Value: RedbValue;
 
     const NAME: &str;
+
     const TABLE: TableDefinition<'_, Self::Key, Self::Value> = TableDefinition::new(Self::NAME);
 }
 
@@ -37,6 +15,7 @@ pub trait RedbMultimap: 'static {
     type Value: RedbKey + Copy;
 
     const NAME: &str;
+
     const TABLE: MultimapTableDefinition<'_, Self::Key, Self::Value> =
         MultimapTableDefinition::new(Self::NAME);
 }
@@ -44,9 +23,9 @@ pub trait RedbMultimap: 'static {
 type Key<'a, T> = <T as RedbValue>::SelfType<'a>;
 type Value<'a, T> = <T as RedbValue>::SelfType<'a>;
 
-pub struct Redb(redb::Database);
-
 type Version = u8;
+
+pub struct Redb(redb::Database);
 
 impl Redb {
     const VERSION_TABLE: TableDefinition<'_, (), Version> = TableDefinition::new("redb_version");
@@ -77,16 +56,16 @@ impl Redb {
             .unwrap())
     }
 
-    // pub fn get<T: RedbTable>(&self, id: T::Id) -> Result<Option<T::Value>, RedbError> {
-    //     let value = self
-    //         .0
-    //         .begin_read()?
-    //         .open_table(T::TABLE)?
-    //         .get(id)?
-    //         .map(|guard| guard.value());
+    pub fn set_version(&self, version: Version) -> Result<(), RedbError> {
+        let write = self.0.begin_write()?;
+        {
+            let mut table = write.open_table(Self::VERSION_TABLE)?;
+            table.insert((), version)?;
+        }
+        write.commit()?;
 
-    //     Ok(value)
-    // }
+        Ok(())
+    }
 
     pub fn get<T: RedbTable>(
         &self,
@@ -102,19 +81,6 @@ impl Redb {
 
         Ok(())
     }
-
-    // pub fn get<T: RedbTable>(
-    //     &self,
-    //     id: <T::Id as RedbValue>::SelfType<'_>,
-    // ) -> Result<Option<&<T::Value as RedbValue>::SelfType<'_>>, RedbError> {
-    //     let read = self.0.begin_read()?;
-    //     let table = read.open_table(T::TABLE)?;
-    //     let value = table.get(id)?;
-    //     match value {
-    //         Some(guard) => Ok(Some(&guard.value())),
-    //         None => Ok(None),
-    //     }
-    // }
 
     pub fn insert<T: RedbTable>(
         &self,
@@ -176,55 +142,6 @@ impl Redb {
 
         Ok(())
     }
-
-    // pub fn keys<T: RedbTable>(&self) -> Result<impl Iterator<Item = Value<'_, T::Id>>, RedbError> {
-    //     let read = self.0.begin_read()?;
-    //     let table = read.open_table(T::TABLE)?;
-
-    //     let iter = table.iter()?.flat_map(|s| s.map(|(id, _)| id.value()));
-    //     Ok(iter)
-    //     // for entry in table.iter()? {
-    //     //     let (key, value) = entry?;
-    //     //     f(key.value(), value.value());
-    //     // }
-
-    //     // Ok(())
-    // }
-
-    // pub fn iter<T: RedbTable>(&self) -> Result<impl Iterator<Item = (T::Id, T::Value)>, RedbError> {
-    //     let iter = self
-    //         .0
-    //         .begin_read()?
-    //         .open_table(T::TABLE)?
-    //         .range::<T::Id>(..)?
-    //         .flat_map(|result| result.map(|(id, value)| (id.value(), value.value())));
-
-    //     Ok(iter)
-    // }
-
-    // pub fn _iter_keys<T: RedbTable>(&self) -> Result<impl Iterator<Item = T::Id>, RedbError> {
-    //     let iter = self
-    //         .0
-    //         .begin_read()?
-    //         .open_table(T::TABLE)?
-    //         .range::<T::Id>(..)?
-    //         .flat_map(|result| result.map(|(id, _)| id.value()));
-
-    //     Ok(iter)
-    // }
-
-    // pub fn _iter_raw<T: RedbTable>(
-    //     &self,
-    // ) -> Result<impl Iterator<Item = (T::Id, redb::AccessGuard<'_, T::Value>)>, RedbError> {
-    //     let iter = self
-    //         .0
-    //         .begin_read()?
-    //         .open_table(T::TABLE)?
-    //         .range::<T::Id>(..)?
-    //         .flat_map(|result| result.map(|(id, value)| (id.value(), value)));
-
-    //     Ok(iter)
-    // }
 }
 
 #[derive(Debug)]
@@ -303,3 +220,226 @@ impl std::fmt::Display for RedbError {
 }
 
 impl std::error::Error for RedbError {}
+
+// Example usage
+// use shared::redb::*;
+
+// fn main() -> Result<(), Box<dyn std::error::Error>> {
+//     let db = Redb::in_memory()?;
+
+//     println!("Version: {}", db.version()?);
+//     db.set_version(1)?;
+//     println!("Version: {}", db.version()?);
+
+//     db.insert::<Tracks>(TrackId(1), Track::new("Track1"))?;
+//     db.insert::<Tracks>(TrackId(2), Track::new("Track2"))?;
+//     db.insert::<Tracks>(TrackId(3), Track::new("Track3"))?;
+
+//     db.insert::<Tracks>(TrackId(4), Track::new("Track Unknown"))?;
+
+//     db.insert::<Albums>(AlbumId(1), Album::new("Album"))?;
+
+//     db.insert_multi::<AlbumTracks>(AlbumId(1), TrackId(1))?;
+//     db.insert_multi::<AlbumTracks>(AlbumId(1), TrackId(2))?;
+//     db.insert_multi::<AlbumTracks>(AlbumId(1), TrackId(3))?;
+//     db.insert_multi::<AlbumTracks>(AlbumId(1), TrackId(3))?;
+
+//     println!("\nTracks:");
+//     db.for_each::<Tracks>(|id, track| {
+//         println!("Id: {id:?}, Title: {}", track.title);
+//     })?;
+
+//     println!("\nAlbums:");
+//     db.for_each::<Albums>(|id, track| {
+//         println!("Id: {id:?}, Title: {}", track.title);
+//     })?;
+
+//     println!("\nTracks for AlbumId(1):");
+//     db.get_multi::<AlbumTracks>(AlbumId(1), |tid| {
+//         println!("TrackId: {tid:?}");
+//     })?;
+
+//     Ok(())
+// }
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// struct TrackId(u64);
+
+// #[derive(Debug)]
+// struct Track<'a> {
+//     title: &'a str,
+// }
+
+// impl<'a> Track<'a> {
+//     fn new(title: &'a str) -> Self {
+//         Self { title }
+//     }
+// }
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// struct AlbumId(u64);
+
+// #[derive(Debug)]
+// struct Album<'a> {
+//     title: &'a str,
+// }
+
+// impl<'a> Album<'a> {
+//     fn new(title: &'a str) -> Self {
+//         Self { title }
+//     }
+// }
+
+// struct AlbumTracks;
+
+// impl RedbMultimap for AlbumTracks {
+//     type Key = AlbumId;
+//     type Value = TrackId;
+//     const NAME: &str = "AlbumTracks";
+// }
+
+// struct Tracks;
+
+// impl RedbTable for Tracks {
+//     type Key = TrackId;
+//     type Value = TrackValue;
+//     const NAME: &str = "Tracks";
+// }
+
+// #[derive(Debug)]
+// struct TrackValue;
+
+// impl RedbValue for TrackValue {
+//     type SelfType<'a> = Track<'a>;
+//     type AsBytes<'a> = &'a str;
+
+//     fn fixed_width() -> Option<usize> {
+//         None
+//     }
+
+//     fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+//     where
+//         Self: 'a,
+//     {
+//         Track {
+//             title: <&str as RedbValue>::from_bytes(data),
+//         }
+//     }
+
+//     fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+//     where
+//         Self: 'b,
+//     {
+//         value.title
+//     }
+
+//     fn type_name() -> RedbTypeName {
+//         RedbTypeName::new("Track")
+//     }
+// }
+
+// impl RedbValue for TrackId {
+//     type SelfType<'a> = Self;
+//     type AsBytes<'a> = <u64 as RedbValue>::AsBytes<'a>;
+
+//     fn fixed_width() -> Option<usize> {
+//         <u64 as RedbValue>::fixed_width()
+//     }
+
+//     fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+//     where
+//         Self: 'a,
+//     {
+//         Self(<u64 as RedbValue>::from_bytes(data))
+//     }
+
+//     fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+//     where
+//         Self: 'b,
+//     {
+//         <u64 as RedbValue>::as_bytes(&value.0)
+//     }
+
+//     fn type_name() -> RedbTypeName {
+//         RedbTypeName::new("TrackId")
+//     }
+// }
+
+// impl RedbKey for TrackId {
+//     fn compare(data1: &[u8], data2: &[u8]) -> std::cmp::Ordering {
+//         <u64 as RedbKey>::compare(data1, data2)
+//     }
+// }
+
+// struct Albums;
+
+// impl RedbTable for Albums {
+//     type Key = AlbumId;
+//     type Value = AlbumValue;
+//     const NAME: &str = "Albums";
+// }
+
+// #[derive(Debug)]
+// struct AlbumValue;
+
+// impl RedbValue for AlbumValue {
+//     type SelfType<'a> = Album<'a>;
+//     type AsBytes<'a> = &'a str;
+
+//     fn fixed_width() -> Option<usize> {
+//         None
+//     }
+
+//     fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+//     where
+//         Self: 'a,
+//     {
+//         Album {
+//             title: <&str as RedbValue>::from_bytes(data),
+//         }
+//     }
+
+//     fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+//     where
+//         Self: 'b,
+//     {
+//         value.title
+//     }
+
+//     fn type_name() -> RedbTypeName {
+//         RedbTypeName::new("Album")
+//     }
+// }
+
+// impl RedbValue for AlbumId {
+//     type SelfType<'a> = Self;
+//     type AsBytes<'a> = <u64 as RedbValue>::AsBytes<'a>;
+
+//     fn fixed_width() -> Option<usize> {
+//         <u64 as RedbValue>::fixed_width()
+//     }
+
+//     fn from_bytes<'a>(data: &'a [u8]) -> Self::SelfType<'a>
+//     where
+//         Self: 'a,
+//     {
+//         Self(<u64 as RedbValue>::from_bytes(data))
+//     }
+
+//     fn as_bytes<'a, 'b: 'a>(value: &'a Self::SelfType<'b>) -> Self::AsBytes<'a>
+//     where
+//         Self: 'b,
+//     {
+//         <u64 as RedbValue>::as_bytes(&value.0)
+//     }
+
+//     fn type_name() -> RedbTypeName {
+//         RedbTypeName::new("AlbumId")
+//     }
+// }
+
+// impl RedbKey for AlbumId {
+//     fn compare(data1: &[u8], data2: &[u8]) -> std::cmp::Ordering {
+//         <u64 as RedbKey>::compare(data1, data2)
+//     }
+// }
