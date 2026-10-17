@@ -87,6 +87,10 @@ impl TrackDuration {
     pub const fn new(seconds: u16) -> Self {
         Self(seconds)
     }
+
+    pub const fn from_duration(duration: std::time::Duration) -> Self {
+        Self(duration.as_secs() as u16)
+    }
 }
 
 impl std::fmt::Display for TrackDuration {

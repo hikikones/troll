@@ -8,18 +8,18 @@ CREATE TABLE tracks (
 
 CREATE TABLE artists (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL
+    name TEXT NOT NULL UNIQUE
 );
 
 CREATE TABLE albums (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL
+    name TEXT NOT NULL UNIQUE
 );
 
 CREATE TABLE artist_tracks (
     artist_id INTEGER NOT NULL,
     track_id INTEGER NOT NULL,
-    PRIMARY KEY (artist_id, track_id)
+    PRIMARY KEY (artist_id, track_id),
     FOREIGN KEY (artist_id) REFERENCES artists (id)
         ON UPDATE CASCADE ON DELETE CASCADE
     FOREIGN KEY (track_id) REFERENCES tracks (id)
@@ -29,7 +29,7 @@ CREATE TABLE artist_tracks (
 CREATE TABLE album_tracks (
     album_id INTEGER NOT NULL,
     track_id INTEGER NOT NULL,
-    PRIMARY KEY (album_id, track_id)
+    PRIMARY KEY (album_id, track_id),
     FOREIGN KEY (album_id) REFERENCES albums (id)
         ON UPDATE CASCADE ON DELETE CASCADE
     FOREIGN KEY (track_id) REFERENCES tracks (id)

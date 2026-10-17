@@ -13,7 +13,7 @@ fn main() -> std::process::ExitCode {
     let args: Args = clap::Parser::parse();
 
     let db = bevystov::database2::Database::open_in_memory(&args.dir).unwrap();
-
+    db.print_all();
     // if let Err(err) = run(args) {
     //     eprintln!("Error: {err}");
 

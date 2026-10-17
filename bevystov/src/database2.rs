@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use shared::sqlite::*;
 
@@ -26,38 +26,147 @@ impl Database {
     }
 
     pub fn open_in_memory(music_dir: &Path) -> DatabaseResult<Self> {
-        let db = Self::new(Sqlite::open_in_memory()?);
+        let mut db = Self::new(Sqlite::open_in_memory()?);
         db.migrate()?;
 
-        // TODO: remove
-        traverse_files(music_dir, true, |path, ext| {
-            let Ok(audio) = AudioFile::read(path, ext) else {
-                // TODO: write log to db
-                return;
-            };
+        db.sqlite.transaction(|tx| {
+            // let mut artist_ids = HashSet::new();
 
-            let Some(vorbis_comments) = audio.vorbis_comments() else {
-                // TODO: write log to db
-                return;
-            };
+            traverse_files(music_dir, true, |path, ext| {
+                let Ok(audio) = AudioFile::read(path, ext) else {
+                    // TODO: write log to db
+                    return;
+                };
 
-            println!("------------------------");
+                let Some(tag) = audio.vorbis_comments() else {
+                    // TODO: write log to db
+                    return;
+                };
+                let p = audio.properties();
 
-            for (key, value) in vorbis_comments.items() {
-                match key {
-                    "TITLE" | "ARTIST" | "ARTISTS" | "ALBUM" | "ALBUMARTIST" => {
-                        println!("{key} -> {value}")
-                    }
-                    _ => {}
+                // Track
+                let title = tag.get("TITLE").unwrap_or("");
+                let rating = tag
+                    .get("RATING")
+                    .map(TrackRating::from_vorbis_comments)
+                    .unwrap_or(TrackRating::None);
+                let duration = TrackDuration::from_duration(p.duration);
+
+                tx.execute("INSERT INTO tracks (title, rating, duration, path) VALUES (?1, ?2, ?3, ?4)", (title, rating, duration, path.to_string_lossy())).unwrap();
+
+                let track_id = tx.last_insert_rowid();
+
+                // Artists
+                for artist in tag.get_all("ARTIST") {
+                    let rows_changed = tx.execute("INSERT INTO artists (name) VALUES (?1) ON CONFLICT(name) DO NOTHING", [artist]).unwrap();
+                    let artist_id: SqliteId = if rows_changed > 0 {
+                        tx.last_insert_rowid()
+                    } else {
+                        tx.query_row("SELECT id FROM artists WHERE name = ?1",[artist], |row| row.get(0)).unwrap()
+                    };
+                    tx.execute("INSERT INTO artist_tracks (artist_id, track_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (artist_id, track_id)).unwrap();
                 }
-            }
-        });
+
+                // Album
+                let album = tag.get("ALBUM").unwrap_or("");
+                // TODO: Albums can have same name. Need to compute uniqueness from more data.
+                tx.execute("INSERT INTO albums (name) VALUES (?1) ON CONFLICT(name) DO NOTHING", [album]).unwrap();
+
+                // println!("------------------------");
+
+                // for (key, value) in tag.items() {
+                //     match key {
+                //         "TITLE" | "ARTIST" | "ARTISTS" | "ALBUM" | "ALBUMARTIST" => {
+                //             println!("{key} -> {value}")
+                //         }
+                //         _ => {}
+                //     }
+                // }
+            });
+
+            Ok(())
+        })?;
 
         Ok(db)
     }
 
     pub fn path(&self) -> Option<&Path> {
         self.sqlite.path().map(Path::new)
+    }
+
+    pub fn print_all(&self) {
+        println!("TITLES");
+        println!("-------------------------------------------------------------");
+
+        self.sqlite
+            .query("SELECT * FROM tracks", [], |row| {
+                let id: SqliteId = row.get(0).unwrap();
+                let title: &str = row.get_ref(1).unwrap().as_str().unwrap();
+                let rating: TrackRating = row.get(2).unwrap();
+                let dur: TrackDuration = row.get(3).unwrap();
+                let path: &str = row.get_ref(4).unwrap().as_str().unwrap();
+
+                println!("Title({id}): {title} -> {rating:?} -> {dur} -> {path}");
+
+                Ok(())
+            })
+            .unwrap();
+
+        println!("\nARTISTS");
+        println!("-------------------------------------------------------------");
+
+        self.sqlite
+            .query("SELECT * FROM artists", [], |row| {
+                let id: SqliteId = row.get(0).unwrap();
+                let name: &str = row.get_ref(1).unwrap().as_str().unwrap();
+
+                println!("Artist{id}: {name}");
+
+                Ok(())
+            })
+            .unwrap();
+
+        println!("\nALBUMS");
+        println!("-------------------------------------------------------------");
+
+        self.sqlite
+            .query("SELECT * FROM albums", [], |row| {
+                let id: SqliteId = row.get(0).unwrap();
+                let name: &str = row.get_ref(1).unwrap().as_str().unwrap();
+
+                println!("Album{id}: {name}");
+
+                Ok(())
+            })
+            .unwrap();
+
+        println!("\nARTIST_TRACKS");
+        println!("-------------------------------------------------------------");
+
+        self.sqlite
+            .query("SELECT * FROM artist_tracks", [], |row| {
+                let aid: SqliteId = row.get(0).unwrap();
+                let tid: SqliteId = row.get(1).unwrap();
+
+                println!("ArtistTracks: ArtistId({aid}) -> TrackId({tid})");
+
+                Ok(())
+            })
+            .unwrap();
+
+        println!("\nALBUM_TRACKS");
+        println!("-------------------------------------------------------------");
+
+        self.sqlite
+            .query("SELECT * FROM album_tracks", [], |row| {
+                let aid: SqliteId = row.get(0).unwrap();
+                let tid: SqliteId = row.get(1).unwrap();
+
+                println!("ArtistTracks: AlbumId({aid}) -> TrackId({tid})");
+
+                Ok(())
+            })
+            .unwrap();
     }
 
     fn migrate(&self) -> DatabaseResult<()> {
@@ -71,7 +180,9 @@ impl Database {
                 self.sqlite.set_version(VERSION);
             }
             VERSION => {}
-            _ => return Err(DatabaseError::Version(version)),
+            _ => {
+                // TODO: Schema has changed since last time. Rebuild from scratch.
+            }
         }
 
         Ok(())

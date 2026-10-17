@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, Transaction};
 
 pub use rusqlite::{Params, Row, types::*};
 
@@ -39,6 +39,15 @@ impl Sqlite {
 
     pub fn execute_batch(&self, sql: &str) -> SqliteResult<()> {
         self.0.execute_batch(sql)
+    }
+
+    pub fn transaction(
+        &mut self,
+        f: impl FnOnce(&Transaction) -> SqliteResult<()>,
+    ) -> SqliteResult<()> {
+        let transaction = self.0.transaction()?;
+        f(&transaction)?;
+        transaction.commit()
     }
 
     pub fn query<T>(
