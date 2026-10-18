@@ -1,97 +1,123 @@
-use std::{collections::HashSet, path::Path};
+use std::path::Path;
 
 use shared::sqlite::*;
 
 mod audio2;
+mod scanner;
 mod track2;
 
 pub use audio2::*;
+use scanner::*;
 pub use track2::*;
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub struct Database {
     sqlite: Sqlite,
+    receiver: Option<ScanReceiver>,
 }
 
 impl Database {
     fn new(sqlite: Sqlite) -> Self {
-        Self { sqlite }
+        Self {
+            sqlite,
+            receiver: None,
+        }
     }
 
     pub fn open(path: impl AsRef<Path>) -> DatabaseResult<Self> {
-        let db = Self::new(Sqlite::open(path)?);
-        db.migrate()?;
+        let path = path.as_ref();
+        let mut db = Self::new(Sqlite::open(path)?);
+        db.migrate(path)?;
+
         Ok(db)
     }
 
-    pub fn open_in_memory(music_dir: &Path) -> DatabaseResult<Self> {
+    pub fn open_in_memory(path: impl AsRef<Path>) -> DatabaseResult<Self> {
         let mut db = Self::new(Sqlite::open_in_memory()?);
-        db.migrate()?;
-
-        db.sqlite.transaction(|tx| {
-            // let mut artist_ids = HashSet::new();
-
-            traverse_files(music_dir, true, |path, ext| {
-                let Ok(audio) = AudioFile::read(path, ext) else {
-                    // TODO: write log to db
-                    return;
-                };
-
-                let Some(tag) = audio.vorbis_comments() else {
-                    // TODO: write log to db
-                    return;
-                };
-                let p = audio.properties();
-
-                // Track
-                let title = tag.get("TITLE").unwrap_or("");
-                let rating = tag
-                    .get("RATING")
-                    .map(TrackRating::from_vorbis_comments)
-                    .unwrap_or(TrackRating::None);
-                let duration = TrackDuration::from_duration(p.duration);
-
-                tx.execute("INSERT INTO tracks (title, rating, duration, path) VALUES (?1, ?2, ?3, ?4)", (title, rating, duration, path.to_string_lossy())).unwrap();
-
-                let track_id = tx.last_insert_rowid();
-
-                // Artists
-                for artist in tag.get_all("ARTIST") {
-                    let rows_changed = tx.execute("INSERT INTO artists (name) VALUES (?1) ON CONFLICT(name) DO NOTHING", [artist]).unwrap();
-                    let artist_id: SqliteId = if rows_changed > 0 {
-                        tx.last_insert_rowid()
-                    } else {
-                        tx.query_row("SELECT id FROM artists WHERE name = ?1",[artist], |row| row.get(0)).unwrap()
-                    };
-                    tx.execute("INSERT INTO artist_tracks (artist_id, track_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (artist_id, track_id)).unwrap();
-                }
-
-                // Album
-                let album = tag.get("ALBUM").unwrap_or("");
-                // TODO: Albums can have same name. Need to compute uniqueness from more data.
-                tx.execute("INSERT INTO albums (name) VALUES (?1) ON CONFLICT(name) DO NOTHING", [album]).unwrap();
-
-                // println!("------------------------");
-
-                // for (key, value) in tag.items() {
-                //     match key {
-                //         "TITLE" | "ARTIST" | "ARTISTS" | "ALBUM" | "ALBUMARTIST" => {
-                //             println!("{key} -> {value}")
-                //         }
-                //         _ => {}
-                //     }
-                // }
-            });
-
-            Ok(())
-        })?;
+        db.migrate(path.as_ref())?;
 
         Ok(db)
     }
 
     pub fn path(&self) -> Option<&Path> {
         self.sqlite.path().map(Path::new)
+    }
+
+    pub const fn has_finished_loading(&self) -> bool {
+        self.receiver.is_none()
+    }
+
+    pub fn update(&mut self) {
+        use std::sync::mpsc::TryRecvError;
+
+        let Some(recv) = self.receiver.as_ref() else {
+            return;
+        };
+
+        loop {
+            match recv.try_recv() {
+                Ok(res) => match res {
+                    Ok(track) => {
+                        self.sqlite
+                            .transaction(|tx| Self::add_track(tx, track))
+                            .unwrap(); // TODO
+                    }
+                    Err(_err) => {
+                        // TODO: Log error to db.
+                    }
+                },
+                Err(err) => match err {
+                    TryRecvError::Empty => {
+                        return;
+                    }
+                    TryRecvError::Disconnected => {
+                        self.receiver = None;
+                        return;
+                    }
+                },
+            }
+        }
+    }
+
+    fn add_track(tx: &Transaction, track: ScannedTrack) -> SqliteResult<()> {
+        // Track
+        tx.execute(
+            "INSERT INTO tracks (title, rating, duration, path) VALUES (?1, ?2, ?3, ?4)",
+            (
+                track.title(),
+                track.rating(),
+                track.duration(),
+                track.path(),
+            ),
+        )?;
+        let track_id = tx.last_insert_rowid();
+
+        // Artists
+        // TODO: Artists can have same name?
+        for artist in track.artists() {
+            let rows_changed = tx.execute(
+                "INSERT INTO artists (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
+                [artist],
+            )?;
+            let artist_id: SqliteId = if rows_changed > 0 {
+                tx.last_insert_rowid()
+            } else {
+                tx.query_row("SELECT id FROM artists WHERE name = ?1", [artist], |row| {
+                    row.get(0)
+                })?
+            };
+            tx.execute("INSERT INTO artist_tracks (artist_id, track_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (artist_id, track_id))?;
+        }
+
+        // Album
+        // TODO: Albums can have same name. Need to compute uniqueness from more data.
+        tx.execute(
+            "INSERT INTO albums (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
+            [track.album()],
+        )?;
+
+        Ok(())
     }
 
     pub fn print_all(&self) {
@@ -169,20 +195,26 @@ impl Database {
             .unwrap();
     }
 
-    fn migrate(&self) -> DatabaseResult<()> {
+    fn migrate(&mut self, dir: &Path) -> DatabaseResult<()> {
         const VERSION: SqliteId = 1;
 
         let version = self.sqlite.version();
-        match version {
+        let rescan = match version {
             0 => {
                 self.sqlite
                     .execute_batch(include_str!("database2/schema.sql"))?;
                 self.sqlite.set_version(VERSION);
+                true
             }
-            VERSION => {}
+            VERSION => false,
             _ => {
-                // TODO: Schema has changed since last time. Rebuild from scratch.
+                // TODO: Either delete or purge current db.
+                true
             }
+        };
+
+        if rescan {
+            self.receiver = Some(Scanner::start(dir.to_path_buf()));
         }
 
         Ok(())
@@ -255,18 +287,4 @@ impl From<SqliteError> for DatabaseError {
     fn from(err: SqliteError) -> Self {
         Self::Sqlite(err)
     }
-}
-
-fn traverse_files(root: &Path, follow_links: bool, f: impl Fn(&Path, AudioExt)) {
-    walkdir::WalkDir::new(root)
-        .follow_links(follow_links)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|entry| entry.file_type().is_file())
-        .for_each(|entry| {
-            let path = entry.path();
-            if let Some(ext) = AudioExt::from_path(path) {
-                f(path, ext);
-            }
-        });
 }

@@ -12,7 +12,14 @@
 fn main() -> std::process::ExitCode {
     let args: Args = clap::Parser::parse();
 
-    let db = bevystov::database2::Database::open_in_memory(&args.dir).unwrap();
+    let mut db = bevystov::database2::Database::open_in_memory(&args.dir).unwrap();
+    loop {
+        db.update();
+        if db.has_finished_loading() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
     db.print_all();
     // if let Err(err) = run(args) {
     //     eprintln!("Error: {err}");

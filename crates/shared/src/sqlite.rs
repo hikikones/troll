@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension};
 
-pub use rusqlite::{Params, Row, types::*};
+pub use rusqlite::{Params, Row, Transaction, types::*};
 
 pub type SqliteId = i64;
 pub type SqliteError = rusqlite::Error;

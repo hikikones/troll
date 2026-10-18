@@ -7,6 +7,8 @@ use lofty::{
     ogg::{OpusFile, VorbisFile, tag::VorbisComments},
 };
 
+pub type AudioResult<T> = Result<T, AudioFileError>;
+
 pub struct AudioFile(AudioFormat);
 
 enum AudioFormat {
@@ -16,7 +18,7 @@ enum AudioFormat {
 }
 
 impl AudioFile {
-    pub fn read(path: impl AsRef<Path>, ext: AudioExt) -> Result<Self, AudioFileError> {
+    pub fn read(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
         let mut file = File::open(path.as_ref())?;
 
         let options = ParseOptions::new().read_cover_art(false);
@@ -38,11 +40,13 @@ impl AudioFile {
         Ok(Self(audio_format))
     }
 
-    pub fn vorbis_comments(&self) -> Option<&VorbisComments> {
+    pub fn vorbis_comments(&self) -> AudioResult<&VorbisComments> {
         match &self.0 {
-            AudioFormat::Flac(flac) => flac.vorbis_comments(),
-            AudioFormat::Opus(opus) => Some(opus.vorbis_comments()),
-            AudioFormat::Vorbis(vorbis) => Some(vorbis.vorbis_comments()),
+            AudioFormat::Flac(flac) => flac
+                .vorbis_comments()
+                .ok_or(AudioFileError::MissingVorbisComments),
+            AudioFormat::Opus(opus) => Ok(opus.vorbis_comments()),
+            AudioFormat::Vorbis(vorbis) => Ok(vorbis.vorbis_comments()),
         }
     }
 
@@ -132,6 +136,7 @@ impl AudioExt {
 pub enum AudioFileError {
     Io(std::io::Error),
     Parse(lofty::error::FileParseError),
+    MissingVorbisComments,
 }
 
 impl std::fmt::Display for AudioFileError {
@@ -139,6 +144,9 @@ impl std::fmt::Display for AudioFileError {
         match self {
             AudioFileError::Io(err) => err.fmt(f),
             AudioFileError::Parse(err) => err.fmt(f),
+            AudioFileError::MissingVorbisComments => {
+                f.write_str("No VorbisComments metadata container found")
+            }
         }
     }
 }
