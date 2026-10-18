@@ -9,6 +9,8 @@
 // };
 // use terminal::{Rgb, Terminal};
 
+use bevystov::database2::TrackId;
+
 fn main() -> std::process::ExitCode {
     let args: Args = clap::Parser::parse();
 
@@ -27,6 +29,13 @@ fn main() -> std::process::ExitCode {
     for tid in db.iter::<i64>("SELECT id FROM tracks", [], |row| row.get(0)) {
         println!("TrackId: {tid}");
     }
+
+    dbg!(db.tracks_range(20..25).collect::<Vec<_>>());
+    db.track_info(TrackId(1), |info| println!("{info:?}"));
+    db.track_artists(TrackId(1), |name| print!("{name}, "));
+    println!();
+    db.track_album(TrackId(1), |name| println!("{name}"));
+    println!("TracksLEN: {}", db.tracks_len());
 
     // if let Err(err) = run(args) {
     //     eprintln!("Error: {err}");

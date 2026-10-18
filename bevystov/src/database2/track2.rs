@@ -3,6 +3,28 @@ use shared::sqlite::{
     ValueRef,
 };
 
+#[derive(Debug)]
+pub struct TrackInfo<'a> {
+    pub title: &'a str,
+    pub rating: TrackRating,
+    pub duration: TrackDuration,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TrackId(pub SqliteId);
+
+impl ToSql for TrackId {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+    }
+}
+
+impl FromSql for TrackId {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().map(|n| Self(n))
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum TrackRating {

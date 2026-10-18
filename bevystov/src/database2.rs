@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{ops::Range, path::Path};
 
 use shared::sqlite::*;
 
@@ -79,6 +79,55 @@ impl Database {
         self.sqlite.single(sql, args, f).unwrap()
     }
 
+    pub fn tracks_len(&self) -> usize {
+        let len: SqliteId = self.single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0));
+        len as usize
+    }
+
+    pub fn tracks_range(&self, range: Range<usize>) -> impl Iterator<Item = TrackId> {
+        let (start, end) = (range.start as SqliteId, range.end as SqliteId);
+        self.iter(
+            "SELECT id FROM tracks LIMIT ?1 OFFSET ?2",
+            [end - start, start],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn track_info(&self, id: TrackId, mut f: impl FnMut(TrackInfo)) {
+        self.single(
+            "SELECT title, rating, duration FROM tracks WHERE id = ?",
+            [id],
+            |row| {
+                f(TrackInfo {
+                    title: row.get_ref(0)?.as_str()?,
+                    rating: row.get(1)?,
+                    duration: row.get(2)?,
+                });
+                Ok(())
+            },
+        )
+    }
+
+    pub fn track_artists(&self, id: TrackId, mut f: impl FnMut(&str)) {
+        self.for_each(
+            "SELECT a.name FROM artists AS a \
+                JOIN artist_tracks AS at ON at.artist_id = a.id \
+                WHERE at.track_id = ?",
+            [id],
+            |row| Ok(f(row.get_ref(0)?.as_str()?)),
+        );
+    }
+
+    pub fn track_album(&self, id: TrackId, mut f: impl FnMut(&str)) {
+        self.single(
+            "SELECT a.name FROM albums AS a \
+                JOIN album_tracks AS at ON at.album_id = a.id \
+                WHERE at.track_id = ?",
+            [id],
+            |row| Ok(f(row.get_ref(0)?.as_str()?)),
+        );
+    }
+
     pub fn update(&mut self) {
         use std::sync::mpsc::TryRecvError;
 
@@ -143,9 +192,22 @@ impl Database {
 
         // Album
         // TODO: Albums can have same name. Need to compute uniqueness from more data.
-        tx.execute(
+        let rows_changed = tx.execute(
             "INSERT INTO albums (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
             [track.album()],
+        )?;
+        let album_id: SqliteId = if rows_changed > 0 {
+            tx.last_insert_rowid()
+        } else {
+            tx.query_row(
+                "SELECT id FROM albums WHERE name = ?1",
+                [track.album()],
+                |row| row.get(0),
+            )?
+        };
+        tx.execute(
+            "INSERT INTO album_tracks (album_id, track_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+            (album_id, track_id),
         )?;
 
         Ok(())
@@ -249,21 +311,6 @@ impl Database {
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TrackId(SqliteId);
-
-impl ToSql for TrackId {
-    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
-    }
-}
-
-impl FromSql for TrackId {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
     }
 }
 
