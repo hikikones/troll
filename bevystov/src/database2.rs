@@ -57,6 +57,28 @@ impl Database {
         self.sqlite.iter(sql, args, f).unwrap().map(Result::unwrap)
     }
 
+    pub fn for_each(&self, sql: &str, args: impl Params, f: impl FnMut(&Row) -> SqliteResult<()>) {
+        self.sqlite.for_each(sql, args, f).unwrap()
+    }
+
+    pub fn first<T>(
+        &self,
+        sql: &str,
+        args: impl Params,
+        f: impl FnOnce(&Row) -> SqliteResult<T>,
+    ) -> Option<T> {
+        self.sqlite.first(sql, args, f).unwrap()
+    }
+
+    pub fn single<T>(
+        &self,
+        sql: &str,
+        args: impl Params,
+        f: impl FnOnce(&Row) -> SqliteResult<T>,
+    ) -> T {
+        self.sqlite.single(sql, args, f).unwrap()
+    }
+
     pub fn update(&mut self) {
         use std::sync::mpsc::TryRecvError;
 
