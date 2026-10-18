@@ -69,11 +69,11 @@ impl Sqlite {
         Ok(iter)
     }
 
-    pub fn query<T>(
+    pub fn for_each(
         &self,
         sql: &str,
         args: impl Params,
-        mut f: impl FnMut(&Row) -> SqliteResult<T>,
+        mut f: impl FnMut(&Row) -> SqliteResult<()>,
     ) -> SqliteResult<()> {
         let mut statement = self.0.prepare(sql)?;
         let mut rows = statement.query(args)?;
@@ -85,7 +85,7 @@ impl Sqlite {
         Ok(())
     }
 
-    pub fn query_first<T>(
+    pub fn first<T>(
         &self,
         sql: &str,
         args: impl Params,
@@ -94,7 +94,7 @@ impl Sqlite {
         self.0.query_row(sql, args, f).optional()
     }
 
-    pub fn query_single<T>(
+    pub fn single<T>(
         &self,
         sql: &str,
         args: impl Params,

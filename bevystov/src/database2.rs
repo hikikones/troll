@@ -134,7 +134,7 @@ impl Database {
         println!("-------------------------------------------------------------");
 
         self.sqlite
-            .query("SELECT * FROM tracks", [], |row| {
+            .for_each("SELECT * FROM tracks", [], |row| {
                 let id: SqliteId = row.get(0).unwrap();
                 let title: &str = row.get_ref(1).unwrap().as_str().unwrap();
                 let rating: TrackRating = row.get(2).unwrap();
@@ -151,7 +151,7 @@ impl Database {
         println!("-------------------------------------------------------------");
 
         self.sqlite
-            .query("SELECT * FROM artists", [], |row| {
+            .for_each("SELECT * FROM artists", [], |row| {
                 let id: SqliteId = row.get(0).unwrap();
                 let name: &str = row.get_ref(1).unwrap().as_str().unwrap();
 
@@ -165,7 +165,7 @@ impl Database {
         println!("-------------------------------------------------------------");
 
         self.sqlite
-            .query("SELECT * FROM albums", [], |row| {
+            .for_each("SELECT * FROM albums", [], |row| {
                 let id: SqliteId = row.get(0).unwrap();
                 let name: &str = row.get_ref(1).unwrap().as_str().unwrap();
 
@@ -179,7 +179,7 @@ impl Database {
         println!("-------------------------------------------------------------");
 
         self.sqlite
-            .query("SELECT * FROM artist_tracks", [], |row| {
+            .for_each("SELECT * FROM artist_tracks", [], |row| {
                 let aid: SqliteId = row.get(0).unwrap();
                 let tid: SqliteId = row.get(1).unwrap();
 
@@ -193,7 +193,7 @@ impl Database {
         println!("-------------------------------------------------------------");
 
         self.sqlite
-            .query("SELECT * FROM album_tracks", [], |row| {
+            .for_each("SELECT * FROM album_tracks", [], |row| {
                 let aid: SqliteId = row.get(0).unwrap();
                 let tid: SqliteId = row.get(1).unwrap();
 
