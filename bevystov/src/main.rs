@@ -21,6 +21,13 @@ fn main() -> std::process::ExitCode {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
     db.print_all();
+
+    println!("\n");
+
+    for tid in db.iter::<i64>("SELECT id FROM tracks", [], |row| row.get(0)) {
+        println!("TrackId: {tid}");
+    }
+
     // if let Err(err) = run(args) {
     //     eprintln!("Error: {err}");
 

@@ -43,6 +43,7 @@ indexmap = { version = "2.14", default-features = false, features = ["std"] }
 itoa = { version = "1.0", default-features = false }
 lofty = { version = "0.25", default-features = false, features = ["id3v2_compression_support"] }
 nucleo-matcher = { version = "0.3", default-features = false, features = ["unicode-casefold", "unicode-normalization", "unicode-segmentation"] }
+ouroboros = { version = "0.18", default-features = false, features = ["std"] }
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "serde"] }
 ratatui-image = { version = "11.0", default-features = false, features = ["crossterm"] }
 ratex-layout = { version = "0.1", default-features = false }

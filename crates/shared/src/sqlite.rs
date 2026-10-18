@@ -50,6 +50,25 @@ impl Sqlite {
         transaction.commit()
     }
 
+    pub fn iter<'a, T, F>(
+        &'a self,
+        sql: &str,
+        args: impl Params,
+        f: F,
+    ) -> SqliteResult<impl Iterator<Item = SqliteResult<T>> + 'a>
+    where
+        F: for<'row> FnMut(&Row<'row>) -> SqliteResult<T> + 'a,
+    {
+        let statement = self.0.prepare(sql)?;
+        let iter = SqliteIterTryBuilder {
+            statement,
+            iter_builder: |statement| statement.query_map(args, f),
+        }
+        .try_build()?;
+
+        Ok(iter)
+    }
+
     pub fn query<T>(
         &self,
         sql: &str,
@@ -88,3 +107,88 @@ impl Sqlite {
         self.0.last_insert_rowid()
     }
 }
+
+#[ouroboros::self_referencing]
+pub struct SqliteIter<'conn, F>
+where
+    F: 'conn,
+{
+    statement: rusqlite::Statement<'conn>,
+
+    #[borrows(mut statement)]
+    #[covariant]
+    iter: rusqlite::MappedRows<'this, F>,
+}
+
+impl<'conn, T, F> Iterator for SqliteIter<'conn, F>
+where
+    F: for<'row> FnMut(&Row<'row>) -> SqliteResult<T> + 'conn,
+{
+    type Item = SqliteResult<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.with_iter_mut(|iter| iter.next())
+    }
+}
+
+// #[ouroboros::self_referencing]
+// pub struct SqliteIter<'conn, F> {
+//     statement: Statement<'conn>,
+
+//     #[borrows(mut statement)]
+//     #[covariant]
+//     iter: MappedRows<'this, F>,
+// }
+
+// impl<T, F> Iterator for SqliteIter<'_, F>
+// where
+//     F: for<'a> FnMut(&Row<'a>) -> SqliteResult<T>,
+// {
+//     type Item = SqliteResult<T>;
+
+//     fn next(&mut self) -> Option<Self::Item> {
+//         self.with_iter_mut(|iter| iter.next())
+//     }
+// }
+
+// impl<'conn, T, F> Iterator for SqliteIter<'conn, F>
+// where
+//     F: for<'row> FnMut(&Row<'row>) -> SqliteResult<T>,
+// {
+//     type Item = SqliteResult<T>;
+
+//     fn next(&mut self) -> Option<Self::Item> {
+//         self.with_iter_mut(|iter| iter.next())
+//     }
+// }
+
+// #[ouroboros::self_referencing]
+// struct IterInner<'conn, F> {
+//     stmt: Statement<'conn>,
+
+//     #[borrows(mut stmt)]
+//     #[covariant]
+//     rows: Rows<'this>,
+
+//     map: F,
+// }
+
+// pub struct SqliteIter<'conn, T, F> {
+//     inner: IterInner<'conn, F>,
+//     _marker: std::marker::PhantomData<T>,
+// }
+
+// impl<T, F> Iterator for SqliteIter<'_, T, F>
+// where
+//     F: FnMut(&Row<'_>) -> SqliteResult<T>,
+// {
+//     type Item = SqliteResult<T>;
+
+//     fn next(&mut self) -> Option<Self::Item> {
+//         self.inner.with_mut(|fields| match fields.rows.next() {
+//             Ok(Some(row)) => Some((fields.map)(row)),
+//             Ok(None) => None,
+//             Err(err) => Some(Err(err)),
+//         })
+//     }
+// }

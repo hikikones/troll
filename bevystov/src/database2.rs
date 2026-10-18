@@ -48,6 +48,15 @@ impl Database {
         self.receiver.is_none()
     }
 
+    pub fn iter<'a, T: 'a>(
+        &'a self,
+        sql: &str,
+        args: impl Params,
+        f: impl FnMut(&Row<'_>) -> SqliteResult<T> + 'a,
+    ) -> impl Iterator<Item = T> + 'a {
+        self.sqlite.iter(sql, args, f).unwrap().map(Result::unwrap)
+    }
+
     pub fn update(&mut self) {
         use std::sync::mpsc::TryRecvError;
 
