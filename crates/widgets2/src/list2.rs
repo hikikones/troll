@@ -13,8 +13,8 @@ pub struct List {
     selector: Option<usize>,
     scroll: usize,
     scrolloff: u16,
-    last_height: u16,
     list_height: u16,
+    last_height: u16,
     len: usize,
 }
 
@@ -31,8 +31,8 @@ impl List {
             selector: None,
             scroll: 0,
             scrolloff: 0,
-            last_height: 0,
             list_height: 0,
+            last_height: 0,
             len: 0,
         }
     }
@@ -183,7 +183,7 @@ impl List {
             .unwrap_or(self.index..=self.index)
     }
 
-    pub fn lines(&mut self, area: Rect) -> Range<usize> {
+    pub fn render(&mut self, area: Rect) -> Range<usize> {
         self.list_height = area.size.rows;
 
         if area.is_empty() {
