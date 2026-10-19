@@ -295,15 +295,15 @@ fn render_tracks(
     let line = table_area.with_rows(1);
     let lines = page.list.set_len(tracks_len).render(table_area);
 
-    tracks.update(&page.list, table_area.rows(), &database);
+    // tracks.update(&page.list, table_area.rows(), &database);
 
-    let scroll = page.list.scroll();
+    // let scroll = page.list.scroll();
     let selected = page.list.index();
     let selection = page.list.selection_inclusive();
     let current_track = jukebox.current_track_id();
     let mut row = table_area.pos.row;
 
-    database.tracks_range_table(lines, |track| {
+    database.tracks_table(lines, |track| {
         let TrackTable {
             index,
             id,
@@ -333,23 +333,16 @@ fn render_tracks(
         }
 
         areas.set_row(row);
-
         frame.print_fmt(style);
+
         frame.print_span(areas.title(), title);
         frame.print_span(areas.artist(), artists);
         frame.print_span(areas.album(), album);
         frame.push_fmt(duration);
         frame.render(areas.time(), TextOptions::span());
         frame.print_span(areas.rating(), rating.stars());
-        // database.track_info(id, |info| {
-        //     frame.print_span(areas.title(), info.title);
-        //     frame.push_fmt(info.duration);
-        //     frame.render(areas.time(), TextOptions::span());
-        //     frame.print_span(areas.rating(), info.rating.stars());
-        // });
-        // TODO: artist and album
-        frame.print_fmt(Sgr::Reset);
 
+        frame.print_fmt(Sgr::Reset);
         row += 1;
     });
 

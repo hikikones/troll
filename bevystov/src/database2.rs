@@ -108,19 +108,12 @@ impl Database {
     }
 
     pub fn tracks_index(&self, id: TrackId) -> usize {
-        // let index: SqliteId = self.single(
-        //     "SELECT row_num - 1 AS idx FROM \
-        //         (SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM tracks) \
-        //         WHERE id = ?",
-        //     [id],
-        //     |row| row.get(0),
-        // );
         let index: SqliteId = self.single(
-            "SELECT ROW_NUMBER() OVER (ORDER BY id) FROM tracks WHERE id = ?",
+            "SELECT ROW_NUMBER() OVER (ORDER BY id) - 1 FROM tracks WHERE id = ?",
             [id],
             |row| row.get(0),
         );
-        (index - 1) as usize
+        index as usize
     }
 
     pub fn track_random_id(&self) -> TrackId {
@@ -156,17 +149,17 @@ impl Database {
         )
     }
 
-    pub fn tracks_range_table(&self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
+    pub fn tracks_table(&self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
         let (start, end) = (range.start as SqliteId, range.end as SqliteId);
         self.for_each(
             "SELECT
                     ROW_NUMBER() OVER (ORDER BY t.id) - 1,
                     t.id,
                     t.title,
-                    t.rating,
-                    t.duration,
                     GROUP_CONCAT(ar.name, ', ') AS artists,
-                    al.name AS album
+                    al.name AS album,
+                    t.duration,
+                    t.rating
                 FROM tracks t
                 LEFT JOIN artist_tracks atr ON atr.track_id = t.id
                 LEFT JOIN artists ar ON ar.id = atr.artist_id
@@ -181,10 +174,10 @@ impl Database {
                     index: row.get::<_, SqliteId>(0)? as usize,
                     id: row.get(1)?,
                     title: row.get_ref(2)?.as_str()?,
-                    artists: row.get_ref(5)?.as_str()?,
-                    album: row.get_ref(6)?.as_str()?,
-                    duration: row.get(4)?,
-                    rating: row.get(3)?,
+                    artists: row.get_ref(3)?.as_str()?,
+                    album: row.get_ref(4)?.as_str()?,
+                    duration: row.get(5)?,
+                    rating: row.get(6)?,
                 }))
             },
         );
