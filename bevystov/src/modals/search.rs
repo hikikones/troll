@@ -4,7 +4,7 @@ use widgets2::{Block, List, ListIndex, Prompt};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, RenderSet},
-    database::{Database, TrackId},
+    database2::{Database, TrackId},
     jukebox::Jukebox,
     modals::Modal,
     pages::Route,
@@ -74,7 +74,7 @@ fn exit_search(
     mut modal: ResMut<SearchModal>,
     mut results: ResMut<SearchResults>,
 ) {
-    if database.is_empty() {
+    if database.is_tracks_empty() {
         return;
     }
 
@@ -90,7 +90,7 @@ fn input_search(
     results: Res<SearchResults>,
     database: NonSend<Database>,
 ) {
-    if database.is_empty() {
+    if database.is_tracks_empty() {
         return;
     }
 
@@ -184,6 +184,7 @@ fn render_search(
     Block::rectangle().render(area, &mut frame);
 
     let (prompt_area, results_area, shortcuts_area) = area.split_ends(1, 1);
+    let no_tracks = database.is_tracks_empty();
 
     // Prompt
     let prompt_area = prompt_area.scale_cols_and_center(0.5);
@@ -192,10 +193,10 @@ fn render_search(
     modal
         .prompt
         .set_colors(colors.prompt())
-        .set_disabled(state == SearchState::Browse || database.is_empty())
+        .set_disabled(state == SearchState::Browse || no_tracks)
         .render(prompt_area.inner(Margin::horizontal(1)), &mut frame);
 
-    if database.is_empty() {
+    if no_tracks {
         frame.print_fmt(Sgr::Fg(colors.neutral));
         frame.push_str("No tracks to search for");
         frame.render(
@@ -212,37 +213,38 @@ fn render_search(
         &mut frame,
         results.iter().copied(),
         |line, frame, (id, _), index| {
-            let Some(track) = database.get(id) else {
-                return;
-            };
+            // TODO
+            // let Some(track) = database.get(id) else {
+            //     return;
+            // };
 
-            let mut style = match state {
-                SearchState::Prompt => Style::fg(colors.neutral).with_bg(bg),
-                SearchState::Browse => match index {
-                    ListIndex::Selected => {
-                        frame.fill(line, colors.primary, true);
-                        Style::fg(colors.primary).with_reverse()
-                    }
-                    ListIndex::Selection => {
-                        frame.fill(line, colors.neutral, true);
-                        Style::fg(colors.neutral).with_reverse()
-                    }
-                    ListIndex::Normal => Style::fg(colors.normal).with_bg(bg),
-                },
-            };
+            // let mut style = match state {
+            //     SearchState::Prompt => Style::fg(colors.neutral).with_bg(bg),
+            //     SearchState::Browse => match index {
+            //         ListIndex::Selected => {
+            //             frame.fill(line, colors.primary, true);
+            //             Style::fg(colors.primary).with_reverse()
+            //         }
+            //         ListIndex::Selection => {
+            //             frame.fill(line, colors.neutral, true);
+            //             Style::fg(colors.neutral).with_reverse()
+            //         }
+            //         ListIndex::Normal => Style::fg(colors.normal).with_bg(bg),
+            //     },
+            // };
 
-            if jukebox.is_faulty(id) {
-                style.insert(Attributes::CROSSED_OUT);
-            }
+            // if jukebox.is_faulty(id) {
+            //     style.insert(Attributes::CROSSED_OUT);
+            // }
 
-            frame.push_fmt(style);
-            frame.push_str(track.title());
-            frame.push_ch(' ');
-            frame.push_str(track.artist());
-            frame.push_ch(' ');
-            frame.push_str(track.album());
-            frame.push_fmt(Sgr::Reset);
-            frame.render(line, TextOptions::span());
+            // frame.push_fmt(style);
+            // frame.push_str(track.title());
+            // frame.push_ch(' ');
+            // frame.push_str(track.artist());
+            // frame.push_ch(' ');
+            // frame.push_str(track.album());
+            // frame.push_fmt(Sgr::Reset);
+            // frame.render(line, TextOptions::span());
         },
     );
 
@@ -299,24 +301,25 @@ fn update_search(
     mut database: NonSendMut<Database>,
     mut actions: ResMut<Actions>,
 ) {
-    let hash = modal.prompt.hash_trim();
+    // TODO
+    // let hash = modal.prompt.hash_trim();
 
-    if hash == modal.prompt_hash {
-        return;
-    }
+    // if hash == modal.prompt_hash {
+    //     return;
+    // }
 
-    results.clear();
-    modal.prompt_hash = hash;
+    // results.clear();
+    // modal.prompt_hash = hash;
 
-    if modal.prompt.is_empty_trim() {
-        actions.push(Action::Render);
-        return;
-    }
+    // if modal.prompt.is_empty_trim() {
+    //     actions.push(Action::Render);
+    //     return;
+    // }
 
-    results.extend(database.search(modal.prompt.as_str_trim(), modal.include_path));
-    results.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
+    // results.extend(database.search(modal.prompt.as_str_trim(), modal.include_path));
+    // results.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
 
-    modal.list.reset();
+    // modal.list.reset();
 
-    actions.push(Action::Render);
+    // actions.push(Action::Render);
 }

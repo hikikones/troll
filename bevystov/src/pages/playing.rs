@@ -8,7 +8,7 @@ use widgets2::{
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::{AudioRating, Database, TrackId},
+    database2::{Database, TrackId, TrackRating},
     jukebox::Jukebox,
     pages::{Page, Route},
     settings::{Colors, Settings},
@@ -177,8 +177,8 @@ fn input_playing(
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
                 if let Some(id) = jukebox.current_track_id() {
-                    let rating = AudioRating::from_char(c).unwrap();
-                    database.write_rating(id, rating);
+                    let rating = TrackRating::from_char(c).unwrap();
+                    // database.write_rating(id, rating); TODO
                 }
             }
             'c' if shows_queue => {
@@ -306,7 +306,7 @@ fn render_cover(
 ) {
     let Some(rating) = jukebox
         .current_track_id()
-        .and_then(|id| database.get(id).map(|t| t.rating()))
+        .map(|id| database.track_rating(id))
     else {
         frame.push_str_fg("No track currently playing", colors.neutral);
         frame.render(
@@ -315,6 +315,18 @@ fn render_cover(
         );
         return;
     };
+    // TODO: remove
+    // let Some(rating) = jukebox
+    //     .current_track_id()
+    //     .and_then(|id| database.get(id).map(|t| t.rating()))
+    // else {
+    //     frame.push_str_fg("No track currently playing", colors.neutral);
+    //     frame.render(
+    //         area.inner(Margin::proportional(1)),
+    //         TextOptions::paragraph_center(),
+    //     );
+    //     return;
+    // };
 
     if area.size.rows > 15 {
         let image_area = cover.render(area.inner(Margin::vertical(1)), frame, colors);
@@ -377,39 +389,40 @@ fn render_queue(
         frame,
         jukebox.iter(),
         |line, frame, (id, qi), index| {
-            let Some(track) = database.get(id) else {
-                return;
-            };
+            // TODO
+            // let Some(track) = database.get(id) else {
+            //     return;
+            // };
 
-            let fg = if qi < hlen {
-                colors.neutral
-            } else if current_qi == Some(qi) {
-                colors.primary
-            } else {
-                colors.normal
-            };
+            // let fg = if qi < hlen {
+            //     colors.neutral
+            // } else if current_qi == Some(qi) {
+            //     colors.primary
+            // } else {
+            //     colors.normal
+            // };
 
-            let symbol = match index {
-                ListIndex::Selected => symbols::concat!(symbols::SELECTED, " "),
-                ListIndex::Selection => symbols::concat!(symbols::SELECTION, " "),
-                ListIndex::Normal => "",
-            };
+            // let symbol = match index {
+            //     ListIndex::Selected => symbols::concat!(symbols::SELECTED, " "),
+            //     ListIndex::Selection => symbols::concat!(symbols::SELECTION, " "),
+            //     ListIndex::Normal => "",
+            // };
 
-            frame.push_fmt(Sgr::Fg(fg));
-            frame.push_str(symbol);
+            // frame.push_fmt(Sgr::Fg(fg));
+            // frame.push_str(symbol);
 
-            if jukebox.is_faulty(id) {
-                frame.push_fmt(Sgr::CrossedOut);
-            }
+            // if jukebox.is_faulty(id) {
+            //     frame.push_fmt(Sgr::CrossedOut);
+            // }
 
-            frame.push_fmt(track.title());
-            frame.push_ch(' ');
-            frame.push_fmt(track.artist());
-            frame.push_ch(' ');
-            frame.push_fmt(track.album());
-            frame.push_ch(' ');
-            frame.push_fmt(Sgr::Reset);
-            frame.render(line, TextOptions::span());
+            // frame.push_fmt(track.title());
+            // frame.push_ch(' ');
+            // frame.push_fmt(track.artist());
+            // frame.push_ch(' ');
+            // frame.push_fmt(track.album());
+            // frame.push_ch(' ');
+            // frame.push_fmt(Sgr::Reset);
+            // frame.render(line, TextOptions::span());
         },
     );
 
@@ -452,41 +465,46 @@ fn update_cover(
     jukebox: NonSend<Jukebox>,
     database: NonSend<Database>,
 ) {
-    let id = jukebox.current_track_id();
+    // TODO
+    // let id = jukebox.current_track_id();
 
-    if page.current_id == id {
-        return;
-    }
+    // if page.current_id == id {
+    //     return;
+    // }
 
-    page.current_id = id;
+    // page.current_id = id;
 
-    let Some(id) = id else {
-        cover.clear();
-        return;
-    };
+    // let Some(id) = id else {
+    //     cover.clear();
+    //     return;
+    // };
 
-    let Some(track) = database.get(id) else {
-        cover.clear();
-        return;
-    };
+    // let Some(track) = database.get(id) else {
+    //     cover.clear();
+    //     return;
+    // };
 
-    cover.handle = Some(load_front_cover(track.path(), page.next_image_id()));
+    // cover.handle = Some(load_front_cover(track.path(), page.next_image_id()));
 
     fn load_front_cover(path: &std::path::Path, image_id: u32) -> ImageHandle {
         let path = path.to_path_buf();
         std::thread::spawn(move || {
             // TODO: Remove unwrap by reworking the AudioFileReport error.
-            let cover = crate::database::AudioFrontCover::read(path).unwrap();
-            match cover.bytes() {
-                Some(bytes) => Image::from_bytes(
-                    bytes,
-                    &mut std::io::stdout().lock(),
-                    image_id,
-                    ImageLoadOptions::max(Dims::SD),
-                )
-                .map(|img| Some(img)),
-                None => Ok(None),
-            }
+
+            // TODO
+            // let cover = crate::database::AudioFrontCover::read(path).unwrap();
+            // match cover.bytes() {
+            //     Some(bytes) => Image::from_bytes(
+            //         bytes,
+            //         &mut std::io::stdout().lock(),
+            //         image_id,
+            //         ImageLoadOptions::max(Dims::SD),
+            //     )
+            //     .map(|img| Some(img)),
+            //     None => Ok(None),
+            // }
+
+            Ok(None)
         })
     }
 }

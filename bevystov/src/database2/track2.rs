@@ -25,7 +25,18 @@ impl FromSql for TrackId {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
 #[repr(u8)]
 pub enum TrackRating {
     #[default]
@@ -77,6 +88,30 @@ impl TrackRating {
 
     pub const fn as_u8(self) -> u8 {
         self as u8
+    }
+
+    pub const fn stars(self) -> &'static str {
+        use shared::symbols::{STAR, repeat};
+        match self {
+            Self::None => "",
+            Self::Awful => STAR,
+            Self::Bad => repeat!(STAR, 2),
+            Self::Ok => repeat!(STAR, 3),
+            Self::Good => repeat!(STAR, 4),
+            Self::Amazing => repeat!(STAR, 5),
+        }
+    }
+
+    pub const fn stars_split(self) -> (&'static str, &'static str) {
+        use shared::symbols::{STAR_BIG, repeat};
+        match self {
+            Self::None => (repeat!(STAR_BIG, 0), repeat!(STAR_BIG, 5)),
+            Self::Awful => (repeat!(STAR_BIG, 1), repeat!(STAR_BIG, 4)),
+            Self::Bad => (repeat!(STAR_BIG, 2), repeat!(STAR_BIG, 3)),
+            Self::Ok => (repeat!(STAR_BIG, 3), repeat!(STAR_BIG, 2)),
+            Self::Good => (repeat!(STAR_BIG, 4), repeat!(STAR_BIG, 1)),
+            Self::Amazing => (repeat!(STAR_BIG, 5), repeat!(STAR_BIG, 0)),
+        }
     }
 }
 
@@ -132,5 +167,51 @@ impl ToSql for TrackDuration {
 impl FromSql for TrackDuration {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         value.as_i64().map(|n| Self(n as u16))
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum TrackSort {
+    Title,
+    Artist,
+    #[default]
+    Album,
+    Time,
+    Rating,
+}
+
+impl TrackSort {
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Title => Self::Artist,
+            Self::Artist => Self::Album,
+            Self::Album => Self::Time,
+            Self::Time => Self::Rating,
+            Self::Rating => Self::Title,
+        }
+    }
+
+    pub const fn prev(self) -> Self {
+        match self {
+            Self::Title => Self::Rating,
+            Self::Artist => Self::Title,
+            Self::Album => Self::Artist,
+            Self::Time => Self::Album,
+            Self::Rating => Self::Time,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Title => "Title",
+            Self::Artist => "Artist",
+            Self::Album => "Album",
+            Self::Time => "Time",
+            Self::Rating => "Rating",
+        }
+    }
+
+    pub const fn equals(self, other: Self) -> bool {
+        self as u8 == other as u8
     }
 }

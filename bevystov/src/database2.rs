@@ -1,4 +1,7 @@
-use std::{ops::Range, path::Path};
+use std::{
+    ops::Range,
+    path::{Path, PathBuf},
+};
 
 use shared::sqlite::*;
 
@@ -17,6 +20,12 @@ pub struct Database {
     receiver: Option<ScanReceiver>,
 }
 
+pub enum DatabaseEvent {
+    FinishedLoading,
+    Rating(TrackId),
+    Error(AudioFileError),
+}
+
 impl Database {
     fn new(sqlite: Sqlite) -> Self {
         Self {
@@ -25,17 +34,17 @@ impl Database {
         }
     }
 
-    pub fn open(path: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub fn open(path: impl AsRef<Path>, music_dir: PathBuf) -> DatabaseResult<Self> {
         let path = path.as_ref();
         let mut db = Self::new(Sqlite::open(path)?);
-        db.migrate(path)?;
+        db.migrate(music_dir)?;
 
         Ok(db)
     }
 
-    pub fn open_in_memory(path: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub fn open_in_memory(music_dir: PathBuf) -> DatabaseResult<Self> {
         let mut db = Self::new(Sqlite::open_in_memory()?);
-        db.migrate(path.as_ref())?;
+        db.migrate(music_dir)?;
 
         Ok(db)
     }
@@ -79,9 +88,39 @@ impl Database {
         self.sqlite.single(sql, args, f).unwrap()
     }
 
+    pub fn is_tracks_empty(&self) -> bool {
+        self.single("SELECT NOT EXISTS (SELECT 1 FROM tracks)", (), |row| {
+            row.get(0)
+        })
+    }
+
     pub fn tracks_len(&self) -> usize {
         let len: SqliteId = self.single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0));
         len as usize
+    }
+
+    pub fn track_random_id(&self) -> TrackId {
+        let len: SqliteId = self.single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0));
+        // TODO: Store rng somewhere for reuse
+        TrackId(fastrand::i64(0..len))
+    }
+
+    pub fn track_title(&self, id: TrackId, mut f: impl FnMut(&str)) {
+        self.single("SELECT title FROM tracks WHERE id = ?", [id], |row| {
+            Ok(f(row.get_ref(0)?.as_str()?))
+        });
+    }
+
+    pub fn track_rating(&self, id: TrackId) -> TrackRating {
+        self.single("SELECT rating FROM tracks WHERE id = ?", [id], |row| {
+            row.get(0)
+        })
+    }
+
+    pub fn track_path(&self, id: TrackId) -> PathBuf {
+        self.single("SELECT path FROM tracks WHERE id = ?", [id], |row| {
+            Ok(PathBuf::from(row.get_ref(0)?.as_str()?))
+        })
     }
 
     pub fn tracks_range(&self, range: Range<usize>) -> impl Iterator<Item = TrackId> {
@@ -128,7 +167,7 @@ impl Database {
         );
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
         use std::sync::mpsc::TryRecvError;
 
         let Some(recv) = self.receiver.as_ref() else {
@@ -143,8 +182,8 @@ impl Database {
                             .transaction(|tx| Self::add_track(tx, track))
                             .unwrap(); // TODO
                     }
-                    Err(_err) => {
-                        // TODO: Log error to db.
+                    Err(err) => {
+                        on_event(DatabaseEvent::Error(err));
                     }
                 },
                 Err(err) => match err {
@@ -153,6 +192,7 @@ impl Database {
                     }
                     TryRecvError::Disconnected => {
                         self.receiver = None;
+                        on_event(DatabaseEvent::FinishedLoading);
                         return;
                     }
                 },
@@ -288,7 +328,7 @@ impl Database {
             .unwrap();
     }
 
-    fn migrate(&mut self, dir: &Path) -> DatabaseResult<()> {
+    fn migrate(&mut self, dir: PathBuf) -> DatabaseResult<()> {
         const VERSION: SqliteId = 1;
 
         let version = self.sqlite.version();
@@ -296,7 +336,6 @@ impl Database {
             0 => {
                 self.sqlite
                     .execute_batch(include_str!("database2/schema.sql"))?;
-                self.sqlite.set_version(VERSION);
                 true
             }
             VERSION => false,
@@ -308,6 +347,7 @@ impl Database {
 
         if rescan {
             self.receiver = Some(Scanner::start(dir.to_path_buf()));
+            self.sqlite.set_version(VERSION);
         }
 
         Ok(())

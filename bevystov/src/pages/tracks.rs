@@ -4,7 +4,7 @@ use widgets2::{Block, List, ListIndex, TableLayout};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::{AudioRating, Database, TrackId, TrackSort},
+    database2::{Database, TrackId, TrackRating, TrackSort},
     jukebox::Jukebox,
     modals::Modal,
     pages::Page,
@@ -16,6 +16,7 @@ pub struct TracksPagePlugin;
 impl TracksPagePlugin {
     pub fn build(app: &mut App) {
         app.insert_resource(TracksPage::default())
+            .insert_resource(Tracks::default())
             .add_input(InputSet::Page, input_tracks.run_if(in_state(Page::Tracks)))
             .add_input(
                 InputSet::Modal,
@@ -61,6 +62,48 @@ impl Default for TracksPage {
     }
 }
 
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
+struct Tracks(Vec<TrackId>);
+
+impl Tracks {
+    fn iter(&self, len: usize) -> TracksIter<'_> {
+        TracksIter {
+            tracks: self,
+            index: 0,
+            len,
+        }
+    }
+
+    fn update(&mut self, scroll: usize, height: u16, database: &Database) {
+        self.0.clear();
+
+        let range = scroll..(scroll + height as usize);
+        self.0.extend(database.tracks_range(range));
+    }
+}
+
+struct TracksIter<'a> {
+    tracks: &'a Tracks,
+    index: usize,
+    len: usize,
+}
+
+impl Iterator for TracksIter<'_> {
+    type Item = TrackId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.tracks.get(self.index).copied();
+        self.index += 1;
+        next
+    }
+}
+
+impl ExactSizeIterator for TracksIter<'_> {
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
 fn input_tracks(
     input: Res<Input>,
     mut database: NonSendMut<Database>,
@@ -74,53 +117,58 @@ fn input_tracks(
 
     match key.code {
         KeyCode::Enter => {
-            if let Some(id) = database.get_id_from_index(page.list.index()) {
-                jukebox.play_id(id, &database);
-            }
+            // TODO
+            // if let Some(id) = database.get_id_from_index(page.list.index()) {
+            //     jukebox.play_id(id, &database);
+            // }
         }
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
-                let rating = AudioRating::from_char(c).unwrap();
-                for i in page.list.selection_inclusive() {
-                    if let Some(id) = database.get_id_from_index(i) {
-                        database.write_rating(id, rating);
-                    }
-                }
+                // TODO
+                // let rating = TrackRating::from_char(c).unwrap();
+                // for i in page.list.selection_inclusive() {
+                //     if let Some(id) = database.get_id_from_index(i) {
+                //         database.write_rating(id, rating);
+                //     }
+                // }
             }
             'q' => {
-                let ids = page
-                    .list
-                    .selection_inclusive()
-                    .filter_map(|i| database.get_id_from_index(i));
-                jukebox.extend(ids);
+                // TODO
+                // let ids = page
+                //     .list
+                //     .selection_inclusive()
+                //     .filter_map(|i| database.get_id_from_index(i));
+                // jukebox.extend(ids);
             }
             'n' => {
-                for i in page.list.selection_inclusive().rev() {
-                    if let Some(id) = database.get_id_from_index(i) {
-                        jukebox.enqueue_next(id);
-                    }
-                }
+                // TODO
+                // for i in page.list.selection_inclusive().rev() {
+                //     if let Some(id) = database.get_id_from_index(i) {
+                //         jukebox.enqueue_next(id);
+                //     }
+                // }
             }
             's' | 'S' => {
-                let id = database.get_id_from_index(page.list.index());
+                // TODO
+                // let id = database.get_id_from_index(page.list.index());
 
-                if c == 's' {
-                    let sort = database.get_sort().next();
-                    database.sort(sort, page.reverse_sort);
-                } else {
-                    let sort = database.get_sort();
-                    page.reverse_sort = !page.reverse_sort;
-                    database.sort(sort, page.reverse_sort);
-                }
+                // if c == 's' {
+                //     let sort = database.get_sort().next();
+                //     database.sort(sort, page.reverse_sort);
+                // } else {
+                //     let sort = database.get_sort();
+                //     page.reverse_sort = !page.reverse_sort;
+                //     database.sort(sort, page.reverse_sort);
+                // }
 
-                if page.keep_on_sort
-                    && let Some(id) = id
-                    && let Some(i) = database.get_index_from_id(id)
-                {
-                    page.list.set_index(i).set_selector(None);
-                }
+                // if page.keep_on_sort
+                //     && let Some(id) = id
+                //     && let Some(i) = database.get_index_from_id(id)
+                // {
+                //     page.list.set_index(i).set_selector(None);
+                // }
 
-                actions.push(Action::Render);
+                // actions.push(Action::Render);
             }
             'm' => {
                 // TODO: remove
@@ -141,11 +189,12 @@ fn input_tracks(
 }
 
 fn enter_tracks(mut page: ResMut<TracksPage>, database: NonSend<Database>) {
-    if let Some(id) = page.params.take()
-        && let Some(index) = database.get_index_from_id(id)
-    {
-        page.list.set_index(index).set_selector(None);
-    };
+    // TODO
+    // if let Some(id) = page.params.take()
+    //     && let Some(index) = database.get_index_from_id(id)
+    // {
+    //     page.list.set_index(index).set_selector(None);
+    // };
 }
 
 fn render_tracks(
@@ -156,11 +205,12 @@ fn render_tracks(
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
     mut page: ResMut<TracksPage>,
+    mut tracks: ResMut<Tracks>,
 ) {
     let area = **area;
     let colors = settings.colors();
 
-    if database.is_empty() {
+    if database.is_tracks_empty() {
         frame.print_fmt(Sgr::Fg(colors.neutral));
         frame.print_span_with(area, "No tracks to be found", SpanOptions::center());
         frame.print_fmt(Sgr::reset_fg());
@@ -170,7 +220,7 @@ fn render_tracks(
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
     frame.push_fmt_fg(
-        format_args!(" All Tracks ({}) ", database.len()),
+        format_args!(" All Tracks ({}) ", database.tracks_len()),
         colors.normal,
     );
     frame.render(area, TextOptions::span_center_top());
@@ -178,14 +228,29 @@ fn render_tracks(
 
     let inner = area.inner(Margin::all(1));
     let gap = if inner.cols() < 10 { 0 } else { 2 };
-    let sort = database.get_sort();
-    let reverse = page.reverse_sort;
+    // let sort = database.get_sort(); TODO
+    // let reverse = page.reverse_sort; TODO
     let current = jukebox.current_track_id();
+    let len = database.tracks_len();
+    tracks.update(
+        page.list.scroll(),
+        inner.rows().saturating_sub(1),
+        &database,
+    );
+
+    frame.push_fmt(format_args!("LEN: {}", tracks.len()));
+    frame.render(area, TextOptions::span());
+
+    for id in tracks.iter_mut() {
+        frame.push_fmt(format_args!("{},", id.0));
+    }
+    let a = frame.area();
+    frame.render(a, TextOptions::span());
 
     page.list.set_colors(colors.list()).render_table(
         inner,
         &mut frame,
-        database.iter(),
+        tracks.iter(len),
         TableLayout::new(
             gap,
             [
@@ -214,24 +279,24 @@ fn render_tracks(
             frame.print_fmt(Sgr::Fg(colors.normal));
 
             frame.push_str("Title");
-            frame.push_str(sort_symbol(sort, TrackSort::Title, reverse));
+            // frame.push_str(sort_symbol(sort, TrackSort::Title, reverse));
             frame.render(title_area, TextOptions::span());
             frame.push_str("Artist");
-            frame.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
+            // frame.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
             frame.render(artist_area, TextOptions::span());
             frame.push_str("Album");
-            frame.push_str(sort_symbol(sort, TrackSort::Album, reverse));
+            // frame.push_str(sort_symbol(sort, TrackSort::Album, reverse));
             frame.render(album_area, TextOptions::span());
             frame.push_str("Time");
-            frame.push_str(sort_symbol(sort, TrackSort::Time, reverse));
+            // frame.push_str(sort_symbol(sort, TrackSort::Time, reverse));
             frame.render(time_area, TextOptions::span());
             frame.push_str("Rating");
-            frame.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
+            // frame.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
             frame.render(rating_area, TextOptions::span());
 
             frame.print_fmt(Sgr::reset_fg());
         },
-        |line, frame, areas, (id, track), idx| {
+        |line, frame, areas, id, idx| {
             let [title_area, artist_area, album_area, time_area, rating_area] = areas;
 
             let mut style = match idx {
@@ -255,11 +320,20 @@ fn render_tracks(
             }
 
             frame.print_fmt(style);
-            frame.print_span(title_area, track.title());
-            frame.print_span(artist_area, track.artist());
-            frame.print_span(album_area, track.album());
-            frame.print_span(time_area, track.duration_display());
-            frame.print_span(rating_area, track.rating().stars());
+
+            database.track_info(id, |info| {
+                frame.print_span(title_area, info.title);
+                frame.push_fmt(info.duration);
+                frame.render(time_area, TextOptions::span());
+                frame.print_span(rating_area, info.rating.stars());
+            });
+
+            // TODO
+            // frame.print_span(title_area, track.title());
+            // frame.print_span(artist_area, track.artist());
+            // frame.print_span(album_area, track.album());
+            // frame.print_span(time_area, track.duration_display());
+            // frame.print_span(rating_area, track.rating().stars());
             frame.print_fmt(Sgr::Reset);
         },
     );

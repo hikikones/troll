@@ -5,7 +5,7 @@ use widgets2::{Block, List, ListIndex, Prompt, ScrollMargins};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::AudioRating,
+    database2::TrackRating,
     modals::Logs,
     pages::Page,
     settings::{Colors, Config, Settings},
@@ -234,7 +234,7 @@ fn handle_setting(
     match current {
         Setting::SkipRating => {
             if let KeyCode::Char(c) = key.code
-                && let Some(rating) = AudioRating::from_char(c)
+                && let Some(rating) = TrackRating::from_char(c)
                 && settings.general().skip_tracks_with_rating != rating
             {
                 settings.general_mut().skip_tracks_with_rating = rating;

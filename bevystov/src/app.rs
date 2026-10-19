@@ -4,7 +4,7 @@ use ecs::*;
 use terminal::*;
 
 use crate::{
-    database::{Database, DatabaseEvent},
+    database2::{Database, DatabaseEvent},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
@@ -213,7 +213,7 @@ impl App {
 
     fn init(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         // Start database load
-        self.world.non_send_mut::<Database>().load();
+        // self.world.non_send_mut::<Database>().load(); todo
 
         // Update size
         self.update_size()?;
@@ -457,13 +457,14 @@ fn input_app(
             if key.ctrl() {
                 jukebox.play_previous(&database);
             } else if key.alt() {
-                if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
-                    let pos = jukebox.current_track_pos();
-                    let min = Duration::from_secs(2);
-                    let secs = track.duration().mul_f32(0.10).max(min);
-                    jukebox.seek(pos.saturating_sub(secs));
-                    actions.push(Action::Render);
-                }
+                // TODO
+                // if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
+                //     let pos = jukebox.current_track_pos();
+                //     let min = Duration::from_secs(2);
+                //     let secs = track.duration().mul_f32(0.10).max(min);
+                //     jukebox.seek(pos.saturating_sub(secs));
+                //     actions.push(Action::Render);
+                // }
             } else {
                 input.set(key);
             }
@@ -472,13 +473,14 @@ fn input_app(
             if key.ctrl() {
                 jukebox.play_next(&database);
             } else if key.alt() {
-                if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
-                    let pos = jukebox.current_track_pos();
-                    let min = Duration::from_secs(1);
-                    let secs = track.duration().mul_f32(0.10).max(min);
-                    jukebox.seek(pos + secs);
-                    actions.push(Action::Render);
-                }
+                // TODO
+                // if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
+                //     let pos = jukebox.current_track_pos();
+                //     let min = Duration::from_secs(1);
+                //     let secs = track.duration().mul_f32(0.10).max(min);
+                //     jukebox.seek(pos + secs);
+                //     actions.push(Action::Render);
+                // }
             } else {
                 input.set(key);
             }
@@ -627,61 +629,70 @@ fn render_playback(
     let progress_ch = '─';
     let highlight_ch = '━';
 
-    let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) else {
-        // Neutral playback status
-        frame.push_fmt(Sgr::Fg(colors.neutral));
-        frame.push_str("00:00 ");
-        frame.push_ch_repeat(progress_ch, status_width);
-        frame.push_str(" 00:00");
-        frame.push_fmt(Sgr::reset_fg());
-        frame.render(status_area, TextOptions::span_center_top());
-        return;
-    };
-
-    let (normal, primary) = if jukebox.is_paused() {
-        (colors.neutral, colors.neutral)
-    } else {
-        (colors.normal, colors.primary)
-    };
-
-    // Stats
-    frame.push_fmt(Sgr::Fg(normal));
-    frame.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
-
-    if let Some(bit_depth) = track.bit_depth()
-        && let Some(sample_rate) = track.sample_rate()
-    {
-        frame.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
-    }
-
-    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
-
-    // Title
-    frame.push_str(track.artist());
-    if !(track.artist().is_empty() || track.title().is_empty()) {
-        frame.push_str(" - ");
-    }
-    frame.push_str(track.title());
-    frame.render(title_area, TextOptions::span_center_top());
-
-    // Playback status
-    let track_pos = jukebox.current_track_pos();
-    frame.push_iter(utils::format_duration_on_stack(track_pos));
-    frame.push_ch(' ');
-
-    let progress = track_pos.as_secs_f32() / track.duration().as_secs_f32();
-    let highlights = (status_width as f32 * progress).ceil() as u16;
-    let remaining = status_width.saturating_sub(highlights);
-    frame.push_fmt(Sgr::Fg(primary));
-    frame.push_ch_repeat(highlight_ch, highlights);
-    frame.push_fmt(Sgr::Fg(normal));
-    frame.push_ch_repeat(progress_ch, remaining);
-
-    frame.push_ch(' ');
-    frame.push_iter(utils::format_duration_on_stack(track.duration()));
-
+    // TODO: remove
+    frame.push_fmt(Sgr::Fg(colors.neutral));
+    frame.push_str("00:00 ");
+    frame.push_ch_repeat(progress_ch, status_width);
+    frame.push_str(" 00:00");
     frame.push_fmt(Sgr::reset_fg());
     frame.render(status_area, TextOptions::span_center_top());
+
+    // TODO
+    // let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) else {
+    //     // Neutral playback status
+    //     frame.push_fmt(Sgr::Fg(colors.neutral));
+    //     frame.push_str("00:00 ");
+    //     frame.push_ch_repeat(progress_ch, status_width);
+    //     frame.push_str(" 00:00");
+    //     frame.push_fmt(Sgr::reset_fg());
+    //     frame.render(status_area, TextOptions::span_center_top());
+    //     return;
+    // };
+
+    // let (normal, primary) = if jukebox.is_paused() {
+    //     (colors.neutral, colors.neutral)
+    // } else {
+    //     (colors.normal, colors.primary)
+    // };
+
+    // // Stats
+    // frame.push_fmt(Sgr::Fg(normal));
+    // frame.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
+
+    // if let Some(bit_depth) = track.bit_depth()
+    //     && let Some(sample_rate) = track.sample_rate()
+    // {
+    //     frame.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
+    // }
+
+    // frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
+
+    // // Title
+    // frame.push_str(track.artist());
+    // if !(track.artist().is_empty() || track.title().is_empty()) {
+    //     frame.push_str(" - ");
+    // }
+    // frame.push_str(track.title());
+    // frame.render(title_area, TextOptions::span_center_top());
+
+    // // Playback status
+    // let track_pos = jukebox.current_track_pos();
+    // frame.push_iter(utils::format_duration_on_stack(track_pos));
+    // frame.push_ch(' ');
+
+    // let progress = track_pos.as_secs_f32() / track.duration().as_secs_f32();
+    // let highlights = (status_width as f32 * progress).ceil() as u16;
+    // let remaining = status_width.saturating_sub(highlights);
+    // frame.push_fmt(Sgr::Fg(primary));
+    // frame.push_ch_repeat(highlight_ch, highlights);
+    // frame.push_fmt(Sgr::Fg(normal));
+    // frame.push_ch_repeat(progress_ch, remaining);
+
+    // frame.push_ch(' ');
+    // frame.push_iter(utils::format_duration_on_stack(track.duration()));
+
+    // frame.push_fmt(Sgr::reset_fg());
+    // frame.render(status_area, TextOptions::span_center_top());
 }
 
 fn render_shortcuts(
@@ -787,9 +798,9 @@ fn update_app(
         match event {
             JukeboxEvent::Play(id) => {
                 if let Some(mc) = media_controls.as_ref() {
-                    match id.and_then(|id| database.get(id).map(|t| (id, t))) {
-                        Some((id, track)) => {
-                            let metadata = MprisMetadata::new(id, track);
+                    match id {
+                        Some(id) => {
+                            let metadata = MprisMetadata::new(id, &database);
                             mc.send(MprisEvent::Both(MprisStatus::Playing, Some(metadata)));
                         }
                         None => {

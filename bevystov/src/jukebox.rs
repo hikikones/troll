@@ -8,7 +8,7 @@ mod queue;
 pub use player::*;
 use queue::*;
 
-use crate::database::{AudioRating, Database, TrackId};
+use crate::database2::{AudioExt, Database, TrackId, TrackRating};
 
 type AudioDecodeHandle = std::thread::JoinHandle<Result<Decoder<Cursor<Vec<u8>>>, String>>;
 
@@ -16,7 +16,7 @@ pub struct Jukebox {
     current: Option<(TrackId, usize)>,
     queue: PlayQueue,
     state: PlayState,
-    skip: AudioRating,
+    skip: TrackRating,
     decode_handle: Option<(AudioDecodeHandle, TrackId, usize)>,
     events: Vec<JukeboxEvent>,
     faulty: HashSet<TrackId>,
@@ -46,7 +46,7 @@ impl Jukebox {
             current: None,
             queue: PlayQueue::new(),
             state: PlayState::Stop,
-            skip: AudioRating::default(),
+            skip: TrackRating::default(), // TODO: Set from settings.
             decode_handle: None,
             events: Vec::new(),
             faulty: HashSet::new(),
@@ -254,7 +254,7 @@ impl Jukebox {
     }
 
     pub fn play_next(&mut self, db: &Database) {
-        if db.is_empty() {
+        if db.is_tracks_empty() {
             return;
         }
 
@@ -283,10 +283,10 @@ impl Jukebox {
 
         // No tracks in the queue, play a random next
         let current = self.current_track_id();
-        let mut tries = 5;
+        let mut tries = 5; // TODO: just do one more try
         let mut rand = TrackId(0);
         while tries > 0 {
-            rand = db.random_id();
+            rand = db.track_random_id();
             let is_current = current.map(|id| id == rand).unwrap_or(false);
             if is_current || self.is_faulty(rand) || self.should_skip(rand, db) {
                 tries -= 1;
@@ -323,33 +323,29 @@ impl Jukebox {
         self.player.seek(position);
     }
 
-    pub const fn set_skip(&mut self, rating: AudioRating) {
+    pub const fn set_skip(&mut self, rating: TrackRating) {
         self.skip = rating;
     }
 
     fn should_skip(&self, id: TrackId, db: &Database) -> bool {
-        db.get(id)
-            .map(|track| match track.rating() {
-                AudioRating::None => false,
-                _ => track.rating().as_u8() <= self.skip.as_u8(),
-            })
-            .unwrap_or(true)
+        let rating = db.track_rating(id);
+        match rating {
+            TrackRating::None => false,
+            _ => rating.as_u8() <= self.skip.as_u8(),
+        }
     }
 
     fn start_decode(&mut self, id: TrackId, index: usize, db: &Database) {
-        let Some(track) = db.get(id) else {
-            return;
-        };
+        let path = db.track_path(id);
+        let ext = AudioExt::from_path(&path).unwrap();
 
-        let path = track.path().to_path_buf();
-        let extension = track.extension();
         let handle = std::thread::spawn(move || {
             let data = std::fs::read(&path)
                 .map_err(|err| format!("Unable to decode \"{}\" due to {}", path.display(), err))?;
             let len = data.len() as u64;
             let decoder = Decoder::builder()
                 .with_data(Cursor::new(data))
-                .with_hint(extension.as_lower_case())
+                .with_hint(ext.as_lower_case())
                 .with_byte_len(len)
                 .with_seekable(true)
                 .with_gapless(false)
@@ -357,6 +353,7 @@ impl Jukebox {
                 .map_err(|err| format!("Failed to decode \"{}\" due to {}", path.display(), err))?;
             Ok(decoder)
         });
+
         self.decode_handle = Some((handle, id, index));
     }
 

@@ -1,4 +1,4 @@
-use crate::database::TrackId;
+use crate::database2::TrackId;
 
 // TODO: Max length? Drain from history.
 
@@ -312,7 +312,7 @@ mod tests {
         let mut queue = PlayQueue::new();
 
         for i in 0..TRACKS_LEN {
-            queue.enqueue(TrackId(i as u64));
+            queue.enqueue(TrackId(i as i64));
         }
 
         assert_eq!(queue.current(), None);
