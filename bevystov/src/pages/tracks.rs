@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, List, ListIndex, TableLayout};
+use widgets2::{Block, list2::List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
@@ -52,9 +52,7 @@ impl TracksPage {
 impl Default for TracksPage {
     fn default() -> Self {
         Self {
-            list: List::new()
-                .with_scrollbar(0)
-                .with_padding(Margin::horizontal(1)),
+            list: List::new(),
             reverse_sort: false,
             keep_on_sort: false,
             params: None,
@@ -209,8 +207,9 @@ fn render_tracks(
 ) {
     let area = **area;
     let colors = settings.colors();
+    let len = database.tracks_len();
 
-    if database.is_tracks_empty() {
+    if len == 0 {
         frame.print_fmt(Sgr::Fg(colors.neutral));
         frame.print_span_with(area, "No tracks to be found", SpanOptions::center());
         frame.print_fmt(Sgr::reset_fg());
@@ -219,10 +218,7 @@ fn render_tracks(
 
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
-    frame.push_fmt_fg(
-        format_args!(" All Tracks ({}) ", database.tracks_len()),
-        colors.normal,
-    );
+    frame.push_fmt_fg(format_args!(" All Tracks ({}) ", len), colors.normal);
     frame.render(area, TextOptions::span_center_top());
     frame.print_fmt(Sgr::reset_fg());
 
@@ -231,27 +227,22 @@ fn render_tracks(
     // let sort = database.get_sort(); TODO
     // let reverse = page.reverse_sort; TODO
     let current = jukebox.current_track_id();
-    let len = database.tracks_len();
-    tracks.update(
-        page.list.scroll(),
-        inner.rows().saturating_sub(1),
-        &database,
-    );
+    // tracks.update(
+    //     page.list.scroll(),
+    //     inner.rows().saturating_sub(1),
+    //     &database,
+    // );
 
-    frame.push_fmt(format_args!("LEN: {}", tracks.len()));
-    frame.render(area, TextOptions::span());
+    // frame.push_fmt(format_args!("LEN: {}", tracks.len()));
+    // frame.render(area, TextOptions::span());
 
-    for id in tracks.iter_mut() {
-        frame.push_fmt(format_args!("{},", id.0));
-    }
-    let a = frame.area();
-    frame.render(a, TextOptions::span());
-
-    page.list.set_colors(colors.list()).render_table(
-        inner,
-        &mut frame,
-        tracks.iter(len),
-        TableLayout::new(
+    // for id in tracks.iter_mut() {
+    //     frame.push_fmt(format_args!("{},", id.0));
+    // }
+    // let a = frame.area();
+    // frame.render(a, TextOptions::span());
+    let [title_area, artist_area, album_area, time_area, rating_area] =
+        inner.with_rows(1).split_horizontal(
             gap,
             [
                 Constraint::Percent(35),
@@ -260,83 +251,141 @@ fn render_tracks(
                 Constraint::Fixed(5),
                 Constraint::Fixed(7),
             ],
-        ),
-        |_line, frame, areas| {
-            let [title_area, artist_area, album_area, time_area, rating_area] = areas;
+        );
 
-            const fn sort_symbol<'a>(
-                current_sort: TrackSort,
-                sort: TrackSort,
-                reverse: bool,
-            ) -> &'a str {
-                if current_sort.equals(sort) {
-                    if reverse { "⌃" } else { "⌄" }
-                } else {
-                    ""
-                }
-            }
+    let lines = page.list.set_len(len).render(inner);
+    let scroll = page.list.scroll();
+    tracks.update(scroll, inner.rows(), &database);
 
-            frame.print_fmt(Sgr::Fg(colors.normal));
+    let selected = page.list.index();
+    let mut row = inner.pos.row;
 
-            frame.push_str("Title");
-            // frame.push_str(sort_symbol(sort, TrackSort::Title, reverse));
-            frame.render(title_area, TextOptions::span());
-            frame.push_str("Artist");
-            // frame.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
-            frame.render(artist_area, TextOptions::span());
-            frame.push_str("Album");
-            // frame.push_str(sort_symbol(sort, TrackSort::Album, reverse));
-            frame.render(album_area, TextOptions::span());
-            frame.push_str("Time");
-            // frame.push_str(sort_symbol(sort, TrackSort::Time, reverse));
-            frame.render(time_area, TextOptions::span());
-            frame.push_str("Rating");
-            // frame.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
-            frame.render(rating_area, TextOptions::span());
+    for index in lines {
+        // let id = tracks.get(index).copied().unwrap();
+        let Some(id) = tracks.get(index - scroll).copied() else {
+            panic!("TRACKS: {tracks:?}\n\nLIST: {:?}", page.list);
+        };
 
-            frame.print_fmt(Sgr::reset_fg());
-        },
-        |line, frame, areas, id, idx| {
-            let [title_area, artist_area, album_area, time_area, rating_area] = areas;
+        let mut style = if index == selected {
+            Style::fg(colors.primary).with_reverse()
+        } else {
+            Style::fg(colors.normal)
+        };
 
-            let mut style = match idx {
-                ListIndex::Selected => {
-                    frame.fill(line, colors.primary, true);
-                    Style::fg(colors.primary).with_reverse()
-                }
-                ListIndex::Selection => {
-                    frame.fill(line, colors.neutral, true);
-                    Style::fg(colors.neutral).with_reverse()
-                }
-                ListIndex::Normal => Style::fg(colors.normal),
-            };
+        if current == Some(id) {
+            style.insert(Attributes::BOLD);
+        }
 
-            if current == Some(id) {
-                style.insert(Attributes::BOLD);
-            }
+        if jukebox.is_faulty(id) {
+            style.insert(Attributes::CROSSED_OUT);
+        }
 
-            if jukebox.is_faulty(id) {
-                style.insert(Attributes::CROSSED_OUT);
-            }
+        frame.print_fmt(style);
+        database.track_info(id, |info| {
+            frame.print_span(title_area.with_row(row), info.title);
+            frame.push_fmt(info.duration);
+            frame.render(time_area.with_row(row), TextOptions::span());
+            frame.print_span(rating_area.with_row(row), info.rating.stars());
+        });
+        frame.print_fmt(Sgr::Reset);
 
-            frame.print_fmt(style);
+        row += 1;
+    }
 
-            database.track_info(id, |info| {
-                frame.print_span(title_area, info.title);
-                frame.push_fmt(info.duration);
-                frame.render(time_area, TextOptions::span());
-                frame.print_span(rating_area, info.rating.stars());
-            });
+    // page.list.set_len(len).render_table2(
+    //     inner,
+    //     &mut frame,
+    //     TableLayout::new(
+    //         gap,
+    //         [
+    //             Constraint::Percent(35),
+    //             Constraint::Percent(30),
+    //             Constraint::Percent(35),
+    //             Constraint::Fixed(5),
+    //             Constraint::Fixed(7),
+    //         ],
+    //     ),
+    //     |scroll, height| {
+    //         // tracks.update(scroll, height, &database);
+    //     },
+    //     |_line, frame, areas| {
+    //         let [title_area, artist_area, album_area, time_area, rating_area] = areas;
 
-            // TODO
-            // frame.print_span(title_area, track.title());
-            // frame.print_span(artist_area, track.artist());
-            // frame.print_span(album_area, track.album());
-            // frame.print_span(time_area, track.duration_display());
-            // frame.print_span(rating_area, track.rating().stars());
-            frame.print_fmt(Sgr::Reset);
-        },
-    );
+    //         const fn sort_symbol<'a>(
+    //             current_sort: TrackSort,
+    //             sort: TrackSort,
+    //             reverse: bool,
+    //         ) -> &'a str {
+    //             if current_sort.equals(sort) {
+    //                 if reverse { "⌃" } else { "⌄" }
+    //             } else {
+    //                 ""
+    //             }
+    //         }
+
+    //         frame.print_fmt(Sgr::Fg(colors.normal));
+
+    //         frame.push_str("Title");
+    //         // frame.push_str(sort_symbol(sort, TrackSort::Title, reverse));
+    //         frame.render(title_area, TextOptions::span());
+    //         frame.push_str("Artist");
+    //         // frame.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
+    //         frame.render(artist_area, TextOptions::span());
+    //         frame.push_str("Album");
+    //         // frame.push_str(sort_symbol(sort, TrackSort::Album, reverse));
+    //         frame.render(album_area, TextOptions::span());
+    //         frame.push_str("Time");
+    //         // frame.push_str(sort_symbol(sort, TrackSort::Time, reverse));
+    //         frame.render(time_area, TextOptions::span());
+    //         frame.push_str("Rating");
+    //         // frame.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
+    //         frame.render(rating_area, TextOptions::span());
+
+    //         frame.print_fmt(Sgr::reset_fg());
+    //     },
+    //     |line, frame, areas, i, idx| {
+    //         let [title_area, artist_area, album_area, time_area, rating_area] = areas;
+
+    //         let mut style = match idx {
+    //             ListIndex::Selected => {
+    //                 frame.fill(line, colors.primary, true);
+    //                 Style::fg(colors.primary).with_reverse()
+    //             }
+    //             ListIndex::Selection => {
+    //                 frame.fill(line, colors.neutral, true);
+    //                 Style::fg(colors.neutral).with_reverse()
+    //             }
+    //             ListIndex::Normal => Style::fg(colors.normal),
+    //         };
+
+    //         let id = tracks.get(i).copied().unwrap();
+
+    //         if current == Some(id) {
+    //             style.insert(Attributes::BOLD);
+    //         }
+
+    //         if jukebox.is_faulty(id) {
+    //             style.insert(Attributes::CROSSED_OUT);
+    //         }
+
+    //         frame.print_fmt(style);
+
+    //         database.track_info(id, |info| {
+    //             frame.print_span(title_area, info.title);
+    //             frame.push_fmt(info.duration);
+    //             frame.render(time_area, TextOptions::span());
+    //             frame.print_span(rating_area, info.rating.stars());
+    //         });
+
+    //         // TODO
+    //         // frame.print_span(title_area, track.title());
+    //         // frame.print_span(artist_area, track.artist());
+    //         // frame.print_span(album_area, track.album());
+    //         // frame.print_span(time_area, track.duration_display());
+    //         // frame.print_span(rating_area, track.rating().stars());
+    //         frame.print_fmt(Sgr::Reset);
+    //     },
+    // );
 
     render_shortcuts(**shortcuts_area, &mut frame, &colors);
 }

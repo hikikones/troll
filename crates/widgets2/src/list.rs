@@ -143,6 +143,11 @@ impl List {
         self.scroll
     }
 
+    pub const fn set_len(&mut self, len: usize) -> &mut Self {
+        self.len = len;
+        self
+    }
+
     pub const fn set_index(&mut self, i: usize) -> &mut Self {
         self.index = i;
         self
@@ -393,6 +398,68 @@ impl List {
                 render_row(line, frame, areas, item, list_index);
                 line.add_row(1);
             });
+
+        // Render scrollbar
+        if let Some(scroll_area) = scroll_area {
+            self.render_scrollbar(scroll_area, frame);
+        }
+    }
+
+    pub fn render_table2<const N: usize>(
+        &mut self,
+        mut area: Rect,
+        frame: &mut Framebuffer,
+        layout: TableLayout<N>,
+        mut state: impl FnMut(usize, u16),
+        render_header: impl FnOnce(Rect, &mut Framebuffer, [Rect; N]),
+        mut render_row: impl FnMut(Rect, &mut Framebuffer, [Rect; N], usize, ListIndex),
+    ) {
+        let mut inner = area.inner(self.options.padding);
+
+        if inner.is_empty() {
+            return;
+        }
+
+        let header_row = area.row();
+
+        // Prepare scrollbar
+        let scroll_area = self.prepare_scrollbar(&mut area, &mut inner);
+
+        inner.shrink_down(1);
+
+        // Render header
+        let header_area = inner.with_row(header_row);
+        let mut areas = layout.areas(header_area);
+        render_header(header_area, frame, areas);
+
+        // Update state
+        self.list_height = inner.size.rows;
+        self.clamp_index_and_selector();
+        self.update_scroll(area.size.rows);
+        self.last_height = area.size.rows;
+
+        // TODO
+        state(self.scroll, inner.rows());
+
+        // Render table items
+        let selection = self.selection_inclusive();
+        let mut line = inner.with_rows(1);
+
+        let start = self.scroll;
+        let end = (start + inner.size.rows as usize).min(self.len);
+        for i in start..end {
+            let list_index = if i == self.index {
+                ListIndex::Selected
+            } else if selection.contains(&i) {
+                ListIndex::Selection
+            } else {
+                ListIndex::Normal
+            };
+
+            areas.iter_mut().for_each(|a| a.add_row(1));
+            render_row(line, frame, areas, i, list_index);
+            line.add_row(1);
+        }
 
         // Render scrollbar
         if let Some(scroll_area) = scroll_area {
