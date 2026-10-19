@@ -121,21 +121,36 @@ impl Database {
         len as usize
     }
 
-    pub fn tracks_id(&self, index: usize) -> TrackId {
-        self.single(
-            "SELECT id FROM tracks ORDER BY id LIMIT 1 OFFSET ?",
-            [index as SqliteId],
-            |row| row.get(0),
-        )
+    pub fn tracks_id(&mut self, index: usize) -> TrackId {
+        let query = SortedTracksQuery {
+            sort: self.sort,
+            reverse_sort: self.reverse_sort,
+            case_sensitive: false,
+        };
+        let _ = std::fmt::write(
+            &mut self.sql,
+            format_args!("{query} LIMIT 1 OFFSET {index}"),
+        );
+
+        let id = self.single(&self.sql, (), |row| query.id(row));
+        self.sql.clear();
+        id
     }
 
-    pub fn tracks_index(&self, id: TrackId) -> usize {
-        let index: SqliteId = self.single(
-            "SELECT ROW_NUMBER() OVER (ORDER BY id) - 1 FROM tracks WHERE id = ?",
-            [id],
-            |row| row.get(0),
+    pub fn tracks_index(&mut self, id: TrackId) -> usize {
+        let query = SortedTracksQuery {
+            sort: self.sort,
+            reverse_sort: self.reverse_sort,
+            case_sensitive: false,
+        };
+        let _ = std::fmt::write(
+            &mut self.sql,
+            format_args!("SELECT row_num FROM ({query}) WHERE id = {}", id.0),
         );
-        index as usize
+
+        let index = self.single(&self.sql, (), |row| query.index(row));
+        self.sql.clear();
+        index
     }
 
     pub fn track_random_id(&self) -> TrackId {
@@ -174,50 +189,19 @@ impl Database {
     }
 
     pub fn tracks_table(&mut self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
-        let sort_by = match self.sort {
-            TrackSort::Title => "t.title",
-            TrackSort::Artist => "ar.name",
-            TrackSort::Album => "al.name",
-            TrackSort::Time => "t.duration",
-            TrackSort::Rating => "t.rating",
-        };
-        let order = if self.reverse_sort { "DESC" } else { "ASC" };
         let offset = range.start;
         let limit = range.end - offset;
+        let query = SortedTracksQuery {
+            sort: self.sort,
+            reverse_sort: self.reverse_sort,
+            case_sensitive: false,
+        };
 
         let _ = std::fmt::write(
             &mut self.sql,
-            format_args!(
-                "SELECT
-                ROW_NUMBER() OVER (ORDER BY {sort_by} COLLATE NOCASE {order}, t.id {order}) - 1,
-                t.id,
-                t.title,
-                GROUP_CONCAT(ar.name, ', ') AS artists,
-                al.name AS album,
-                t.duration,
-                t.rating
-            FROM tracks t
-            LEFT JOIN artist_tracks atr ON atr.track_id = t.id
-            LEFT JOIN artists ar ON ar.id = atr.artist_id
-            LEFT JOIN album_tracks atl ON atl.track_id = t.id
-            LEFT JOIN albums al ON al.id = atl.album_id
-            GROUP BY t.id
-            ORDER BY {sort_by} COLLATE NOCASE {order}, t.id {order}
-            LIMIT {limit} OFFSET {offset}"
-            ),
+            format_args!("{query} LIMIT {limit} OFFSET {offset}"),
         );
-
-        self.for_each(&self.sql, (), |row| {
-            Ok(f(TrackTable {
-                index: row.get::<_, SqliteId>(0)? as usize,
-                id: row.get(1)?,
-                title: row.get_ref(2)?.as_str()?,
-                artists: row.get_ref(3)?.as_str()?,
-                album: row.get_ref(4)?.as_str()?,
-                duration: row.get(5)?,
-                rating: row.get(6)?,
-            }))
-        });
+        self.for_each(&self.sql, (), |row| Ok(f(query.table(row)?)));
 
         self.sql.clear();
     }
@@ -441,6 +425,70 @@ impl Database {
         }
 
         Ok(())
+    }
+}
+
+struct SortedTracksQuery {
+    sort: TrackSort,
+    reverse_sort: bool,
+    case_sensitive: bool,
+}
+
+impl SortedTracksQuery {
+    fn index(self, row: &Row) -> SqliteResult<usize> {
+        Ok(row.get::<_, SqliteId>(0)? as usize)
+    }
+
+    fn id(self, row: &Row) -> SqliteResult<TrackId> {
+        row.get(1)
+    }
+
+    fn table<'a>(&self, row: &'a Row) -> SqliteResult<TrackTable<'a>> {
+        Ok(TrackTable {
+            index: row.get::<_, SqliteId>(0)? as usize,
+            id: row.get(1)?,
+            title: row.get_ref(2)?.as_str()?,
+            artists: row.get_ref(3)?.as_str()?,
+            album: row.get_ref(4)?.as_str()?,
+            duration: row.get(5)?,
+            rating: row.get(6)?,
+        })
+    }
+}
+
+impl std::fmt::Display for SortedTracksQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let sort_by = match self.sort {
+            TrackSort::Title => "t.title",
+            TrackSort::Artist => "ar.name",
+            TrackSort::Album => "al.name",
+            TrackSort::Time => "t.duration",
+            TrackSort::Rating => "t.rating",
+        };
+        let order = if self.reverse_sort { "DESC" } else { "ASC" };
+        let case = if self.case_sensitive {
+            ""
+        } else {
+            "COLLATE NOCASE"
+        };
+
+        f.write_fmt(format_args!(
+            "SELECT
+                ROW_NUMBER() OVER (ORDER BY {sort_by} {case} {order}, t.id {order}) - 1 AS row_num,
+                t.id,
+                t.title,
+                GROUP_CONCAT(ar.name, ', ') AS artists,
+                al.name AS album,
+                t.duration,
+                t.rating
+            FROM tracks t
+            LEFT JOIN artist_tracks atr ON atr.track_id = t.id
+            LEFT JOIN artists ar ON ar.id = atr.artist_id
+            LEFT JOIN album_tracks atl ON atl.track_id = t.id
+            LEFT JOIN albums al ON al.id = atl.album_id
+            GROUP BY t.id
+            ORDER BY {sort_by} {case} {order}, t.id {order}"
+        ))
     }
 }
 

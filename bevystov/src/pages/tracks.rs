@@ -117,7 +117,6 @@ fn input_tracks(
                 // }
             }
             'q' => {
-                // TODO
                 jukebox.extend(
                     page.list
                         .selection_inclusive()
@@ -125,12 +124,10 @@ fn input_tracks(
                 );
             }
             'n' => {
-                // TODO
-                // for i in page.list.selection_inclusive().rev() {
-                //     if let Some(id) = database.get_id_from_index(i) {
-                //         jukebox.enqueue_next(id);
-                //     }
-                // }
+                for i in page.list.selection_inclusive().rev() {
+                    let id = database.tracks_id(i);
+                    jukebox.enqueue_next(id);
+                }
             }
             's' => {
                 database.next_sort();
@@ -158,14 +155,13 @@ fn input_tracks(
     }
 }
 
-fn enter_tracks(mut page: ResMut<TracksPage>, database: NonSend<Database>) {
+fn enter_tracks(mut page: ResMut<TracksPage>, mut database: NonSendMut<Database>) {
     let Some(id) = page.params.take() else {
         return;
     };
 
-    // TODO
-    // let index = database.tracks_index(id);
-    // page.list.set_index(index).set_selector(None);
+    let index = database.tracks_index(id);
+    page.list.set_index(index).set_selector(None);
 }
 
 fn render_tracks(
