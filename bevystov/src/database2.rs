@@ -17,6 +17,9 @@ pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub struct Database {
     sqlite: Sqlite,
+    sql: String,
+    sort: TrackSort,
+    reverse_sort: bool,
     receiver: Option<ScanReceiver>,
 }
 
@@ -27,9 +30,12 @@ pub enum DatabaseEvent {
 }
 
 impl Database {
-    fn new(sqlite: Sqlite) -> Self {
+    const fn new(sqlite: Sqlite) -> Self {
         Self {
             sqlite,
+            sql: String::new(),
+            sort: TrackSort::Album,
+            reverse_sort: false,
             receiver: None,
         }
     }
@@ -55,6 +61,22 @@ impl Database {
 
     pub const fn has_finished_loading(&self) -> bool {
         self.receiver.is_none()
+    }
+
+    pub const fn get_sort(&self) -> TrackSort {
+        self.sort
+    }
+
+    pub const fn get_reverse_sort(&self) -> bool {
+        self.reverse_sort
+    }
+
+    pub const fn next_sort(&mut self) {
+        self.sort = self.sort.next();
+    }
+
+    pub const fn toggle_reverse_sort(&mut self) {
+        self.reverse_sort = !self.reverse_sort;
     }
 
     pub fn iter<'a, T: 'a>(
@@ -149,38 +171,53 @@ impl Database {
         )
     }
 
-    pub fn tracks_table(&self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
-        let (start, end) = (range.start as SqliteId, range.end as SqliteId);
-        self.for_each(
-            "SELECT
-                    ROW_NUMBER() OVER (ORDER BY t.id) - 1,
-                    t.id,
-                    t.title,
-                    GROUP_CONCAT(ar.name, ', ') AS artists,
-                    al.name AS album,
-                    t.duration,
-                    t.rating
-                FROM tracks t
-                LEFT JOIN artist_tracks atr ON atr.track_id = t.id
-                LEFT JOIN artists ar ON ar.id = atr.artist_id
-                LEFT JOIN album_tracks atl ON atl.track_id = t.id
-                LEFT JOIN albums al ON al.id = atl.album_id
-                GROUP BY t.id
-                ORDER BY t.id
-                LIMIT ?1 OFFSET ?2",
-            [end - start, start],
-            |row| {
-                Ok(f(TrackTable {
-                    index: row.get::<_, SqliteId>(0)? as usize,
-                    id: row.get(1)?,
-                    title: row.get_ref(2)?.as_str()?,
-                    artists: row.get_ref(3)?.as_str()?,
-                    album: row.get_ref(4)?.as_str()?,
-                    duration: row.get(5)?,
-                    rating: row.get(6)?,
-                }))
-            },
+    pub fn tracks_table(&mut self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
+        let sort_by = match self.sort {
+            TrackSort::Title => "t.title",
+            TrackSort::Artist => "ar.name",
+            TrackSort::Album => "al.name",
+            TrackSort::Time => "t.duration",
+            TrackSort::Rating => "t.rating",
+        };
+        let order = if self.reverse_sort { "DESC" } else { "ASC" };
+        let offset = range.start;
+        let limit = range.end - offset;
+
+        let _ = std::fmt::write(
+            &mut self.sql,
+            format_args!(
+                "SELECT
+                ROW_NUMBER() OVER (ORDER BY {sort_by} COLLATE NOCASE {order}, t.id {order}) - 1,
+                t.id,
+                t.title,
+                GROUP_CONCAT(ar.name, ', ') AS artists,
+                al.name AS album,
+                t.duration,
+                t.rating
+            FROM tracks t
+            LEFT JOIN artist_tracks atr ON atr.track_id = t.id
+            LEFT JOIN artists ar ON ar.id = atr.artist_id
+            LEFT JOIN album_tracks atl ON atl.track_id = t.id
+            LEFT JOIN albums al ON al.id = atl.album_id
+            GROUP BY t.id
+            ORDER BY {sort_by} COLLATE NOCASE {order}, t.id {order}
+            LIMIT {limit} OFFSET {offset}"
+            ),
         );
+
+        self.for_each(&self.sql, (), |row| {
+            Ok(f(TrackTable {
+                index: row.get::<_, SqliteId>(0)? as usize,
+                id: row.get(1)?,
+                title: row.get_ref(2)?.as_str()?,
+                artists: row.get_ref(3)?.as_str()?,
+                album: row.get_ref(4)?.as_str()?,
+                duration: row.get(5)?,
+                rating: row.get(6)?,
+            }))
+        });
+
+        self.sql.clear();
     }
 
     pub fn track_info(&self, id: TrackId, mut f: impl FnMut(TrackInfo)) {

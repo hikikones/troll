@@ -183,7 +183,7 @@ impl List {
             .unwrap_or(self.index..=self.index)
     }
 
-    pub fn render(&mut self, area: Rect) -> Range<usize> {
+    pub fn lines(&mut self, area: Rect) -> Range<usize> {
         self.list_height = area.size.rows;
 
         if area.is_empty() {

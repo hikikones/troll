@@ -165,28 +165,36 @@ fn input_tracks(
                 //     }
                 // }
             }
-            's' | 'S' => {
-                // TODO
-                // let id = database.get_id_from_index(page.list.index());
-
-                // if c == 's' {
-                //     let sort = database.get_sort().next();
-                //     database.sort(sort, page.reverse_sort);
-                // } else {
-                //     let sort = database.get_sort();
-                //     page.reverse_sort = !page.reverse_sort;
-                //     database.sort(sort, page.reverse_sort);
-                // }
-
-                // if page.keep_on_sort
-                //     && let Some(id) = id
-                //     && let Some(i) = database.get_index_from_id(id)
-                // {
-                //     page.list.set_index(i).set_selector(None);
-                // }
-
-                // actions.push(Action::Render);
+            's' => {
+                database.next_sort();
+                actions.push(Action::Render);
             }
+            'S' => {
+                database.toggle_reverse_sort();
+                actions.push(Action::Render);
+            }
+            // 's' | 'S' => {
+            // TODO
+            // let id = database.get_id_from_index(page.list.index());
+
+            // if c == 's' {
+            //     let sort = database.get_sort().next();
+            //     database.sort(sort, page.reverse_sort);
+            // } else {
+            //     let sort = database.get_sort();
+            //     page.reverse_sort = !page.reverse_sort;
+            //     database.sort(sort, page.reverse_sort);
+            // }
+
+            // if page.keep_on_sort
+            //     && let Some(id) = id
+            //     && let Some(i) = database.get_index_from_id(id)
+            // {
+            //     page.list.set_index(i).set_selector(None);
+            // }
+
+            // actions.push(Action::Render);
+            // }
             'm' => {
                 // TODO: remove
                 actions.push(Action::Modal(Modal::Custom));
@@ -219,7 +227,7 @@ fn render_tracks(
     shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Framebuffer>,
     settings: Res<Settings>,
-    database: NonSend<Database>,
+    mut database: NonSendMut<Database>,
     jukebox: NonSend<Jukebox>,
     mut page: ResMut<TracksPage>,
     mut tracks: ResMut<Tracks>,
@@ -266,25 +274,25 @@ fn render_tracks(
         }
     }
 
-    // let sort = database.get_sort(); TODO
-    // let reverse = page.reverse_sort; TODO
+    let sort = database.get_sort();
+    let reverse = database.get_reverse_sort();
 
     frame.print_fmt(Sgr::Fg(colors.normal));
 
     frame.push_str("Title");
-    // frame.push_str(sort_symbol(sort, TrackSort::Title, reverse));
+    frame.push_str(sort_symbol(sort, TrackSort::Title, reverse));
     frame.render(areas.title(), TextOptions::span());
     frame.push_str("Artist");
-    // frame.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
+    frame.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
     frame.render(areas.artist(), TextOptions::span());
     frame.push_str("Album");
-    // frame.push_str(sort_symbol(sort, TrackSort::Album, reverse));
+    frame.push_str(sort_symbol(sort, TrackSort::Album, reverse));
     frame.render(areas.album(), TextOptions::span());
     frame.push_str("Time");
-    // frame.push_str(sort_symbol(sort, TrackSort::Time, reverse));
+    frame.push_str(sort_symbol(sort, TrackSort::Time, reverse));
     frame.render(areas.time(), TextOptions::span());
     frame.push_str("Rating");
-    // frame.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
+    frame.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
     frame.render(areas.rating(), TextOptions::span());
 
     frame.print_fmt(Sgr::reset_fg());
@@ -293,7 +301,7 @@ fn render_tracks(
     table_area.shrink_down(1);
 
     let line = table_area.with_rows(1);
-    let lines = page.list.set_len(tracks_len).render(table_area);
+    let lines = page.list.set_len(tracks_len).lines(table_area);
 
     // tracks.update(&page.list, table_area.rows(), &database);
 
