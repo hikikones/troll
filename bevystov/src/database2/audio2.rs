@@ -2,9 +2,10 @@ use std::{fs::File, path::Path, time::Duration};
 
 use lofty::{
     config::ParseOptions,
-    file::AudioFile as LoftyAudioFile,
+    file::{AudioFile as LoftyAudioFile, TaggedFile, TaggedFileExt},
     flac::FlacFile,
     ogg::{OpusFile, VorbisFile, tag::VorbisComments},
+    picture::PictureType,
 };
 
 pub type AudioResult<T> = Result<T, AudioFileError>;
@@ -129,6 +130,23 @@ impl AudioExt {
             Self::Opus => "OPUS",
             Self::Ogg => "OGG",
         }
+    }
+}
+
+pub struct AudioFrontCover(TaggedFile);
+
+impl AudioFrontCover {
+    pub fn read(path: impl AsRef<Path>) -> AudioResult<Self> {
+        // TODO: Only read image from supported AudioExt.
+        Ok(Self(lofty::read_from_path(path)?))
+    }
+
+    pub fn bytes(&self) -> Option<&[u8]> {
+        self.0
+            .primary_tag()
+            .or_else(|| self.0.first_tag())
+            .and_then(|tag| tag.get_picture_type(PictureType::CoverFront))
+            .map(|pic| pic.data())
     }
 }
 

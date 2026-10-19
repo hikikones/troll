@@ -141,7 +141,9 @@ impl Database {
     pub fn track_random_id(&self) -> TrackId {
         let len: SqliteId = self.single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0));
         // TODO: Store rng somewhere for reuse
-        TrackId(fastrand::i64(0..len))
+        // TODO: Actually use random id from db instead.
+        // Ids are not necessarily sequential.
+        TrackId(fastrand::i64(1..len))
     }
 
     pub fn track_title(&self, id: TrackId, mut f: impl FnMut(&str)) {

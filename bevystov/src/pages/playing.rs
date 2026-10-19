@@ -2,19 +2,19 @@ use ecs::*;
 use shared::symbols;
 use terminal::*;
 use widgets2::{
-    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, List, ListIndex,
-    ScrollMargins,
+    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, Scrollbar,
+    ScrollbarData, list2::List,
 };
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database2::{Database, TrackId, TrackRating},
+    database2::{AudioFileError, AudioFrontCover, Database, TrackId, TrackRating},
     jukebox::Jukebox,
     pages::{Page, Route},
     settings::{Colors, Settings},
 };
 
-type ImageResult = Result<Option<Image>, KittyError>;
+type ImageResult = Result<Option<Image>, LoadImageError>;
 type ImageHandle = std::thread::JoinHandle<ImageResult>;
 
 pub struct PlayingPagePlugin;
@@ -70,9 +70,7 @@ impl PlayingPage {
 impl Default for PlayingPage {
     fn default() -> Self {
         Self {
-            list: List::new()
-                .with_scrollbar(0)
-                .with_padding(Margin::horizontal(1)),
+            list: List::new(),
             current_id: None,
             current_qi: None,
             image_id: 1,
@@ -315,18 +313,6 @@ fn render_cover(
         );
         return;
     };
-    // TODO: remove
-    // let Some(rating) = jukebox
-    //     .current_track_id()
-    //     .and_then(|id| database.get(id).map(|t| t.rating()))
-    // else {
-    //     frame.push_str_fg("No track currently playing", colors.neutral);
-    //     frame.render(
-    //         area.inner(Margin::proportional(1)),
-    //         TextOptions::paragraph_center(),
-    //     );
-    //     return;
-    // };
 
     if area.size.rows > 15 {
         let image_area = cover.render(area.inner(Margin::vertical(1)), frame, colors);
@@ -377,54 +363,76 @@ fn render_queue(
         return;
     }
 
-    let inner = area.inner(Margin::all(1));
-    let scrolloff = inner.rows() / 2;
-    list.set_scrolloff(ScrollMargins::all(scrolloff));
+    let (inner, scoll_area) = {
+        let inner = area.inner(Margin::all(1));
+        let is_scrollable = jukebox.len() > inner.rows() as usize && inner.cols() > 16;
+        if is_scrollable {
+            let (ta, sa) = inner.split_right(1, 0);
+            (ta.inner(Margin::horizontal(1)), Some(sa))
+        } else {
+            (inner.inner(Margin::horizontal(1)), None)
+        }
+    };
 
+    let scrolloff = inner.rows() / 2;
+    let line = inner.with_rows(1);
+    let lines = list
+        .set_scrolloff(scrolloff)
+        .set_padding(scrolloff)
+        .set_len(jukebox.len())
+        .render(inner);
+
+    let selected = list.index();
+    let selection = list.selection_inclusive();
     let hlen = jukebox.history();
     let current_qi = jukebox.current_queue_index();
+    let mut row = inner.pos.row;
 
-    list.set_colors(colors.list()).render(
-        inner,
-        frame,
-        jukebox.iter(),
-        |line, frame, (id, qi), index| {
-            // TODO
-            // let Some(track) = database.get(id) else {
-            //     return;
-            // };
+    for (index, (id, qi)) in lines.zip(jukebox.iter().skip(list.scroll())) {
+        let fg = if qi < hlen {
+            colors.neutral
+        } else if current_qi == Some(qi) {
+            colors.primary
+        } else {
+            colors.normal
+        };
 
-            // let fg = if qi < hlen {
-            //     colors.neutral
-            // } else if current_qi == Some(qi) {
-            //     colors.primary
-            // } else {
-            //     colors.normal
-            // };
+        let symbol = if index == selected {
+            symbols::concat!(symbols::SELECTED, " ")
+        } else if selection.contains(&index) {
+            symbols::concat!(symbols::SELECTION, " ")
+        } else {
+            ""
+        };
 
-            // let symbol = match index {
-            //     ListIndex::Selected => symbols::concat!(symbols::SELECTED, " "),
-            //     ListIndex::Selection => symbols::concat!(symbols::SELECTION, " "),
-            //     ListIndex::Normal => "",
-            // };
+        frame.push_fmt(Sgr::Fg(fg));
+        frame.push_str(symbol);
 
-            // frame.push_fmt(Sgr::Fg(fg));
-            // frame.push_str(symbol);
+        if jukebox.is_faulty(id) {
+            frame.push_fmt(Sgr::CrossedOut);
+        }
 
-            // if jukebox.is_faulty(id) {
-            //     frame.push_fmt(Sgr::CrossedOut);
-            // }
+        database.track_title(id, |title| {
+            frame.push_str(title);
+        });
 
-            // frame.push_fmt(track.title());
-            // frame.push_ch(' ');
-            // frame.push_fmt(track.artist());
-            // frame.push_ch(' ');
-            // frame.push_fmt(track.album());
-            // frame.push_ch(' ');
-            // frame.push_fmt(Sgr::Reset);
-            // frame.render(line, TextOptions::span());
-        },
-    );
+        frame.push_fmt(Sgr::Reset);
+        frame.render(line.with_row(row), TextOptions::span());
+
+        row += 1;
+    }
+
+    if let Some(scroll_area) = scoll_area {
+        Scrollbar::new().with_colors(colors.scrollbar()).render(
+            scroll_area,
+            frame,
+            ScrollbarData {
+                current_scroll: list.scroll(),
+                total_items: jukebox.len(),
+                viewport_height: inner.rows(),
+            },
+        );
+    }
 
     render_shortcuts(shortcuts_area, frame, colors);
 }
@@ -465,48 +473,21 @@ fn update_cover(
     jukebox: NonSend<Jukebox>,
     database: NonSend<Database>,
 ) {
-    // TODO
-    // let id = jukebox.current_track_id();
+    let id = jukebox.current_track_id();
 
-    // if page.current_id == id {
-    //     return;
-    // }
-
-    // page.current_id = id;
-
-    // let Some(id) = id else {
-    //     cover.clear();
-    //     return;
-    // };
-
-    // let Some(track) = database.get(id) else {
-    //     cover.clear();
-    //     return;
-    // };
-
-    // cover.handle = Some(load_front_cover(track.path(), page.next_image_id()));
-
-    fn load_front_cover(path: &std::path::Path, image_id: u32) -> ImageHandle {
-        let path = path.to_path_buf();
-        std::thread::spawn(move || {
-            // TODO: Remove unwrap by reworking the AudioFileReport error.
-
-            // TODO
-            // let cover = crate::database::AudioFrontCover::read(path).unwrap();
-            // match cover.bytes() {
-            //     Some(bytes) => Image::from_bytes(
-            //         bytes,
-            //         &mut std::io::stdout().lock(),
-            //         image_id,
-            //         ImageLoadOptions::max(Dims::SD),
-            //     )
-            //     .map(|img| Some(img)),
-            //     None => Ok(None),
-            // }
-
-            Ok(None)
-        })
+    if page.current_id == id {
+        return;
     }
+
+    page.current_id = id;
+
+    let Some(id) = id else {
+        cover.clear();
+        return;
+    };
+
+    let path = database.track_path(id);
+    cover.handle = Some(load_front_cover(path, page.next_image_id()));
 }
 
 fn poll_cover(mut cover: NonSendMut<FrontCover>, mut actions: ResMut<Actions>) {
@@ -517,5 +498,57 @@ fn poll_cover(mut cover: NonSendMut<FrontCover>, mut actions: ResMut<Actions>) {
     {
         cover.result = Some(image);
         actions.push(Action::Render);
+    }
+}
+
+fn load_front_cover(path: std::path::PathBuf, image_id: u32) -> ImageHandle {
+    std::thread::spawn(move || {
+        let cover = AudioFrontCover::read(&path).map_err(|err| LoadImageError {
+            message: format!("Failed to read front cover image from '{}'", path.display()),
+            source: Some(LoadErrorSource::Audio(err)),
+        })?;
+
+        cover
+            .bytes()
+            .map(|bytes| {
+                Image::from_bytes(
+                    bytes,
+                    &mut std::io::stdout().lock(),
+                    image_id,
+                    ImageLoadOptions::max(Dims::SD),
+                )
+            })
+            .transpose()
+            .map_err(|err| LoadImageError {
+                message: format!("Failed to load front cover image from '{}'", path.display()),
+                source: Some(LoadErrorSource::Image(err)),
+            })
+    })
+}
+
+#[derive(Debug)]
+struct LoadImageError {
+    message: String,
+    source: Option<LoadErrorSource>,
+}
+
+#[derive(Debug)]
+enum LoadErrorSource {
+    Audio(AudioFileError),
+    Image(KittyError),
+}
+
+impl std::fmt::Display for LoadImageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for LoadImageError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|err| match err {
+            LoadErrorSource::Audio(err) => err as _,
+            LoadErrorSource::Image(err) => err as _,
+        })
     }
 }

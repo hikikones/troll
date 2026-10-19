@@ -13,6 +13,7 @@ pub struct List {
     selector: Option<usize>,
     scroll: usize,
     scrolloff: u16,
+    padding: u16,
     list_height: u16,
     last_height: u16,
     len: usize,
@@ -31,6 +32,7 @@ impl List {
             selector: None,
             scroll: 0,
             scrolloff: 0,
+            padding: 0,
             list_height: 0,
             last_height: 0,
             len: 0,
@@ -76,6 +78,16 @@ impl List {
 
     pub const fn set_selector(&mut self, s: Option<usize>) -> &mut Self {
         self.selector = s;
+        self
+    }
+
+    pub const fn set_scrolloff(&mut self, vertical: u16) -> &mut Self {
+        self.scrolloff = vertical;
+        self
+    }
+
+    pub const fn set_padding(&mut self, bottom: u16) -> &mut Self {
+        self.padding = bottom;
         self
     }
 
@@ -242,7 +254,7 @@ impl List {
             current_scroll: scroll,
             total_lines: self.len,
             viewport_height: area_height,
-            margins: ScrollMargins::vertical(self.scrolloff),
+            margins: ScrollMargins::vertical(self.scrolloff).with_padding(self.padding),
         });
         self.last_height = area_height;
     }

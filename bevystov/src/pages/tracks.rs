@@ -118,11 +118,11 @@ fn input_tracks(
             }
             'q' => {
                 // TODO
-                // jukebox.extend(
-                //     page.list
-                //         .selection_inclusive()
-                //         .map(|i| database.tracks_id(i)),
-                // );
+                jukebox.extend(
+                    page.list
+                        .selection_inclusive()
+                        .map(|i| database.tracks_id(i)),
+                );
             }
             'n' => {
                 // TODO
