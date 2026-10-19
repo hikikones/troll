@@ -10,6 +10,17 @@ pub struct TrackInfo<'a> {
     pub duration: TrackDuration,
 }
 
+#[derive(Debug)]
+pub struct TrackTable<'a> {
+    pub index: usize,
+    pub id: TrackId,
+    pub title: &'a str,
+    pub artists: &'a str,
+    pub album: &'a str,
+    pub duration: TrackDuration,
+    pub rating: TrackRating,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TrackId(pub SqliteId);
 

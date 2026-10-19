@@ -99,6 +99,30 @@ impl Database {
         len as usize
     }
 
+    pub fn tracks_id(&self, index: usize) -> TrackId {
+        self.single(
+            "SELECT id FROM tracks ORDER BY id LIMIT 1 OFFSET ?",
+            [index as SqliteId],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn tracks_index(&self, id: TrackId) -> usize {
+        // let index: SqliteId = self.single(
+        //     "SELECT row_num - 1 AS idx FROM \
+        //         (SELECT id, ROW_NUMBER() OVER (ORDER BY id) AS row_num FROM tracks) \
+        //         WHERE id = ?",
+        //     [id],
+        //     |row| row.get(0),
+        // );
+        let index: SqliteId = self.single(
+            "SELECT ROW_NUMBER() OVER (ORDER BY id) FROM tracks WHERE id = ?",
+            [id],
+            |row| row.get(0),
+        );
+        (index - 1) as usize
+    }
+
     pub fn track_random_id(&self) -> TrackId {
         let len: SqliteId = self.single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0));
         // TODO: Store rng somewhere for reuse
@@ -130,6 +154,40 @@ impl Database {
             [end - start, start],
             |row| row.get(0),
         )
+    }
+
+    pub fn tracks_range_table(&self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
+        let (start, end) = (range.start as SqliteId, range.end as SqliteId);
+        self.for_each(
+            "SELECT
+                    ROW_NUMBER() OVER (ORDER BY t.id) - 1,
+                    t.id,
+                    t.title,
+                    t.rating,
+                    t.duration,
+                    GROUP_CONCAT(ar.name, ', ') AS artists,
+                    al.name AS album
+                FROM tracks t
+                LEFT JOIN artist_tracks atr ON atr.track_id = t.id
+                LEFT JOIN artists ar ON ar.id = atr.artist_id
+                LEFT JOIN album_tracks atl ON atl.track_id = t.id
+                LEFT JOIN albums al ON al.id = atl.album_id
+                GROUP BY t.id
+                ORDER BY t.id
+                LIMIT ?1 OFFSET ?2",
+            [end - start, start],
+            |row| {
+                Ok(f(TrackTable {
+                    index: row.get::<_, SqliteId>(0)? as usize,
+                    id: row.get(1)?,
+                    title: row.get_ref(2)?.as_str()?,
+                    artists: row.get_ref(5)?.as_str()?,
+                    album: row.get_ref(6)?.as_str()?,
+                    duration: row.get(4)?,
+                    rating: row.get(3)?,
+                }))
+            },
+        );
     }
 
     pub fn track_info(&self, id: TrackId, mut f: impl FnMut(TrackInfo)) {

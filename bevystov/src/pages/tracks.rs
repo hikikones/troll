@@ -4,7 +4,7 @@ use widgets2::{Block, list2::List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database2::{Database, TrackId, TrackRating, TrackSort},
+    database2::{Database, TrackId, TrackRating, TrackSort, TrackTable},
     jukebox::Jukebox,
     modals::Modal,
     pages::Page,
@@ -136,10 +136,8 @@ fn input_tracks(
 
     match key.code {
         KeyCode::Enter => {
-            // TODO
-            // if let Some(id) = database.get_id_from_index(page.list.index()) {
-            //     jukebox.play_id(id, &database);
-            // }
+            let id = database.tracks_id(page.list.index());
+            jukebox.play_id(id, &database);
         }
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
@@ -305,8 +303,16 @@ fn render_tracks(
     let current_track = jukebox.current_track_id();
     let mut row = table_area.pos.row;
 
-    for index in lines {
-        let id = tracks[index - scroll];
+    database.tracks_range_table(lines, |track| {
+        let TrackTable {
+            index,
+            id,
+            title,
+            artists,
+            album,
+            rating,
+            duration,
+        } = track;
 
         let mut style = if index == selected {
             frame.fill(line.with_row(row), colors.primary, true);
@@ -329,17 +335,59 @@ fn render_tracks(
         areas.set_row(row);
 
         frame.print_fmt(style);
-        database.track_info(id, |info| {
-            frame.print_span(areas.title(), info.title);
-            frame.push_fmt(info.duration);
-            frame.render(areas.time(), TextOptions::span());
-            frame.print_span(areas.rating(), info.rating.stars());
-        });
+        frame.print_span(areas.title(), title);
+        frame.print_span(areas.artist(), artists);
+        frame.print_span(areas.album(), album);
+        frame.push_fmt(duration);
+        frame.render(areas.time(), TextOptions::span());
+        frame.print_span(areas.rating(), rating.stars());
+        // database.track_info(id, |info| {
+        //     frame.print_span(areas.title(), info.title);
+        //     frame.push_fmt(info.duration);
+        //     frame.render(areas.time(), TextOptions::span());
+        //     frame.print_span(areas.rating(), info.rating.stars());
+        // });
         // TODO: artist and album
         frame.print_fmt(Sgr::Reset);
 
         row += 1;
-    }
+    });
+
+    // for index in lines {
+    //     let id = tracks[index - scroll];
+
+    //     let mut style = if index == selected {
+    //         frame.fill(line.with_row(row), colors.primary, true);
+    //         Style::fg(colors.primary).with_reverse()
+    //     } else if selection.contains(&index) {
+    //         frame.fill(line.with_row(row), colors.neutral, true);
+    //         Style::fg(colors.neutral).with_reverse()
+    //     } else {
+    //         Style::fg(colors.normal)
+    //     };
+
+    //     if current_track == Some(id) {
+    //         style.insert(Attributes::BOLD);
+    //     }
+
+    //     if jukebox.is_faulty(id) {
+    //         style.insert(Attributes::CROSSED_OUT);
+    //     }
+
+    //     areas.set_row(row);
+
+    //     frame.print_fmt(style);
+    //     database.track_info(id, |info| {
+    //         frame.print_span(areas.title(), info.title);
+    //         frame.push_fmt(info.duration);
+    //         frame.render(areas.time(), TextOptions::span());
+    //         frame.print_span(areas.rating(), info.rating.stars());
+    //     });
+    //     // TODO: artist and album
+    //     frame.print_fmt(Sgr::Reset);
+
+    //     row += 1;
+    // }
 
     render_shortcuts(**shortcuts_area, &mut frame, &colors);
 }
