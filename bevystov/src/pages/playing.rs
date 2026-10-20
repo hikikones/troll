@@ -176,8 +176,7 @@ fn input_playing(
             '0' | '1' | '2' | '3' | '4' | '5' => {
                 if let Some(id) = jukebox.current_track_id() {
                     let rating = TrackRating::from_char(c).unwrap();
-                    // TODO
-                    // database.write_rating(id, rating);
+                    database.write_rating(id, rating);
                 }
             }
             'c' if shows_queue => {

@@ -8,10 +8,12 @@ use shared::sqlite::*;
 mod audio2;
 mod scanner;
 mod track2;
+mod writer;
 
 pub use audio2::*;
 use scanner::*;
 pub use track2::*;
+use writer::*;
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
@@ -21,6 +23,7 @@ pub struct Database {
     sort: TrackSort,
     reverse_sort: bool,
     receiver: Option<ScanReceiver>,
+    writer: RatingsWriter,
 }
 
 pub enum DatabaseEvent {
@@ -37,6 +40,7 @@ impl Database {
             sort: TrackSort::Album,
             reverse_sort: false,
             receiver: None,
+            writer: RatingsWriter::new(),
         }
     }
 
@@ -234,7 +238,23 @@ impl Database {
         );
     }
 
+    pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) {
+        let current_rating = self.tracks_rating(id);
+
+        if current_rating == rating {
+            return;
+        }
+
+        let path = self.tracks_path(id);
+        self.writer.push(WriteRequest { path, id, rating });
+    }
+
     pub fn update(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
+        self.receive_files(&mut on_event);
+        self.poll_writer(&mut on_event);
+    }
+
+    fn receive_files(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
         use std::sync::mpsc::TryRecvError;
 
         let Some(recv) = self.receiver.as_ref() else {
@@ -265,6 +285,24 @@ impl Database {
                 },
             }
         }
+    }
+
+    fn poll_writer(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
+        self.writer.update(|result| match result {
+            Ok(req) => {
+                // Update rating in db
+                self.sqlite
+                    .execute(
+                        "UPDATE tracks SET rating = ?1 WHERE id = ?2",
+                        (req.rating, req.id),
+                    )
+                    .unwrap();
+
+                // Notify
+                on_event(DatabaseEvent::Rating(req.id));
+            }
+            Err(err) => on_event(DatabaseEvent::Error(err)),
+        });
     }
 
     fn add_track(tx: &Transaction, track: ScannedTrack) -> SqliteResult<()> {
@@ -320,6 +358,7 @@ impl Database {
         Ok(())
     }
 
+    // TODO: Remove
     pub fn print_all(&self) {
         println!("TITLES");
         println!("-------------------------------------------------------------");

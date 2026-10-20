@@ -109,12 +109,11 @@ fn input_tracks(
         }
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
-                // TODO
-                // let rating = TrackRating::from_char(c).unwrap();
-                // for i in page.list.selection_inclusive() {
-                //     let id = database.tracks_id(i);
-                //     database.write_rating(id, rating);
-                // }
+                let rating = TrackRating::from_char(c).unwrap();
+                for i in page.list.selection_inclusive() {
+                    let id = database.tracks_id(i);
+                    database.write_rating(id, rating);
+                }
             }
             'q' => {
                 jukebox.extend(

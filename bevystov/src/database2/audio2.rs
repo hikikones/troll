@@ -1,7 +1,7 @@
 use std::{fs::File, path::Path, time::Duration};
 
 use lofty::{
-    config::ParseOptions,
+    config::{ParseOptions, WriteOptions},
     file::{AudioFile as LoftyAudioFile, TaggedFile, TaggedFileExt},
     flac::FlacFile,
     ogg::{OpusFile, VorbisFile, tag::VorbisComments},
@@ -51,6 +51,16 @@ impl AudioFile {
         }
     }
 
+    pub fn vorbis_comments_mut(&mut self) -> AudioResult<&mut VorbisComments> {
+        match &mut self.0 {
+            AudioFormat::Flac(flac) => flac
+                .vorbis_comments_mut()
+                .ok_or(AudioFileError::MissingVorbisComments),
+            AudioFormat::Opus(opus) => Ok(opus.vorbis_comments_mut()),
+            AudioFormat::Vorbis(vorbis) => Ok(vorbis.vorbis_comments_mut()),
+        }
+    }
+
     pub fn properties(&self) -> AudioProperties {
         match &self.0 {
             AudioFormat::Flac(flac) => {
@@ -81,6 +91,24 @@ impl AudioFile {
                 }
             }
         }
+    }
+
+    pub fn save(&self, path: impl AsRef<Path>) -> AudioResult<()> {
+        let options = WriteOptions::new();
+
+        match &self.0 {
+            AudioFormat::Flac(flac) => {
+                flac.save_to_path(path, options)?;
+            }
+            AudioFormat::Opus(opus) => {
+                opus.save_to_path(path, options)?;
+            }
+            AudioFormat::Vorbis(vorbis) => {
+                vorbis.save_to_path(path, options)?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -154,6 +182,7 @@ impl AudioFrontCover {
 pub enum AudioFileError {
     Io(std::io::Error),
     Parse(lofty::error::FileParseError),
+    Encode(lofty::error::FileEncodingError),
     MissingVorbisComments,
 }
 
@@ -162,12 +191,15 @@ impl std::fmt::Display for AudioFileError {
         match self {
             AudioFileError::Io(err) => err.fmt(f),
             AudioFileError::Parse(err) => err.fmt(f),
+            AudioFileError::Encode(err) => err.fmt(f),
             AudioFileError::MissingVorbisComments => {
                 f.write_str("No VorbisComments metadata container found")
             }
         }
     }
 }
+
+impl std::error::Error for AudioFileError {}
 
 impl From<std::io::Error> for AudioFileError {
     fn from(err: std::io::Error) -> Self {
@@ -181,4 +213,8 @@ impl From<lofty::error::FileParseError> for AudioFileError {
     }
 }
 
-impl std::error::Error for AudioFileError {}
+impl From<lofty::error::FileEncodingError> for AudioFileError {
+    fn from(err: lofty::error::FileEncodingError) -> Self {
+        Self::Encode(err)
+    }
+}

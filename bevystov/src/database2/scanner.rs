@@ -10,6 +10,8 @@ use crate::database2::{AudioExt, AudioFile, AudioResult, TrackDuration, TrackRat
 pub type ScanReceiver = std::sync::mpsc::Receiver<ScannedResult>;
 pub type ScannedResult = AudioResult<ScannedTrack>;
 
+// TODO: recv -> scan event
+
 pub struct Scanner;
 
 impl Scanner {
