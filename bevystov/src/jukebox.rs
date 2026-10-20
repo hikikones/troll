@@ -1,4 +1,4 @@
-use std::{collections::HashSet, io::Cursor, time::Duration};
+use std::{collections::HashSet, io::Cursor, ops::Range, path::Path, time::Duration};
 
 use rodio::decoder::Decoder;
 
@@ -21,6 +21,52 @@ pub struct Jukebox {
     events: Vec<JukeboxEvent>,
     faulty: HashSet<TrackId>,
     player: AudioPlayer,
+}
+
+struct CurrentTrack {
+    text: String,
+    data: Option<TrackData>,
+}
+
+#[derive(Clone)]
+struct TrackData {
+    id: TrackId,
+    index: usize,
+    title: Range<usize>,
+    artists: Range<usize>,
+    album: Range<usize>,
+    path: Range<usize>,
+}
+
+pub struct Track<'a> {
+    text: &'a String,
+    data: TrackData,
+}
+
+impl<'a> Track<'a> {
+    pub const fn id(&self) -> TrackId {
+        self.data.id
+    }
+
+    pub const fn queue_index(&self) -> usize {
+        self.data.index
+    }
+
+    pub fn title(&self) -> &str {
+        &self.text[self.data.title.clone()]
+    }
+
+    pub fn artists(&self) -> &str {
+        &self.text[self.data.artists.clone()]
+    }
+
+    pub fn album(&self) -> &str {
+        &self.text[self.data.album.clone()]
+    }
+
+    pub fn path(&self) -> &Path {
+        Path::new(&self.text[self.data.path.clone()])
+    }
 }
 
 pub enum JukeboxEvent {

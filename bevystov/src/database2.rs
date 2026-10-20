@@ -200,24 +200,6 @@ impl Database {
         )
     }
 
-    pub fn tracks_table(&mut self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
-        let offset = range.start;
-        let limit = range.end - offset;
-        let query = SortedTracksQuery {
-            sort: self.sort,
-            reverse_sort: self.reverse_sort,
-            case_sensitive: false,
-        };
-
-        let _ = std::fmt::write(
-            &mut self.sql,
-            format_args!("{query} LIMIT {limit} OFFSET {offset}"),
-        );
-        self.for_each(&self.sql, (), |row| Ok(f(query.table(row)?)));
-
-        self.sql.clear();
-    }
-
     pub fn tracks_artists(&self, id: TrackId, mut f: impl FnMut(&str)) {
         self.for_each(
             "SELECT a.name FROM artists AS a \
@@ -236,6 +218,24 @@ impl Database {
             [id],
             |row| Ok(f(row.get_ref(0)?.as_str()?)),
         );
+    }
+
+    pub fn tracks_table(&mut self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
+        let offset = range.start;
+        let limit = range.end - offset;
+        let query = SortedTracksQuery {
+            sort: self.sort,
+            reverse_sort: self.reverse_sort,
+            case_sensitive: false,
+        };
+
+        let _ = std::fmt::write(
+            &mut self.sql,
+            format_args!("{query} LIMIT {limit} OFFSET {offset}"),
+        );
+        self.for_each(&self.sql, (), |row| Ok(f(query.table(row)?)));
+
+        self.sql.clear();
     }
 
     pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) {
