@@ -277,7 +277,7 @@ fn render_playing(
             render_cover(**area, &mut frame, colors, &database, &jukebox, &cover);
             return;
         }
-        ViewLayout::Horizontal => area.split_left(area.cols() * 40 / 100, 2),
+        ViewLayout::Horizontal => area.split_vertically_with_gap(0),
         ViewLayout::Vertical => area.split_top(area.rows() * 60 / 100, 1),
     };
 
@@ -305,7 +305,7 @@ fn render_cover(
 ) {
     let Some(rating) = jukebox
         .current_track_id()
-        .map(|id| database.track_rating(id))
+        .map(|id| database.tracks_rating(id))
     else {
         frame.push_str_fg("No track currently playing", colors.neutral);
         frame.render(
@@ -413,7 +413,7 @@ fn render_queue(
             frame.push_fmt(Sgr::CrossedOut);
         }
 
-        database.track_title(id, |title| {
+        database.tracks_title(id, |title| {
             frame.push_str(title);
         });
 
@@ -487,7 +487,7 @@ fn update_cover(
         return;
     };
 
-    let path = database.track_path(id);
+    let path = database.tracks_path(id);
     cover.handle = Some(load_front_cover(path, page.next_image_id()));
 }
 
@@ -516,7 +516,7 @@ fn load_front_cover(path: std::path::PathBuf, image_id: u32) -> ImageHandle {
                     bytes,
                     &mut std::io::stdout().lock(),
                     image_id,
-                    ImageLoadOptions::max(Dims::SD),
+                    ImageLoadOptions::max(Dims::all(512)),
                 )
             })
             .transpose()

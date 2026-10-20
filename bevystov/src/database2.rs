@@ -153,27 +153,35 @@ impl Database {
         index
     }
 
-    pub fn track_random_id(&self) -> TrackId {
-        let len: SqliteId = self.single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0));
-        // TODO: Store rng somewhere for reuse
-        // TODO: Actually use random id from db instead.
-        // Ids are not necessarily sequential.
-        TrackId(fastrand::i64(1..len))
+    pub fn tracks_random_id(&self) -> TrackId {
+        self.single(
+            "SELECT id FROM tracks ORDER BY RANDOM() LIMIT 1",
+            (),
+            |row| row.get(0),
+        )
     }
 
-    pub fn track_title(&self, id: TrackId, mut f: impl FnMut(&str)) {
+    pub fn tracks_random_id_except(&self, id: TrackId) -> Option<TrackId> {
+        self.first(
+            "SELECT id FROM tracks WHERE id != ? ORDER BY RANDOM() LIMIT 1",
+            [id],
+            |row| row.get(0),
+        )
+    }
+
+    pub fn tracks_title(&self, id: TrackId, mut f: impl FnMut(&str)) {
         self.single("SELECT title FROM tracks WHERE id = ?", [id], |row| {
             Ok(f(row.get_ref(0)?.as_str()?))
         });
     }
 
-    pub fn track_rating(&self, id: TrackId) -> TrackRating {
+    pub fn tracks_rating(&self, id: TrackId) -> TrackRating {
         self.single("SELECT rating FROM tracks WHERE id = ?", [id], |row| {
             row.get(0)
         })
     }
 
-    pub fn track_path(&self, id: TrackId) -> PathBuf {
+    pub fn tracks_path(&self, id: TrackId) -> PathBuf {
         self.single("SELECT path FROM tracks WHERE id = ?", [id], |row| {
             Ok(PathBuf::from(row.get_ref(0)?.as_str()?))
         })
@@ -206,22 +214,7 @@ impl Database {
         self.sql.clear();
     }
 
-    pub fn track_info(&self, id: TrackId, mut f: impl FnMut(TrackInfo)) {
-        self.single(
-            "SELECT title, rating, duration FROM tracks WHERE id = ?",
-            [id],
-            |row| {
-                f(TrackInfo {
-                    title: row.get_ref(0)?.as_str()?,
-                    rating: row.get(1)?,
-                    duration: row.get(2)?,
-                });
-                Ok(())
-            },
-        )
-    }
-
-    pub fn track_artists(&self, id: TrackId, mut f: impl FnMut(&str)) {
+    pub fn tracks_artists(&self, id: TrackId, mut f: impl FnMut(&str)) {
         self.for_each(
             "SELECT a.name FROM artists AS a \
                 JOIN artist_tracks AS at ON at.artist_id = a.id \
@@ -231,7 +224,7 @@ impl Database {
         );
     }
 
-    pub fn track_album(&self, id: TrackId, mut f: impl FnMut(&str)) {
+    pub fn tracks_album(&self, id: TrackId, mut f: impl FnMut(&str)) {
         self.single(
             "SELECT a.name FROM albums AS a \
                 JOIN album_tracks AS at ON at.album_id = a.id \

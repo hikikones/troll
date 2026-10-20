@@ -282,17 +282,37 @@ impl Jukebox {
         }
 
         // No tracks in the queue, play a random next
-        let current = self.current_track_id();
-        let mut tries = 5; // TODO: just do one more try
-        let mut rand = TrackId(0);
-        while tries > 0 {
-            rand = db.track_random_id();
-            let is_current = current.map(|id| id == rand).unwrap_or(false);
-            if is_current || self.is_faulty(rand) || self.should_skip(rand, db) {
-                tries -= 1;
-                continue;
+        const TRIES: u8 = 4;
+        let mut count = 0;
+        let mut rand;
+
+        match self.current_track_id() {
+            Some(id) => {
+                loop {
+                    rand = match db.tracks_random_id_except(id) {
+                        Some(id) => id,
+                        None => {
+                            // Only one track in the entire db
+                            return;
+                        }
+                    };
+                    count += 1;
+
+                    let is_bad = self.is_faulty(rand) || self.should_skip(rand, db);
+                    if !is_bad || count >= TRIES {
+                        break;
+                    }
+                }
             }
-            break;
+            None => loop {
+                rand = db.tracks_random_id();
+                count += 1;
+
+                let is_bad = self.is_faulty(rand) || self.should_skip(rand, db);
+                if !is_bad || count >= TRIES {
+                    break;
+                }
+            },
         }
 
         let (id, index) = self.queue.enqueue(rand).next().unwrap();
@@ -328,7 +348,7 @@ impl Jukebox {
     }
 
     fn should_skip(&self, id: TrackId, db: &Database) -> bool {
-        let rating = db.track_rating(id);
+        let rating = db.tracks_rating(id);
         match rating {
             TrackRating::None => false,
             _ => rating.as_u8() <= self.skip.as_u8(),
@@ -336,7 +356,7 @@ impl Jukebox {
     }
 
     fn start_decode(&mut self, id: TrackId, index: usize, db: &Database) {
-        let path = db.track_path(id);
+        let path = db.tracks_path(id);
         let ext = AudioExt::from_path(&path).unwrap();
 
         let handle = std::thread::spawn(move || {

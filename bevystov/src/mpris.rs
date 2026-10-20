@@ -171,16 +171,16 @@ pub struct MprisMetadata {
 impl MprisMetadata {
     pub fn new(id: TrackId, database: &Database) -> Self {
         let mut title = String::new();
-        database.track_title(id, |s| title.push_str(s));
+        database.tracks_title(id, |s| title.push_str(s));
 
         let mut artist = String::new();
-        database.track_artists(id, |s| {
+        database.tracks_artists(id, |s| {
             artist.push_str(s);
             artist.push(' ');
         });
 
         let mut album = String::new();
-        database.track_album(id, |s| album.push_str(s));
+        database.tracks_album(id, |s| album.push_str(s));
 
         Self {
             id: format!("/org/mpris/MediaPlayer2/Track/{}", id.0),

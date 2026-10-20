@@ -479,6 +479,10 @@ impl Pos {
         Self { col, row }
     }
 
+    pub const fn all(v: u16) -> Self {
+        Self { col: v, row: v }
+    }
+
     pub const fn with_col(mut self, col: u16) -> Self {
         self.col = col;
         self
@@ -556,6 +560,10 @@ impl Size {
 
     pub const fn new(cols: u16, rows: u16) -> Self {
         Self { cols, rows }
+    }
+
+    pub const fn all(v: u16) -> Self {
+        Self { cols: v, rows: v }
     }
 
     pub const fn with_cols(mut self, cols: u16) -> Self {

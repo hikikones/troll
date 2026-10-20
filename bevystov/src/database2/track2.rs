@@ -4,13 +4,6 @@ use shared::sqlite::{
 };
 
 #[derive(Debug)]
-pub struct TrackInfo<'a> {
-    pub title: &'a str,
-    pub rating: TrackRating,
-    pub duration: TrackDuration,
-}
-
-#[derive(Debug)]
 pub struct TrackTable<'a> {
     pub index: usize,
     pub id: TrackId,
