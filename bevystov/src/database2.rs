@@ -191,6 +191,21 @@ impl Database {
         })
     }
 
+    pub fn track_info(&self, id: TrackId, mut f: impl FnMut(TrackInfo)) {
+        self.single(
+            "SELECT title, rating, duration, path FROM tracks WHERE id = ?",
+            [id],
+            |row| {
+                Ok(f(TrackInfo {
+                    title: row.get_ref(0)?.as_str()?,
+                    rating: row.get(1)?,
+                    duration: row.get(2)?,
+                    path: row.get_ref(3)?.as_str()?,
+                }))
+            },
+        );
+    }
+
     pub fn tracks_range(&self, range: Range<usize>) -> impl Iterator<Item = TrackId> {
         let (start, end) = (range.start as SqliteId, range.end as SqliteId);
         self.iter(
@@ -524,8 +539,12 @@ impl std::fmt::Display for SortedTracksQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ArtistId(SqliteId);
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ArtistId(pub SqliteId);
+
+impl ArtistId {
+    pub const ZERO: Self = Self(0);
+}
 
 impl ToSql for ArtistId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
@@ -539,8 +558,12 @@ impl FromSql for ArtistId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AlbumId(SqliteId);
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AlbumId(pub SqliteId);
+
+impl AlbumId {
+    pub const ZERO: Self = Self(0);
+}
 
 impl ToSql for AlbumId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {

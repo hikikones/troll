@@ -7,8 +7,9 @@ mod queue;
 
 pub use player::*;
 use queue::*;
+use utils::StringExt;
 
-use crate::database2::{AudioExt, Database, TrackId, TrackRating};
+use crate::database2::{AudioExt, Database, TrackDuration, TrackId, TrackRating};
 
 type AudioDecodeHandle = std::thread::JoinHandle<Result<Decoder<Cursor<Vec<u8>>>, String>>;
 
@@ -21,17 +22,14 @@ pub struct Jukebox {
     events: Vec<JukeboxEvent>,
     faulty: HashSet<TrackId>,
     player: AudioPlayer,
+    metadata: Metadata,
 }
 
-struct CurrentTrack {
+#[derive(Debug, Default)]
+struct Metadata {
     text: String,
-    data: Option<TrackData>,
-}
-
-#[derive(Clone)]
-struct TrackData {
-    id: TrackId,
-    index: usize,
+    rating: TrackRating,
+    duration: TrackDuration,
     title: Range<usize>,
     artists: Range<usize>,
     album: Range<usize>,
@@ -39,33 +37,47 @@ struct TrackData {
 }
 
 pub struct Track<'a> {
-    text: &'a String,
-    data: TrackData,
+    id: TrackId,
+    index: usize,
+    data: &'a Metadata,
 }
 
 impl<'a> Track<'a> {
     pub const fn id(&self) -> TrackId {
-        self.data.id
+        self.id
     }
 
     pub const fn queue_index(&self) -> usize {
-        self.data.index
+        self.index
+    }
+
+    pub const fn rating(&self) -> TrackRating {
+        self.data.rating
+    }
+
+    pub const fn duration(&self) -> TrackDuration {
+        self.data.duration
     }
 
     pub fn title(&self) -> &str {
-        &self.text[self.data.title.clone()]
+        &self.data.text[self.data.title.clone()]
     }
 
     pub fn artists(&self) -> &str {
-        &self.text[self.data.artists.clone()]
+        &self.data.text[self.data.artists.clone()]
     }
 
     pub fn album(&self) -> &str {
-        &self.text[self.data.album.clone()]
+        &self.data.text[self.data.album.clone()]
     }
 
     pub fn path(&self) -> &Path {
-        Path::new(&self.text[self.data.path.clone()])
+        Path::new(&self.data.text[self.data.path.clone()])
+    }
+
+    pub fn path_and_ext(&self) -> (&Path, AudioExt) {
+        let path = self.path();
+        (path, AudioExt::from_path(path).unwrap())
     }
 }
 
@@ -97,6 +109,7 @@ impl Jukebox {
             events: Vec::new(),
             faulty: HashSet::new(),
             player,
+            metadata: Metadata::default(),
         }
     }
 
@@ -129,16 +142,16 @@ impl Jukebox {
         self.queue.history_len()
     }
 
-    pub fn get(&self, index: usize) -> Option<TrackId> {
-        self.queue.get(index)
-    }
-
-    pub const fn current_track(&self) -> Option<(TrackId, usize)> {
-        self.current
-    }
-
     pub const fn has_current(&self) -> bool {
         self.current.is_some()
+    }
+
+    pub fn current_track(&self) -> Option<Track<'_>> {
+        self.current.map(|(id, index)| Track {
+            id,
+            index,
+            data: &self.metadata,
+        })
     }
 
     pub fn current_track_id(&self) -> Option<TrackId> {
@@ -149,8 +162,12 @@ impl Jukebox {
         self.current.map(|(_, index)| index)
     }
 
-    pub fn current_track_pos(&self) -> Duration {
-        self.player.position()
+    pub fn current_track_pos(&self) -> TrackDuration {
+        TrackDuration::from_duration(self.player.position())
+    }
+
+    pub fn get(&self, index: usize) -> Option<TrackId> {
+        self.queue.get(index)
     }
 
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (TrackId, usize)> {
@@ -450,6 +467,25 @@ impl Jukebox {
                         }
                         self.current = Some((id, index));
                         self.events.push(JukeboxEvent::Play(Some(id)));
+
+                        // Update metadata
+                        self.metadata.text.clear();
+                        db.track_info(id, |info| {
+                            self.metadata.rating = info.rating;
+                            self.metadata.duration = info.duration;
+                            self.metadata.title = self.metadata.text.push_str_get_range(info.title);
+                            self.metadata.path = self.metadata.text.push_str_get_range(info.path);
+                        });
+                        db.tracks_album(id, |album| {
+                            self.metadata.album = self.metadata.text.push_str_get_range(album);
+                        });
+
+                        let start = self.metadata.text.len();
+                        db.tracks_artists(id, |artist| {
+                            self.metadata.text.push_str(artist);
+                            self.metadata.text.push(' ');
+                        });
+                        self.metadata.artists = start..self.metadata.text.len();
                     }
                     // Failed to decode audio
                     Err(err) => {

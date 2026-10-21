@@ -1,7 +1,17 @@
+use std::path::Path;
+
 use shared::sqlite::{
     FromSql, FromSqlError, FromSqlResult, SqliteId, SqliteResult, ToSql, ToSqlOutput, Value,
     ValueRef,
 };
+
+#[derive(Debug)]
+pub struct TrackInfo<'a> {
+    pub title: &'a str,
+    pub duration: TrackDuration,
+    pub rating: TrackRating,
+    pub path: &'a str,
+}
 
 #[derive(Debug)]
 pub struct TrackTable<'a> {
@@ -14,8 +24,12 @@ pub struct TrackTable<'a> {
     pub rating: TrackRating,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TrackId(pub SqliteId);
+
+impl TrackId {
+    pub const ZERO: Self = Self(0);
+}
 
 impl ToSql for TrackId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
@@ -141,7 +155,7 @@ impl FromSql for TrackRating {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct TrackDuration(u16);
 
 impl TrackDuration {
@@ -151,6 +165,12 @@ impl TrackDuration {
 
     pub const fn from_duration(duration: std::time::Duration) -> Self {
         Self(duration.as_secs() as u16)
+    }
+
+    // TODO: add a progress method here?
+
+    pub const fn as_f32(self) -> f32 {
+        self.0 as f32
     }
 }
 
