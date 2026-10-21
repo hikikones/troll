@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::HashMap,
     path::{Path, PathBuf},
 };
 
@@ -9,72 +9,66 @@ type WriteResult = Result<(), WriteFailure>;
 type WriteHandle = std::thread::JoinHandle<WriteResult>;
 
 pub struct RatingsWriter {
-    queue: VecDeque<WriteRequest>,
-    state: Option<State>,
-}
-
-enum State {
-    Request(WriteRequest),
-    Handle(WriteHandle),
+    queue: HashMap<TrackId, WriteData>,
+    handle: Option<WriteHandle>,
+    current_track_id: Option<TrackId>,
 }
 
 impl RatingsWriter {
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            queue: VecDeque::new(),
-            state: None,
+            queue: HashMap::new(),
+            handle: None,
+            current_track_id: None,
         }
     }
 
     pub fn push(&mut self, req: WriteRequest) {
-        if self.state.is_none() {
-            self.state = Some(State::Request(req));
-        } else {
-            self.queue.push_back(req);
-        }
+        self.queue.insert(
+            req.id,
+            WriteData {
+                old_rating: req.old_rating,
+                new_rating: req.new_rating,
+                path: req.path,
+            },
+        );
     }
 
     pub fn poll(&mut self, current_track_id: Option<TrackId>) -> Option<WriteResult> {
-        let state = self.take_current_or_next()?;
+        self.current_track_id = current_track_id;
 
-        match state {
-            State::Request(request) => {
-                if current_track_id == Some(request.id) {
-                    self.state = Some(State::Request(request));
-                } else {
-                    let handle = start_write(request);
-                    self.state = Some(State::Handle(handle));
-                }
+        let handle = self.handle.take().or_else(|| self.next())?;
 
-                None
-            }
-            State::Handle(handle) => {
-                if !handle.is_finished() {
-                    self.state = Some(State::Handle(handle));
-                    return None;
-                }
-
-                let Ok(result) = handle.join() else {
-                    return None;
-                };
-
-                Some(result)
-            }
+        if !handle.is_finished() {
+            self.handle = Some(handle);
+            return None;
         }
+
+        let Ok(result) = handle.join() else {
+            return None;
+        };
+
+        Some(result)
     }
 
-    fn take_current_or_next(&mut self) -> Option<State> {
-        self.state
-            .take()
-            .or_else(|| self.queue.pop_front().map(|req| State::Request(req)))
+    fn next(&mut self) -> Option<WriteHandle> {
+        let next = self
+            .queue
+            .keys()
+            .copied()
+            .find(|id| self.current_track_id != Some(*id))?;
+
+        let data = self.queue.remove(&next).unwrap();
+        let handle = start_write(next, data);
+        Some(handle)
     }
 }
 
 pub struct WriteRequest {
-    pub path: PathBuf,
     pub id: TrackId,
     pub old_rating: TrackRating,
     pub new_rating: TrackRating,
+    pub path: PathBuf,
 }
 
 pub struct WriteFailure {
@@ -84,13 +78,18 @@ pub struct WriteFailure {
     pub error: AudioFileError,
 }
 
-fn start_write(request: WriteRequest) -> WriteHandle {
-    let WriteRequest {
-        path,
-        id,
+struct WriteData {
+    old_rating: TrackRating,
+    new_rating: TrackRating,
+    path: PathBuf,
+}
+
+fn start_write(id: TrackId, data: WriteData) -> WriteHandle {
+    let WriteData {
         old_rating,
         new_rating,
-    } = request;
+        path,
+    } = data;
 
     std::thread::spawn(move || {
         write_rating(&path, new_rating).map_err(|error| WriteFailure {
@@ -122,19 +121,28 @@ fn write_rating(path: &Path, rating: TrackRating) -> AudioResult<()> {
 }
 
 impl Drop for RatingsWriter {
-    // Make sure we finish writing if we have a current request
     fn drop(&mut self) {
-        let Some(state) = self.state.take() else {
+        // Make sure we finish writing if we have a handle
+        if let Some(handle) = self.handle.take() {
+            if let Err(err) = handle.join() {
+                eprintln!("Thread for writing audio rating has panicked: {err:?}");
+            }
+        };
+
+        // Also make sure to write rating for current track id
+        let Some(id) = self.current_track_id else {
             return;
         };
 
-        let handle = match state {
-            State::Request(request) => start_write(request),
-            State::Handle(handle) => handle,
+        let Some(data) = self.queue.remove(&id) else {
+            return;
         };
 
+        let handle = start_write(id, data);
         if let Err(err) = handle.join() {
             eprintln!("Thread for writing audio rating has panicked: {err:?}");
         }
+
+        // Ignore the rest of the queue
     }
 }

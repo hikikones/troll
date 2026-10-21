@@ -32,7 +32,7 @@ pub enum DatabaseEvent {
 }
 
 impl Database {
-    const fn new(sqlite: Sqlite) -> Self {
+    fn new(sqlite: Sqlite) -> Self {
         Self {
             sqlite,
             sql: String::new(),
@@ -264,10 +264,10 @@ impl Database {
 
         let path = self.tracks_path(id);
         self.writer.push(WriteRequest {
-            path,
             id,
             old_rating: current_rating,
             new_rating: rating,
+            path,
         });
 
         // Update new rating immediately
