@@ -1,39 +1,75 @@
 use std::{
     ops::Range,
     path::{Path, PathBuf},
+    sync::mpsc::TryRecvError,
 };
 
 use utils::StringExt;
 
-use crate::database2::{AudioExt, AudioFile, AudioResult, TrackDuration, TrackRating};
+use crate::database2::{
+    AudioExt, AudioFile, AudioFileError, AudioResult, TrackDuration, TrackRating,
+};
 
-pub type ScanReceiver = std::sync::mpsc::Receiver<ScannedResult>;
-pub type ScannedResult = AudioResult<ScannedTrack>;
+type Receiver = std::sync::mpsc::Receiver<ScanResult>;
 
-// TODO: recv -> scan event
+pub struct Scanner(Receiver);
 
-pub struct Scanner;
+pub enum ScanEvent {
+    Track(ScannedTrack),
+    Error(PathBuf, AudioFileError),
+    Done,
+}
+
+enum ScanResult {
+    Success(ScannedTrack),
+    Error(PathBuf, AudioFileError),
+}
 
 impl Scanner {
-    pub fn start(dir: PathBuf) -> ScanReceiver {
+    pub fn start(dir: PathBuf) -> Self {
         let (sender, receiver) = std::sync::mpsc::channel();
 
         std::thread::spawn(move || {
-            let mut scan = ScannedTrack::new();
+            let mut track = ScannedTrack::default();
 
             traverse_files(dir, true, |path, ext| {
-                let result = process_file(path, ext, &mut scan);
-                let _ = sender.send(result);
+                let result = process_file(path, ext, &mut track);
 
-                scan.clear();
+                match result {
+                    Ok(track) => {
+                        let _ = sender.send(ScanResult::Success(track));
+                    }
+                    Err(err) => {
+                        let _ = sender.send(ScanResult::Error(path.to_path_buf(), err));
+                    }
+                }
+
+                track.clear();
             });
         });
 
-        receiver
+        Self(receiver)
+    }
+
+    pub fn recv(&self) -> Option<ScanEvent> {
+        match self.0.try_recv() {
+            Ok(result) => match result {
+                ScanResult::Success(track) => Some(ScanEvent::Track(track)),
+                ScanResult::Error(path, err) => Some(ScanEvent::Error(path, err)),
+            },
+            Err(err) => match err {
+                TryRecvError::Empty => {
+                    return None;
+                }
+                TryRecvError::Disconnected => {
+                    return Some(ScanEvent::Done);
+                }
+            },
+        }
     }
 }
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct ScannedTrack {
     data: String,
     title: Range<usize>,
@@ -45,18 +81,6 @@ pub struct ScannedTrack {
 }
 
 impl ScannedTrack {
-    const fn new() -> Self {
-        Self {
-            data: String::new(),
-            title: 0..0,
-            rating: TrackRating::None,
-            duration: TrackDuration::new(0),
-            artists: Vec::new(),
-            album: 0..0,
-            path: 0..0,
-        }
-    }
-
     pub fn title(&self) -> &str {
         &self.data[self.title.clone()]
     }
@@ -92,7 +116,7 @@ impl ScannedTrack {
     }
 }
 
-fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> ScannedResult {
+fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioResult<ScannedTrack> {
     let audio = AudioFile::read_metadata(path, ext)?;
     let tag = audio.vorbis_comments()?;
     let p = audio.properties();

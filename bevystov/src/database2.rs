@@ -22,14 +22,15 @@ pub struct Database {
     sql: String,
     sort: TrackSort,
     reverse_sort: bool,
-    receiver: Option<ScanReceiver>,
+    scanner: Option<Scanner>,
     writer: RatingsWriter,
 }
 
 pub enum DatabaseEvent {
     FinishedLoading,
     Rating(TrackId),
-    Error(AudioFileError),
+    ReceiveError(AudioFileError),
+    WriteError(AudioFileError),
 }
 
 impl Database {
@@ -39,7 +40,7 @@ impl Database {
             sql: String::new(),
             sort: TrackSort::Album,
             reverse_sort: false,
-            receiver: None,
+            scanner: None,
             writer: RatingsWriter::new(),
         }
     }
@@ -64,7 +65,7 @@ impl Database {
     }
 
     pub const fn has_finished_loading(&self) -> bool {
-        self.receiver.is_none()
+        self.scanner.is_none()
     }
 
     pub const fn get_sort(&self) -> TrackSort {
@@ -270,40 +271,37 @@ impl Database {
     }
 
     fn receive_files(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
-        use std::sync::mpsc::TryRecvError;
-
-        let Some(recv) = self.receiver.as_ref() else {
+        let Some(scanner) = self.scanner.as_ref() else {
             return;
         };
 
-        loop {
-            match recv.try_recv() {
-                Ok(res) => match res {
-                    Ok(track) => {
-                        self.sqlite
-                            .transaction(|tx| Self::add_track(tx, track))
-                            .unwrap(); // TODO
-                    }
-                    Err(err) => {
-                        on_event(DatabaseEvent::Error(err));
-                    }
-                },
-                Err(err) => match err {
-                    TryRecvError::Empty => {
-                        return;
-                    }
-                    TryRecvError::Disconnected => {
-                        self.receiver = None;
-                        on_event(DatabaseEvent::FinishedLoading);
-                        return;
-                    }
-                },
+        let mut is_done = false;
+
+        while let Some(event) = scanner.recv() {
+            match event {
+                ScanEvent::Track(track) => {
+                    self.sqlite
+                        .transaction(|tx| Self::add_track(tx, track))
+                        .unwrap(); // TODO?
+                }
+                ScanEvent::Error(path, err) => {
+                    // TODO: Use path...
+                    on_event(DatabaseEvent::ReceiveError(err));
+                }
+                ScanEvent::Done => {
+                    is_done = true;
+                }
             }
+        }
+
+        if is_done {
+            self.scanner = None;
+            on_event(DatabaseEvent::FinishedLoading);
         }
     }
 
     fn poll_writer(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
-        self.writer.update(|result| match result {
+        self.writer.poll(|result| match result {
             Ok(req) => {
                 // Update rating in db
                 self.sqlite
@@ -467,7 +465,7 @@ impl Database {
         };
 
         if rescan {
-            self.receiver = Some(Scanner::start(dir.to_path_buf()));
+            self.scanner = Some(Scanner::start(dir.to_path_buf()));
             self.sqlite.set_version(VERSION);
         }
 

@@ -24,7 +24,7 @@ impl RatingsWriter {
         self.queue.push_back(req);
     }
 
-    pub fn update(&mut self, mut on_result: impl FnMut(WriteResult)) {
+    pub fn poll(&mut self, mut on_result: impl FnMut(WriteResult)) {
         let Some(handle) = self.handle.as_ref() else {
             self.handle = self.queue.pop_front().map(start_write);
             return;
