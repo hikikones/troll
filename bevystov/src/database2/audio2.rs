@@ -19,10 +19,17 @@ enum AudioFormat {
 }
 
 impl AudioFile {
-    pub fn read(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
+    pub fn read_all(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
+        Self::read(path, ext, ParseOptions::new())
+    }
+
+    pub fn read_metadata(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
+        Self::read(path, ext, ParseOptions::new().read_cover_art(false))
+    }
+
+    fn read(path: impl AsRef<Path>, ext: AudioExt, options: ParseOptions) -> AudioResult<Self> {
         let mut file = File::open(path.as_ref())?;
 
-        let options = ParseOptions::new().read_cover_art(false);
         let audio_format = match ext {
             AudioExt::Flac => {
                 let flac = FlacFile::read_from(&mut file, options)?;

@@ -93,7 +93,7 @@ impl ScannedTrack {
 }
 
 fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> ScannedResult {
-    let audio = AudioFile::read(path, ext)?;
+    let audio = AudioFile::read_metadata(path, ext)?;
     let tag = audio.vorbis_comments()?;
     let p = audio.properties();
 
