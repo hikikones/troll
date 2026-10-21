@@ -1,4 +1,9 @@
-use std::{collections::HashSet, ops::Range, path::Path, time::Duration};
+use std::{
+    collections::HashSet,
+    ops::Range,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 mod decoder;
 mod player;
@@ -26,23 +31,26 @@ pub struct Jukebox {
 #[derive(Debug, Default)]
 struct Metadata {
     text: String,
+    path: PathBuf,
+    ext: AudioExt,
     rating: TrackRating,
     duration: TrackDuration,
     title: Range<usize>,
     artists: Range<usize>,
     album: Range<usize>,
-    path: Range<usize>,
 }
 
 impl Metadata {
     fn update(&mut self, id: TrackId, db: &Database) {
         self.text.clear();
+        self.path.clear();
 
         db.track_info(id, |info| {
+            self.path.push(info.path);
+            self.ext = AudioExt::from_path(info.path).unwrap();
             self.rating = info.rating;
             self.duration = info.duration;
             self.title = self.text.push_str_get_range(info.title);
-            self.path = self.text.push_str_get_range(info.path);
         });
 
         let start = self.text.len();
@@ -94,12 +102,11 @@ impl<'a> Track<'a> {
     }
 
     pub fn path(&self) -> &Path {
-        Path::new(&self.data.text[self.data.path.clone()])
+        &self.data.path
     }
 
-    pub fn path_and_ext(&self) -> (&Path, AudioExt) {
-        let path = self.path();
-        (path, AudioExt::from_path(path).unwrap())
+    pub const fn ext(&self) -> AudioExt {
+        self.data.ext
     }
 }
 

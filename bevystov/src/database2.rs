@@ -200,7 +200,7 @@ impl Database {
                     title: row.get_ref(0)?.as_str()?,
                     rating: row.get(1)?,
                     duration: row.get(2)?,
-                    path: row.get_ref(3)?.as_str()?,
+                    path: Path::new(row.get_ref(3)?.as_str()?),
                 }))
             },
         );

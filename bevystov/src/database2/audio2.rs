@@ -127,8 +127,9 @@ pub struct AudioProperties {
     pub sample_rate_khz: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum AudioExt {
+    #[default]
     Flac,
     Opus,
     Ogg,

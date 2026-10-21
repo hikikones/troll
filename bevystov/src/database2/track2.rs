@@ -10,7 +10,7 @@ pub struct TrackInfo<'a> {
     pub title: &'a str,
     pub duration: TrackDuration,
     pub rating: TrackRating,
-    pub path: &'a str,
+    pub path: &'a Path,
 }
 
 #[derive(Debug)]
