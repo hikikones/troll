@@ -5,67 +5,100 @@ use std::{
 
 use crate::database2::{AudioExt, AudioFile, AudioFileError, AudioResult, TrackId, TrackRating};
 
-type WriteResult = Result<WriteSuccess, WriteFailure>;
+type WriteResult = Result<(), WriteFailure>;
 type WriteHandle = std::thread::JoinHandle<WriteResult>;
-
-// TODO: Maybe make custom error for a message with path included.
 
 pub struct RatingsWriter {
     queue: VecDeque<WriteRequest>,
-    handle: Option<WriteHandle>,
+    state: Option<State>,
+}
+
+enum State {
+    Request(WriteRequest),
+    Handle(WriteHandle),
 }
 
 impl RatingsWriter {
     pub const fn new() -> Self {
         Self {
             queue: VecDeque::new(),
-            handle: None,
+            state: None,
         }
     }
 
     pub fn push(&mut self, req: WriteRequest) {
-        self.queue.push_back(req);
+        if self.state.is_none() {
+            self.state = Some(State::Request(req));
+        } else {
+            self.queue.push_back(req);
+        }
     }
 
-    pub fn poll(&mut self) -> Option<WriteResult> {
-        let Some(handle) = self.handle.as_ref() else {
-            self.handle = self.queue.pop_front().map(start_write);
-            return None;
-        };
+    pub fn poll(&mut self, current_track_id: Option<TrackId>) -> Option<WriteResult> {
+        let state = self.take_current_or_next()?;
 
-        if handle.is_finished()
-            && let Some(handle) = self.handle.take()
-            && let Ok(result) = handle.join()
-        {
-            return Some(result);
+        match state {
+            State::Request(request) => {
+                if current_track_id == Some(request.id) {
+                    self.state = Some(State::Request(request));
+                } else {
+                    let handle = start_write(request);
+                    self.state = Some(State::Handle(handle));
+                }
+
+                None
+            }
+            State::Handle(handle) => {
+                if !handle.is_finished() {
+                    self.state = Some(State::Handle(handle));
+                    return None;
+                }
+
+                let Ok(result) = handle.join() else {
+                    return None;
+                };
+
+                Some(result)
+            }
         }
+    }
 
-        None
+    fn take_current_or_next(&mut self) -> Option<State> {
+        self.state
+            .take()
+            .or_else(|| self.queue.pop_front().map(|req| State::Request(req)))
     }
 }
 
 pub struct WriteRequest {
     pub path: PathBuf,
     pub id: TrackId,
-    pub rating: TrackRating,
-}
-
-pub struct WriteSuccess {
-    pub id: TrackId,
-    pub rating: TrackRating,
+    pub old_rating: TrackRating,
+    pub new_rating: TrackRating,
 }
 
 pub struct WriteFailure {
+    pub id: TrackId,
+    pub old_rating: TrackRating,
     pub path: PathBuf,
     pub error: AudioFileError,
 }
 
 fn start_write(request: WriteRequest) -> WriteHandle {
-    let WriteRequest { path, id, rating } = request;
+    let WriteRequest {
+        path,
+        id,
+        old_rating,
+        new_rating,
+    } = request;
 
-    std::thread::spawn(move || match write_rating(&path, rating) {
-        Ok(_) => Ok(WriteSuccess { id, rating }),
-        Err(error) => Err(WriteFailure { path, error }),
+    std::thread::spawn(move || {
+        write_rating(&path, new_rating).map_err(|error| WriteFailure {
+            id,
+            old_rating,
+            path,
+            error,
+        })
     })
 }
 
@@ -89,10 +122,15 @@ fn write_rating(path: &Path, rating: TrackRating) -> AudioResult<()> {
 }
 
 impl Drop for RatingsWriter {
-    // Make sure we finish writing
+    // Make sure we finish writing if we have a current request
     fn drop(&mut self) {
-        let Some(handle) = self.handle.take() else {
+        let Some(state) = self.state.take() else {
             return;
+        };
+
+        let handle = match state {
+            State::Request(request) => start_write(request),
+            State::Handle(handle) => handle,
         };
 
         if let Err(err) = handle.join() {

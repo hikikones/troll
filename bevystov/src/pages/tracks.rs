@@ -113,6 +113,7 @@ fn input_tracks(
                 for i in page.list.selection_inclusive() {
                     let id = database.tracks_id(i);
                     database.write_rating(id, rating);
+                    actions.push(Action::Render);
                 }
             }
             'q' => {

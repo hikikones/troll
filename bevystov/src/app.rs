@@ -761,16 +761,11 @@ fn update_app(
 ) {
     let mut render = false;
 
-    database.update(|event| {
+    database.update(jukebox.current_track_id(), |event| {
         render = true;
 
         match event {
-            DatabaseEvent::FinishedLoading => {
-                // TODO?
-            }
-            DatabaseEvent::Rating(_id) => {
-                // TODO?
-            }
+            DatabaseEvent::FinishedLoading => {}
             DatabaseEvent::Error(err) => {
                 logs.push_err(err);
             }

@@ -28,7 +28,6 @@ pub struct Database {
 
 pub enum DatabaseEvent {
     FinishedLoading,
-    Rating(TrackId),
     Error(DatabaseError),
 }
 
@@ -256,20 +255,36 @@ impl Database {
         self.sql.clear();
     }
 
-    pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) {
+    pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) -> bool {
         let current_rating = self.tracks_rating(id);
 
         if current_rating == rating {
-            return;
+            return false;
         }
 
         let path = self.tracks_path(id);
-        self.writer.push(WriteRequest { path, id, rating });
+        self.writer.push(WriteRequest {
+            path,
+            id,
+            old_rating: current_rating,
+            new_rating: rating,
+        });
+
+        // Update new rating immediately
+        self.sqlite
+            .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
+            .unwrap();
+
+        true
     }
 
-    pub fn update(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
+    pub fn update(
+        &mut self,
+        current_track_id: Option<TrackId>,
+        mut on_event: impl FnMut(DatabaseEvent),
+    ) {
         self.receive_files(&mut on_event);
-        self.poll_writer(&mut on_event);
+        self.poll_writer(current_track_id, &mut on_event);
     }
 
     fn receive_files(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
@@ -299,25 +314,31 @@ impl Database {
         }
     }
 
-    fn poll_writer(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
-        let Some(result) = self.writer.poll() else {
-            return;
-        };
+    fn poll_writer(
+        &mut self,
+        current_track_id: Option<TrackId>,
+        mut on_event: impl FnMut(DatabaseEvent),
+    ) {
+        if let Some(Err(WriteFailure {
+            id,
+            old_rating,
+            path,
+            error,
+        })) = self.writer.poll(current_track_id)
+        {
+            // Restore old rating
+            self.sqlite
+                .execute(
+                    "UPDATE tracks SET rating = ?1 WHERE id = ?2",
+                    (old_rating, id),
+                )
+                .unwrap();
 
-        match result {
-            Ok(WriteSuccess { id, rating }) => {
-                // Update rating in db
-                self.sqlite
-                    .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
-                    .unwrap();
-
-                // Notify
-                on_event(DatabaseEvent::Rating(id));
-            }
-            Err(WriteFailure { path, error }) => on_event(DatabaseEvent::Error(DatabaseError {
+            // Notify
+            on_event(DatabaseEvent::Error(DatabaseError {
                 message: format!("Failed to write audio rating to '{}'", path.display()),
                 source: Some(DatabaseErrorSource::Audio(error)),
-            })),
+            }));
         }
     }
 
