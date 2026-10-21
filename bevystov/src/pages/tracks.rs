@@ -110,11 +110,17 @@ fn input_tracks(
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
                 let rating = TrackRating::from_char(c).unwrap();
+                let mut render = false;
                 for i in page.list.selection_inclusive() {
                     let id = database.tracks_id(i);
-                    database.write_rating(id, rating);
+                    if database.write_rating(id, rating) {
+                        render = true;
+                    }
                 }
-                actions.push(Action::Render);
+
+                if render {
+                    actions.push(Action::Render);
+                }
             }
             'q' => {
                 jukebox.extend(

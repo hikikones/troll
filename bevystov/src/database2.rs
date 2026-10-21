@@ -255,6 +255,12 @@ impl Database {
         self.sql.clear();
     }
 
+    fn set_track_rating(&self, id: TrackId, rating: TrackRating) {
+        self.sqlite
+            .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
+            .unwrap();
+    }
+
     pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) -> bool {
         let current_rating = self.tracks_rating(id);
 
@@ -271,9 +277,7 @@ impl Database {
         });
 
         // Update new rating immediately
-        self.sqlite
-            .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
-            .unwrap();
+        self.set_track_rating(id, rating);
 
         true
     }
@@ -327,12 +331,7 @@ impl Database {
         })) = self.writer.poll(current_track_id)
         {
             // Restore old rating
-            self.sqlite
-                .execute(
-                    "UPDATE tracks SET rating = ?1 WHERE id = ?2",
-                    (old_rating, id),
-                )
-                .unwrap();
+            self.set_track_rating(id, old_rating);
 
             // Notify
             on_event(DatabaseEvent::Error(DatabaseError {
