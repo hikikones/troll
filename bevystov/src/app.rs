@@ -659,11 +659,14 @@ fn render_playback(
     // frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
 
     // Title
-    frame.push_str(track.artists());
-    if !(track.artists().is_empty() || track.title().is_empty()) {
+    let title = track.title();
+    let artists = track.artists();
+
+    frame.push_str(artists);
+    if !(artists.is_empty() || title.is_empty()) {
         frame.push_str(" - ");
     }
-    frame.push_str(track.title());
+    frame.push_str(title);
     frame.render(title_area, TextOptions::span_center_top());
 
     // Playback status
@@ -813,7 +816,7 @@ fn update_app(
                 }
             }
             JukeboxEvent::Error(err) => {
-                logs.push_str(err);
+                logs.push_err(err);
             }
         }
     });

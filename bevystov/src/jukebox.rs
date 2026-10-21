@@ -1,24 +1,22 @@
-use std::{collections::HashSet, io::Cursor, ops::Range, path::Path, time::Duration};
+use std::{collections::HashSet, ops::Range, path::Path, time::Duration};
 
-use rodio::decoder::Decoder;
-
+mod decoder;
 mod player;
 mod queue;
 
+use decoder::*;
 pub use player::*;
 use queue::*;
 use utils::StringExt;
 
 use crate::database2::{AudioExt, Database, TrackDuration, TrackId, TrackRating};
 
-type AudioDecodeHandle = std::thread::JoinHandle<Result<Decoder<Cursor<Vec<u8>>>, String>>;
-
 pub struct Jukebox {
     current: Option<(TrackId, usize)>,
     queue: PlayQueue,
     state: PlayState,
     skip: TrackRating,
-    decode_handle: Option<(AudioDecodeHandle, TrackId, usize)>,
+    decoder: AudioDecoder,
     events: Vec<JukeboxEvent>,
     faulty: HashSet<TrackId>,
     player: AudioPlayer,
@@ -34,6 +32,30 @@ struct Metadata {
     artists: Range<usize>,
     album: Range<usize>,
     path: Range<usize>,
+}
+
+impl Metadata {
+    fn update(&mut self, id: TrackId, db: &Database) {
+        self.text.clear();
+
+        db.track_info(id, |info| {
+            self.rating = info.rating;
+            self.duration = info.duration;
+            self.title = self.text.push_str_get_range(info.title);
+            self.path = self.text.push_str_get_range(info.path);
+        });
+
+        let start = self.text.len();
+        db.tracks_artists(id, |artist| {
+            self.text.push_str(artist);
+            self.text.push(' ');
+        });
+        self.artists = start..self.text.len();
+
+        db.tracks_album(id, |album| {
+            self.album = self.text.push_str_get_range(album);
+        });
+    }
 }
 
 pub struct Track<'a> {
@@ -85,7 +107,7 @@ pub enum JukeboxEvent {
     Play(Option<TrackId>),
     Pause,
     Stop,
-    Error(String), // TODO: Make proper jukebox error.
+    Error(JukeboxError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,7 +127,7 @@ impl Jukebox {
             queue: PlayQueue::new(),
             state: PlayState::Stop,
             skip: TrackRating::default(), // TODO: Set from settings.
-            decode_handle: None,
+            decoder: AudioDecoder::new(),
             events: Vec::new(),
             faulty: HashSet::new(),
             player,
@@ -311,7 +333,7 @@ impl Jukebox {
 
         self.state = PlayState::Stop;
         self.current = None;
-        self.decode_handle = None;
+        self.decoder.clear();
         self.player.clear();
         self.events.push(JukeboxEvent::Stop);
     }
@@ -420,24 +442,7 @@ impl Jukebox {
 
     fn start_decode(&mut self, id: TrackId, index: usize, db: &Database) {
         let path = db.tracks_path(id);
-        let ext = AudioExt::from_path(&path).unwrap();
-
-        let handle = std::thread::spawn(move || {
-            let data = std::fs::read(&path)
-                .map_err(|err| format!("Unable to decode \"{}\" due to {}", path.display(), err))?;
-            let len = data.len() as u64;
-            let decoder = Decoder::builder()
-                .with_data(Cursor::new(data))
-                .with_hint(ext.as_lower_case())
-                .with_byte_len(len)
-                .with_seekable(true)
-                .with_gapless(false)
-                .build()
-                .map_err(|err| format!("Failed to decode \"{}\" due to {}", path.display(), err))?;
-            Ok(decoder)
-        });
-
-        self.decode_handle = Some((handle, id, index));
+        self.decoder.start(DecodeRequest { id, index, path });
     }
 
     fn sync_queue_index(&mut self) {
@@ -452,63 +457,57 @@ impl Jukebox {
     }
 
     pub fn update(&mut self, db: &Database, mut on_event: impl FnMut(JukeboxEvent)) {
-        // Poll thread handle for audio decoding
-        if let Some((handle, _, _)) = self.decode_handle.as_ref() {
-            if handle.is_finished() {
-                let (handle, id, index) = self.decode_handle.take().unwrap();
-                match handle.join().unwrap() {
-                    // Play successfully decoded audio and update state
-                    Ok(decoded_audio) => {
-                        self.player.clear();
-                        self.player.append(decoded_audio);
-                        if self.state != PlayState::Pause {
-                            self.state = PlayState::Play;
-                            self.player.play();
-                        }
-                        self.current = Some((id, index));
-                        self.events.push(JukeboxEvent::Play(Some(id)));
+        self.poll_decoder(db);
+        self.update_state(db);
 
-                        // Update metadata
-                        self.metadata.text.clear();
-                        db.track_info(id, |info| {
-                            self.metadata.rating = info.rating;
-                            self.metadata.duration = info.duration;
-                            self.metadata.title = self.metadata.text.push_str_get_range(info.title);
-                            self.metadata.path = self.metadata.text.push_str_get_range(info.path);
-                        });
-                        db.tracks_album(id, |album| {
-                            self.metadata.album = self.metadata.text.push_str_get_range(album);
-                        });
+        // Drain events
+        for event in self.events.drain(..) {
+            on_event(event);
+        }
+    }
 
-                        let start = self.metadata.text.len();
-                        db.tracks_artists(id, |artist| {
-                            self.metadata.text.push_str(artist);
-                            self.metadata.text.push(' ');
-                        });
-                        self.metadata.artists = start..self.metadata.text.len();
+    fn poll_decoder(&mut self, db: &Database) {
+        let Some(result) = self.decoder.poll() else {
+            return;
+        };
+
+        match result {
+            Ok(DecodeSuccess { id, index, data }) => {
+                self.player.clear();
+                self.player.append(data);
+                if self.state != PlayState::Pause {
+                    self.state = PlayState::Play;
+                    self.player.play();
+                }
+                self.current = Some((id, index));
+                self.metadata.update(id, db);
+                self.events.push(JukeboxEvent::Play(Some(id)));
+            }
+            Err(DecodeError { id, path, source }) => {
+                self.faulty.insert(id);
+                self.events.push(JukeboxEvent::Error(JukeboxError {
+                    message: format!("Failed to decode audio file '{}'", path.display()),
+                    source: Some(JukeboxErrorSource::Decode(source)),
+                }));
+
+                match self.state {
+                    PlayState::Play | PlayState::Next => {
+                        self.play_next(db);
                     }
-                    // Failed to decode audio
-                    Err(err) => {
-                        self.faulty.insert(id);
-                        self.events.push(JukeboxEvent::Error(err));
-                        match self.state {
-                            PlayState::Play | PlayState::Next => {
-                                self.play_next(db);
-                            }
-                            PlayState::Previous => {
-                                self.play_previous(db);
-                            }
-                            PlayState::Track => {
-                                self.state = PlayState::Play;
-                                self.sync_queue_index();
-                            }
-                            _ => {}
-                        }
+                    PlayState::Previous => {
+                        self.play_previous(db);
                     }
+                    PlayState::Track => {
+                        self.state = PlayState::Play;
+                        self.sync_queue_index();
+                    }
+                    _ => {}
                 }
             }
         }
+    }
 
+    fn update_state(&mut self, db: &Database) {
         // Play next when empty and idle
         if self.player.is_empty() && !self.player.is_paused() {
             match self.state {
@@ -521,10 +520,30 @@ impl Jukebox {
                 _ => {}
             }
         }
+    }
+}
 
-        // Drain events
-        for event in self.events.drain(..) {
-            on_event(event);
-        }
+#[derive(Debug)]
+pub struct JukeboxError {
+    message: String,
+    source: Option<JukeboxErrorSource>,
+}
+
+#[derive(Debug)]
+enum JukeboxErrorSource {
+    Decode(DecodeErrorSource),
+}
+
+impl std::fmt::Display for JukeboxError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for JukeboxError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|source| match source {
+            JukeboxErrorSource::Decode(err) => err as _,
+        })
     }
 }

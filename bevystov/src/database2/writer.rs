@@ -48,6 +48,7 @@ pub struct WriteRequest {
 fn start_write(request: WriteRequest) -> WriteHandle {
     let ext = AudioExt::from_path(&request.path).unwrap();
     std::thread::spawn(move || {
+        // TODO: We must read the file WITH cover art, otherwise it will be discarded when we save.
         let mut audio_file = AudioFile::read(&request.path, ext)?;
         let tag = audio_file.vorbis_comments_mut()?;
 
