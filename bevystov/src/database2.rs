@@ -277,8 +277,6 @@ impl Database {
             return;
         };
 
-        let mut is_done = false;
-
         while let Some(event) = scanner.recv() {
             match event {
                 ScanEvent::Track(track) => {
@@ -293,15 +291,11 @@ impl Database {
                     }));
                 }
                 ScanEvent::Done => {
-                    is_done = true;
+                    self.scanner = None;
+                    on_event(DatabaseEvent::FinishedLoading);
                     break;
                 }
             }
-        }
-
-        if is_done {
-            self.scanner = None;
-            on_event(DatabaseEvent::FinishedLoading);
         }
     }
 
@@ -478,7 +472,7 @@ impl Database {
         };
 
         if rescan {
-            self.scanner = Some(Scanner::start(music_dir.to_path_buf()));
+            self.scanner = Some(Scanner::start(music_dir));
             self.sqlite.set_version(VERSION);
         }
 
@@ -595,7 +589,7 @@ pub struct DatabaseError {
 }
 
 #[derive(Debug)]
-pub enum DatabaseErrorSource {
+enum DatabaseErrorSource {
     Sqlite(SqliteError),
     Audio(AudioFileError),
 }

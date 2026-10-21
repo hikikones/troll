@@ -1,5 +1,6 @@
 use std::{
-    io::Cursor,
+    fs::File,
+    io::BufReader,
     path::{Path, PathBuf},
 };
 
@@ -7,7 +8,7 @@ use crate::database2::{AudioExt, TrackId};
 
 type DecodeResult = Result<DecodeSuccess, DecodeFailure>;
 type DecodeHandle = std::thread::JoinHandle<DecodeResult>;
-type Decoder = rodio::Decoder<Cursor<Vec<u8>>>;
+type Decoder = rodio::Decoder<BufReader<File>>;
 
 pub struct AudioDecoder {
     handle: Option<DecodeHandle>,
@@ -88,11 +89,11 @@ fn start_decode(request: DecodeRequest) -> DecodeHandle {
 
 fn decode_audio(path: &Path) -> Result<Decoder, DecodeError> {
     let ext = AudioExt::from_path(path).unwrap();
-    let bytes = std::fs::read(path).map_err(|err| DecodeError::Io(err))?;
 
-    let len = bytes.len() as u64;
+    let file = File::open(path).map_err(|err| DecodeError::Io(err))?;
+    let len = file.metadata().map_err(|err| DecodeError::Io(err))?.len();
     let decoder = rodio::Decoder::builder()
-        .with_data(Cursor::new(bytes))
+        .with_data(BufReader::new(file))
         .with_hint(ext.as_lower_case())
         .with_byte_len(len)
         .with_seekable(true)
