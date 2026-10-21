@@ -29,8 +29,7 @@ pub struct Database {
 pub enum DatabaseEvent {
     FinishedLoading,
     Rating(TrackId),
-    ReceiveError(AudioFileError),
-    WriteError(AudioFileError),
+    Error(DatabaseError),
 }
 
 impl Database {
@@ -45,16 +44,19 @@ impl Database {
         }
     }
 
-    pub fn open(path: impl AsRef<Path>, music_dir: PathBuf) -> DatabaseResult<Self> {
-        let path = path.as_ref();
-        let mut db = Self::new(Sqlite::open(path)?);
-        db.migrate(music_dir)?;
+    pub fn open(music_dir: PathBuf, database_file: Option<&Path>) -> DatabaseResult<Self> {
+        let sqlite = match database_file {
+            Some(path) => Sqlite::open(&path).map_err(|err| DatabaseError {
+                message: format!("Failed to open database at '{}'", path.display()),
+                source: Some(DatabaseErrorSource::Sqlite(err)),
+            }),
+            None => Sqlite::open_in_memory().map_err(|err| DatabaseError {
+                message: String::from("Failed to open database in-memory"),
+                source: Some(DatabaseErrorSource::Sqlite(err)),
+            }),
+        }?;
 
-        Ok(db)
-    }
-
-    pub fn open_in_memory(music_dir: PathBuf) -> DatabaseResult<Self> {
-        let mut db = Self::new(Sqlite::open_in_memory()?);
+        let mut db = Self::new(sqlite);
         db.migrate(music_dir)?;
 
         Ok(db)
@@ -282,14 +284,17 @@ impl Database {
                 ScanEvent::Track(track) => {
                     self.sqlite
                         .transaction(|tx| Self::add_track(tx, track))
-                        .unwrap(); // TODO?
+                        .unwrap();
                 }
                 ScanEvent::Error(path, err) => {
-                    // TODO: Use path...
-                    on_event(DatabaseEvent::ReceiveError(err));
+                    on_event(DatabaseEvent::Error(DatabaseError {
+                        message: format!("Failed to scan audio file '{}'", path.display()),
+                        source: Some(DatabaseErrorSource::Audio(err)),
+                    }));
                 }
                 ScanEvent::Done => {
                     is_done = true;
+                    break;
                 }
             }
         }
@@ -301,21 +306,25 @@ impl Database {
     }
 
     fn poll_writer(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
-        self.writer.poll(|result| match result {
-            Ok(req) => {
+        let Some(result) = self.writer.poll() else {
+            return;
+        };
+
+        match result {
+            Ok(WriteSuccess { id, rating }) => {
                 // Update rating in db
                 self.sqlite
-                    .execute(
-                        "UPDATE tracks SET rating = ?1 WHERE id = ?2",
-                        (req.rating, req.id),
-                    )
+                    .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
                     .unwrap();
 
                 // Notify
-                on_event(DatabaseEvent::Rating(req.id));
+                on_event(DatabaseEvent::Rating(id));
             }
-            Err(err) => on_event(DatabaseEvent::Error(err)),
-        });
+            Err(WriteFailure { path, error }) => on_event(DatabaseEvent::Error(DatabaseError {
+                message: format!("Failed to write audio rating to '{}'", path.display()),
+                source: Some(DatabaseErrorSource::Audio(error)),
+            })),
+        }
     }
 
     fn add_track(tx: &Transaction, track: ScannedTrack) -> SqliteResult<()> {
@@ -447,14 +456,18 @@ impl Database {
             .unwrap();
     }
 
-    fn migrate(&mut self, dir: PathBuf) -> DatabaseResult<()> {
+    fn migrate(&mut self, music_dir: PathBuf) -> DatabaseResult<()> {
         const VERSION: SqliteId = 1;
 
         let version = self.sqlite.version();
         let rescan = match version {
             0 => {
                 self.sqlite
-                    .execute_batch(include_str!("database2/schema.sql"))?;
+                    .execute_batch(include_str!("database2/schema.sql"))
+                    .map_err(|err| DatabaseError {
+                        message: String::from("Failed to execute schema"),
+                        source: Some(DatabaseErrorSource::Sqlite(err)),
+                    })?;
                 true
             }
             VERSION => false,
@@ -465,7 +478,7 @@ impl Database {
         };
 
         if rescan {
-            self.scanner = Some(Scanner::start(dir.to_path_buf()));
+            self.scanner = Some(Scanner::start(music_dir.to_path_buf()));
             self.sqlite.set_version(VERSION);
         }
 
@@ -576,24 +589,28 @@ impl FromSql for AlbumId {
 }
 
 #[derive(Debug)]
-pub enum DatabaseError {
+pub struct DatabaseError {
+    message: String,
+    source: Option<DatabaseErrorSource>,
+}
+
+#[derive(Debug)]
+pub enum DatabaseErrorSource {
     Sqlite(SqliteError),
-    Version(SqliteId),
+    Audio(AudioFileError),
 }
 
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DatabaseError::Sqlite(err) => err.fmt(f),
-            DatabaseError::Version(v) => f.write_fmt(format_args!("Unknown version: {v}")),
-        }
+        f.write_str(&self.message)
     }
 }
 
-impl std::error::Error for DatabaseError {}
-
-impl From<SqliteError> for DatabaseError {
-    fn from(err: SqliteError) -> Self {
-        Self::Sqlite(err)
+impl std::error::Error for DatabaseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|err| match err {
+            DatabaseErrorSource::Sqlite(err) => err as _,
+            DatabaseErrorSource::Audio(err) => err as _,
+        })
     }
 }

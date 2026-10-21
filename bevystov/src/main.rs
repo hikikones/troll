@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use bevystov::{
     app::App,
     database2::Database,
-    jukebox::{AudioPlayer, Jukebox},
+    jukebox::Jukebox,
     mpris::MediaControls,
     settings::{ConfigError, ConfigErrorSource, Settings},
 };
@@ -55,8 +55,8 @@ fn main() -> std::process::ExitCode {
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let terminal = Terminal::stdout();
 
-    let jukebox = Jukebox::new(AudioPlayer::new()?);
-    let database = Database::open_in_memory(args.dir)?;
+    let jukebox = Jukebox::new()?;
+    let database = Database::open(args.dir, None)?;
 
     let mut settings = read_settings(args.settings)?;
     settings.colors_mut().background =

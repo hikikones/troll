@@ -1,13 +1,15 @@
-use std::{io::Cursor, path::PathBuf};
-
-use rodio::Decoder;
+use std::{
+    io::Cursor,
+    path::{Path, PathBuf},
+};
 
 use crate::database2::{AudioExt, TrackId};
 
-type DecodeResult = Result<DecodeSuccess, DecodeError>;
+type DecodeResult = Result<DecodeSuccess, DecodeFailure>;
 type DecodeHandle = std::thread::JoinHandle<DecodeResult>;
+type Decoder = rodio::Decoder<Cursor<Vec<u8>>>;
 
-pub(super) struct AudioDecoder {
+pub struct AudioDecoder {
     handle: Option<DecodeHandle>,
 }
 
@@ -40,75 +42,63 @@ impl AudioDecoder {
     }
 }
 
-pub(super) struct DecodeRequest {
+pub struct DecodeRequest {
     pub id: TrackId,
     pub index: usize,
     pub path: PathBuf,
 }
 
-pub(super) struct DecodeSuccess {
+pub struct DecodeSuccess {
     pub id: TrackId,
     pub index: usize,
-    pub data: Decoder<Cursor<Vec<u8>>>,
+    pub decode: Decoder,
 }
 
-pub(super) struct DecodeError {
+pub struct DecodeFailure {
     pub id: TrackId,
     pub path: PathBuf,
-    pub source: DecodeErrorSource,
+    pub error: DecodeError,
 }
 
 #[derive(Debug)]
-pub(super) enum DecodeErrorSource {
+pub enum DecodeError {
     Io(std::io::Error),
     Decode(rodio::decoder::DecoderError),
 }
 
-impl std::fmt::Display for DecodeErrorSource {
+impl std::fmt::Display for DecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DecodeErrorSource::Io(err) => err.fmt(f),
-            DecodeErrorSource::Decode(err) => err.fmt(f),
+            DecodeError::Io(err) => err.fmt(f),
+            DecodeError::Decode(err) => err.fmt(f),
         }
     }
 }
 
-impl std::error::Error for DecodeErrorSource {}
+impl std::error::Error for DecodeError {}
 
 fn start_decode(request: DecodeRequest) -> DecodeHandle {
-    let ext = AudioExt::from_path(&request.path).unwrap();
-    std::thread::spawn(move || {
-        let bytes = match std::fs::read(&request.path) {
-            Ok(bytes) => bytes,
-            Err(err) => {
-                return Err(DecodeError {
-                    id: request.id,
-                    path: request.path,
-                    source: DecodeErrorSource::Io(err),
-                });
-            }
-        };
+    let DecodeRequest { id, index, path } = request;
 
-        let len = bytes.len() as u64;
-        let decoder = Decoder::builder()
-            .with_data(Cursor::new(bytes))
-            .with_hint(ext.as_lower_case())
-            .with_byte_len(len)
-            .with_seekable(true)
-            .with_gapless(false)
-            .build();
-
-        match decoder {
-            Ok(data) => Ok(DecodeSuccess {
-                id: request.id,
-                index: request.index,
-                data,
-            }),
-            Err(err) => Err(DecodeError {
-                id: request.id,
-                path: request.path,
-                source: DecodeErrorSource::Decode(err),
-            }),
-        }
+    std::thread::spawn(move || match decode_audio(&path) {
+        Ok(decode) => Ok(DecodeSuccess { id, index, decode }),
+        Err(error) => Err(DecodeFailure { id, path, error }),
     })
+}
+
+fn decode_audio(path: &Path) -> Result<Decoder, DecodeError> {
+    let ext = AudioExt::from_path(path).unwrap();
+    let bytes = std::fs::read(path).map_err(|err| DecodeError::Io(err))?;
+
+    let len = bytes.len() as u64;
+    let decoder = rodio::Decoder::builder()
+        .with_data(Cursor::new(bytes))
+        .with_hint(ext.as_lower_case())
+        .with_byte_len(len)
+        .with_seekable(true)
+        .with_gapless(false)
+        .build()
+        .map_err(|err| DecodeError::Decode(err))?;
+
+    Ok(decoder)
 }
