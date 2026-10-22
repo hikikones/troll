@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 use shared::sqlite::{
     FromSql, FromSqlError, FromSqlResult, SqliteId, SqliteResult, ToSql, ToSqlOutput, Value,
@@ -166,14 +166,40 @@ impl TrackDuration {
         Self(seconds)
     }
 
-    pub const fn from_duration(duration: std::time::Duration) -> Self {
+    pub const fn from_duration(duration: Duration) -> Self {
         Self(duration.as_secs() as u16)
     }
 
-    // TODO: add a progress method here?
+    pub const fn progress(self, other: Self) -> f32 {
+        if self.0 >= other.0 || other.0 == 0 {
+            return 1.0;
+        }
+
+        self.as_f32() / other.as_f32()
+    }
+
+    pub const fn add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
+
+    pub const fn sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+
+    pub const fn mul_f32(self, v: f32) -> Self {
+        Self((self.0 as f32 * v) as u16)
+    }
+
+    pub const fn max(self, other: Self) -> Self {
+        if self.0 < other.0 { other } else { self }
+    }
 
     pub const fn as_f32(self) -> f32 {
         self.0 as f32
+    }
+
+    pub const fn as_duration(self) -> Duration {
+        Duration::from_secs(self.0 as u64)
     }
 }
 

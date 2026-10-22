@@ -457,14 +457,9 @@ fn input_app(
             if key.ctrl() {
                 jukebox.play_previous(&database);
             } else if key.alt() {
-                // TODO
-                // if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
-                //     let pos = jukebox.current_track_pos();
-                //     let min = Duration::from_secs(2);
-                //     let secs = track.duration().mul_f32(0.10).max(min);
-                //     jukebox.seek(pos.saturating_sub(secs));
-                //     actions.push(Action::Render);
-                // }
+                if jukebox.seek_backwards() {
+                    actions.push(Action::Render);
+                }
             } else {
                 input.set(key);
             }
@@ -473,14 +468,9 @@ fn input_app(
             if key.ctrl() {
                 jukebox.play_next(&database);
             } else if key.alt() {
-                // TODO
-                // if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
-                //     let pos = jukebox.current_track_pos();
-                //     let min = Duration::from_secs(1);
-                //     let secs = track.duration().mul_f32(0.10).max(min);
-                //     jukebox.seek(pos + secs);
-                //     actions.push(Action::Render);
-                // }
+                if jukebox.seek_forwards() {
+                    actions.push(Action::Render);
+                }
             } else {
                 input.set(key);
             }
@@ -667,7 +657,7 @@ fn render_playback(
     frame.push_fmt(track_pos);
     frame.push_ch(' ');
 
-    let progress = track_pos.as_f32() / track_dur.as_f32(); // TODO: what if zero?
+    let progress = track_pos.progress(track_dur);
     let highlights = (status_width as f32 * progress) as u16;
     let remaining = status_width.saturating_sub(highlights);
     frame.push_fmt(Sgr::Fg(primary));

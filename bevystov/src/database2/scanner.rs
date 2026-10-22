@@ -33,16 +33,11 @@ impl Scanner {
             let mut track = ScannedTrack::default();
 
             traverse_files(dir, true, |path, ext| {
-                let result = process_file(path, ext, &mut track);
-
-                match result {
-                    Ok(track) => {
-                        let _ = sender.send(ScanResult::Success(track));
-                    }
-                    Err(err) => {
-                        let _ = sender.send(ScanResult::Error(path.to_path_buf(), err));
-                    }
-                }
+                let result = match process_file(path, ext, &mut track) {
+                    Ok(track) => ScanResult::Success(track),
+                    Err(err) => ScanResult::Error(path.to_path_buf(), err),
+                };
+                let _ = sender.send(result);
 
                 track.clear();
             });

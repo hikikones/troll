@@ -453,12 +453,28 @@ impl Jukebox {
         self.sync_queue_index();
     }
 
-    pub fn seek(&mut self, position: Duration) {
-        if self.player.is_paused() || self.player.is_empty() {
-            return;
+    pub fn seek_forwards(&mut self) -> bool {
+        if self.current.is_none() || self.player.is_paused() || self.player.is_empty() {
+            return false;
         }
 
-        self.player.seek(position);
+        let pos = self.current_track_pos();
+        let min = TrackDuration::new(1);
+        let secs = self.metadata.duration.mul_f32(0.10).max(min);
+        self.player.seek(pos.add(secs).as_duration());
+        true
+    }
+
+    pub fn seek_backwards(&mut self) -> bool {
+        if self.current.is_none() || self.player.is_paused() || self.player.is_empty() {
+            return false;
+        }
+
+        let pos = self.current_track_pos();
+        let min = TrackDuration::new(2);
+        let secs = self.metadata.duration.mul_f32(0.10).max(min);
+        self.player.seek(pos.sub(secs).as_duration());
+        true
     }
 
     pub const fn set_skip(&mut self, rating: TrackRating) {
