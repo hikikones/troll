@@ -58,12 +58,8 @@ impl Scanner {
                 ScanResult::Error(path, err) => Some(ScanEvent::Error(path, err)),
             },
             Err(err) => match err {
-                TryRecvError::Empty => {
-                    return None;
-                }
-                TryRecvError::Disconnected => {
-                    return Some(ScanEvent::Done);
-                }
+                TryRecvError::Empty => None,
+                TryRecvError::Disconnected => Some(ScanEvent::Done),
             },
         }
     }
@@ -71,48 +67,68 @@ impl Scanner {
 
 #[derive(Default, Clone)]
 pub struct ScannedTrack {
-    data: String,
-    title: Range<usize>,
+    text: String,
+    artists: Vec<Range<usize>>,
+    data: Data,
+}
+
+#[derive(Default, Clone)]
+struct Data {
     rating: TrackRating,
     duration: TrackDuration,
-    artists: Vec<Range<usize>>,
+    bit_rate_kbps: u32,
+    bit_depth: Option<u8>,
+    sample_rate: Option<u32>,
+    title: Range<usize>,
     album: Range<usize>,
     path: Range<usize>,
 }
 
 impl ScannedTrack {
-    pub fn title(&self) -> &str {
-        &self.data[self.title.clone()]
-    }
-
     pub const fn rating(&self) -> TrackRating {
-        self.rating
+        self.data.rating
     }
 
     pub const fn duration(&self) -> TrackDuration {
-        self.duration
+        self.data.duration
+    }
+
+    pub const fn bit_rate_kbps(&self) -> u32 {
+        self.data.bit_rate_kbps
+    }
+
+    pub const fn bit_depth(&self) -> Option<u8> {
+        self.data.bit_depth
+    }
+
+    pub const fn sample_rate(&self) -> Option<u32> {
+        self.data.sample_rate
+    }
+
+    pub fn title(&self) -> &str {
+        self.slice(self.data.title.clone())
     }
 
     pub fn artists(&self) -> impl Iterator<Item = &str> {
-        self.artists.iter().map(|r| &self.data[r.clone()])
+        self.artists.iter().map(|r| self.slice(r.clone()))
     }
 
     pub fn album(&self) -> &str {
-        &self.data[self.album.clone()]
+        self.slice(self.data.album.clone())
     }
 
     pub fn path(&self) -> &str {
-        &self.data[self.path.clone()]
+        self.slice(self.data.path.clone())
+    }
+
+    fn slice(&self, range: Range<usize>) -> &str {
+        &self.text[range]
     }
 
     fn clear(&mut self) {
-        self.data.clear();
-        self.title = 0..0;
-        self.rating = TrackRating::None;
-        self.duration = TrackDuration::new(0);
+        self.text.clear();
         self.artists.clear();
-        self.album = 0..0;
-        self.path = 0..0;
+        self.data = Data::default();
     }
 }
 
@@ -122,28 +138,31 @@ fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioRe
     let p = audio.properties();
 
     // Track
-    track.title = track
-        .data
+    track.data.title = track
+        .text
         .push_str_get_range(tag.get("TITLE").unwrap_or(""));
-    track.rating = tag
+    track.data.rating = tag
         .get("RATING")
         .map(TrackRating::from_vorbis_comments)
         .unwrap_or(TrackRating::None);
-    track.duration = TrackDuration::from_duration(p.duration);
+    track.data.duration = TrackDuration::from_duration(p.duration);
+    track.data.bit_rate_kbps = p.bit_rate_kbps;
+    track.data.bit_depth = p.bit_depth;
+    track.data.sample_rate = p.sample_rate;
 
     // Artists
     for artist in tag.get_all("ARTIST") {
-        let range = track.data.push_str_get_range(artist);
+        let range = track.text.push_str_get_range(artist);
         track.artists.push(range);
     }
 
     // Album
-    track.album = track
-        .data
+    track.data.album = track
+        .text
         .push_str_get_range(tag.get("ALBUM").unwrap_or(""));
 
     // Path
-    track.path = track.data.push_str_get_range(&path.to_string_lossy());
+    track.data.path = track.text.push_str_get_range(&path.to_string_lossy());
 
     Ok(track.clone())
 }

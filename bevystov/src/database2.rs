@@ -195,14 +195,19 @@ impl Database {
 
     pub fn track_info(&self, id: TrackId, mut f: impl FnMut(TrackInfo)) {
         self.single(
-            "SELECT title, rating, duration, path FROM tracks WHERE id = ?",
+            "SELECT \
+            title, rating, duration, bit_rate_kbps, bit_depth, sample_rate, path \
+            FROM tracks WHERE id = ?",
             [id],
             |row| {
                 Ok(f(TrackInfo {
                     title: row.get_ref(0)?.as_str()?,
                     rating: row.get(1)?,
                     duration: row.get(2)?,
-                    path: Path::new(row.get_ref(3)?.as_str()?),
+                    bit_rate_kbps: row.get(3)?,
+                    bit_depth: row.get(4)?,
+                    sample_rate: row.get(5)?,
+                    path: Path::new(row.get_ref(6)?.as_str()?),
                 }))
             },
         );
@@ -344,11 +349,16 @@ impl Database {
     fn add_track(tx: &Transaction, track: ScannedTrack) -> SqliteResult<()> {
         // Track
         tx.execute(
-            "INSERT INTO tracks (title, rating, duration, path) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO tracks \
+            (title, rating, duration, bit_rate_kbps, bit_depth, sample_rate, path) \
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             (
                 track.title(),
                 track.rating(),
                 track.duration(),
+                track.bit_rate_kbps(),
+                track.bit_depth(),
+                track.sample_rate(),
                 track.path(),
             ),
         )?;

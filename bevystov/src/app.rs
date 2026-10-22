@@ -4,7 +4,7 @@ use ecs::*;
 use terminal::*;
 
 use crate::{
-    database2::{Database, DatabaseEvent, TrackDuration},
+    database2::{Database, DatabaseEvent},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
@@ -544,7 +544,6 @@ fn render_app(
     current_page: Res<State<Page>>,
     logs: Res<Logs>,
     jukebox: NonSend<Jukebox>,
-    database: NonSend<Database>,
 ) {
     let area = frame.area();
     let colors = settings.colors();
@@ -580,14 +579,7 @@ fn render_app(
                 app_shortcuts_area,
             ] = bottom.split_lines();
 
-            render_playback(
-                title_area,
-                status_area,
-                &mut frame,
-                colors,
-                &jukebox,
-                &database,
-            );
+            render_playback(title_area, status_area, &mut frame, colors, &jukebox);
 
             render_shortcuts(
                 play_shortcuts_area,
@@ -623,7 +615,6 @@ fn render_playback(
     frame: &mut Framebuffer,
     colors: &Colors,
     jukebox: &Jukebox,
-    database: &Database,
 ) {
     let status_width = status_area.cols().saturating_sub(12) * 80 / 100;
     let progress_ch = '─';
@@ -646,17 +637,17 @@ fn render_playback(
         (colors.normal, colors.primary)
     };
 
-    // Stats TODO
+    // Stats
     frame.push_fmt(Sgr::Fg(normal));
-    // frame.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
+    frame.push_fmt(format_args!("[{}", track.ext().as_upper_case()));
 
-    // if let Some(bit_depth) = track.bit_depth()
-    //     && let Some(sample_rate) = track.sample_rate()
-    // {
-    //     frame.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
-    // }
+    if let Some(bit_depth) = track.bit_depth()
+        && let Some(sample_rate) = track.sample_rate()
+    {
+        frame.push_fmt(format_args!(" {bit_depth}bit/{}kHz", sample_rate / 1000));
+    }
 
-    // frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
+    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate_kbps()));
 
     // Title
     let title = track.title();

@@ -3,6 +3,9 @@ CREATE TABLE tracks (
     title TEXT NOT NULL,
     rating INTEGER NOT NULL,
     duration INTEGER NOT NULL,
+    bit_rate_kbps INTEGER NOT NULL,
+    bit_depth INTEGER,
+    sample_rate INTEGER,
     path TEXT NOT NULL
 );
 

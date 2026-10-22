@@ -10,6 +10,9 @@ pub struct TrackInfo<'a> {
     pub title: &'a str,
     pub duration: TrackDuration,
     pub rating: TrackRating,
+    pub bit_rate_kbps: u32,
+    pub bit_depth: Option<u8>,
+    pub sample_rate: Option<u32>,
     pub path: &'a Path,
 }
 

@@ -37,6 +37,9 @@ struct Metadata {
     ext: AudioExt,
     rating: TrackRating,
     duration: TrackDuration,
+    bit_rate_kbps: u32,
+    bit_depth: Option<u8>,
+    sample_rate: Option<u32>,
     title: Range<usize>,
     artists: Range<usize>,
     album: Range<usize>,
@@ -52,6 +55,9 @@ impl Metadata {
             self.ext = AudioExt::from_path(info.path).unwrap();
             self.rating = info.rating;
             self.duration = info.duration;
+            self.bit_rate_kbps = info.bit_rate_kbps;
+            self.bit_depth = info.bit_depth;
+            self.sample_rate = info.sample_rate;
             self.title = self.text.push_str_get_range(info.title);
         });
 
@@ -89,6 +95,18 @@ impl<'a> Track<'a> {
 
     pub const fn duration(&self) -> TrackDuration {
         self.data.duration
+    }
+
+    pub const fn bit_rate_kbps(&self) -> u32 {
+        self.data.bit_rate_kbps
+    }
+
+    pub const fn bit_depth(&self) -> Option<u8> {
+        self.data.bit_depth
+    }
+
+    pub const fn sample_rate(&self) -> Option<u32> {
+        self.data.sample_rate
     }
 
     pub fn title(&self) -> &str {

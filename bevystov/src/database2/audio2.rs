@@ -76,7 +76,7 @@ impl AudioFile {
                     duration: p.duration(),
                     bit_rate_kbps: p.audio_bitrate(),
                     bit_depth: Some(p.bit_depth()),
-                    sample_rate_khz: Some(p.sample_rate()),
+                    sample_rate: Some(p.sample_rate()),
                 }
             }
             AudioFormat::Opus(opus) => {
@@ -85,7 +85,7 @@ impl AudioFile {
                     duration: p.duration(),
                     bit_rate_kbps: p.audio_bitrate(),
                     bit_depth: None,
-                    sample_rate_khz: None,
+                    sample_rate: None,
                 }
             }
             AudioFormat::Vorbis(vorbis) => {
@@ -94,7 +94,7 @@ impl AudioFile {
                     duration: p.duration(),
                     bit_rate_kbps: p.audio_bitrate(),
                     bit_depth: None,
-                    sample_rate_khz: Some(p.sample_rate()),
+                    sample_rate: Some(p.sample_rate()),
                 }
             }
         }
@@ -124,7 +124,7 @@ pub struct AudioProperties {
     pub duration: Duration,
     pub bit_rate_kbps: u32,
     pub bit_depth: Option<u8>,
-    pub sample_rate_khz: Option<u32>,
+    pub sample_rate: Option<u32>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
