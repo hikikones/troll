@@ -24,14 +24,25 @@ impl RatingsWriter {
     }
 
     pub fn push(&mut self, req: WriteRequest) {
-        self.queue.insert(
-            req.id,
-            WriteData {
-                old_rating: req.old_rating,
-                new_rating: req.new_rating,
-                path: req.path,
-            },
-        );
+        let should_remove = {
+            let data = self
+                .queue
+                .entry(req.id)
+                .and_modify(|data| {
+                    data.new_rating = req.new_rating;
+                })
+                .or_insert(WriteData {
+                    old_rating: req.old_rating,
+                    new_rating: req.new_rating,
+                    path: req.path,
+                });
+
+            data.old_rating == data.new_rating
+        };
+
+        if should_remove {
+            self.queue.remove(&req.id);
+        }
     }
 
     pub fn poll(&mut self, current_track_id: Option<TrackId>) -> Option<WriteResult> {
