@@ -167,10 +167,15 @@ impl Scroll {
         }
     }
 
-    pub const fn is_scrollable(lines: usize, viewport: Size, min_width: u16) -> bool {
+    pub const fn is_scrollable(lines: usize, viewport: Size) -> bool {
+        Self::is_scrollable_min_width(lines, viewport, 40)
+    }
+
+    pub const fn is_scrollable_min_width(lines: usize, viewport: Size, min_width: u16) -> bool {
         lines > viewport.rows as usize && viewport.cols >= min_width
     }
 
+    // TODO: Remove?
     pub const fn make_area(area: &mut Rect, margin: u16) -> Rect {
         let scroll_area = Rect {
             pos: Pos {

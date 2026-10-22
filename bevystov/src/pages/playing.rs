@@ -2,8 +2,8 @@ use ecs::*;
 use shared::symbols;
 use terminal::*;
 use widgets2::{
-    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, Scrollbar,
-    ScrollbarData, list2::List,
+    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, ScrollMargins,
+    list2::List,
 };
 
 use crate::{
@@ -70,7 +70,9 @@ impl PlayingPage {
 impl Default for PlayingPage {
     fn default() -> Self {
         Self {
-            list: List::new(),
+            list: List::new()
+                .with_scrollbar(0)
+                .with_padding(Margin::horizontal(1)),
             current_id: None,
             current_qi: None,
             image_id: 1,
@@ -365,30 +367,24 @@ fn render_queue(
         return;
     }
 
-    let (inner, scoll_area) = {
-        let inner = area.inner(Margin::all(1));
-        let is_scrollable = jukebox.len() > inner.rows() as usize && inner.cols() > 16;
-        if is_scrollable {
-            let (ta, sa) = inner.split_right(1, 0);
-            (ta.inner(Margin::horizontal(1)), Some(sa))
-        } else {
-            (inner.inner(Margin::horizontal(1)), None)
-        }
+    let inner = area.inner(Margin::all(1));
+    let scrolloff = inner.rows() / 2;
+
+    let Some((list_area, lines)) = list
+        .set_scrolloff(ScrollMargins::all(scrolloff))
+        .set_len(jukebox.len())
+        // .set_colors(colors.list()) TODO
+        .render(inner, frame)
+    else {
+        return;
     };
 
-    let scrolloff = inner.rows() / 2;
-    let line = inner.with_rows(1);
-    let lines = list
-        .set_scrolloff(scrolloff)
-        .set_padding(scrolloff)
-        .set_len(jukebox.len())
-        .render(inner);
-
+    let line = list_area.with_rows(1);
     let selected = list.index();
     let selection = list.selection_inclusive();
     let hlen = jukebox.history();
     let current_qi = jukebox.current_queue_index();
-    let mut row = inner.pos.row;
+    let mut row = list_area.pos.row;
 
     for (index, (id, qi)) in lines.zip(jukebox.iter().skip(list.scroll())) {
         let fg = if qi < hlen {
@@ -422,18 +418,6 @@ fn render_queue(
         frame.render(line.with_row(row), TextOptions::span());
 
         row += 1;
-    }
-
-    if let Some(scroll_area) = scoll_area {
-        Scrollbar::new().with_colors(colors.scrollbar()).render(
-            scroll_area,
-            frame,
-            ScrollbarData {
-                current_scroll: list.scroll(),
-                total_items: jukebox.len(),
-                viewport_height: inner.rows(),
-            },
-        );
     }
 
     render_shortcuts(shortcuts_area, frame, colors);

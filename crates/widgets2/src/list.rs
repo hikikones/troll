@@ -492,8 +492,7 @@ impl List {
     }
 
     const fn prepare_scrollbar(&self, area: &mut Rect, inner: &mut Rect) -> Option<Rect> {
-        let is_scrollable =
-            self.options.scrollbar && Scroll::is_scrollable(self.len, inner.size, 10);
+        let is_scrollable = self.options.scrollbar && Scroll::is_scrollable(self.len, inner.size);
 
         if !is_scrollable {
             return None;

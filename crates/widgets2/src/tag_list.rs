@@ -299,7 +299,7 @@ impl TagList {
     }
 
     const fn is_scrollable(&self, list_size: Size) -> bool {
-        self.options.scrollbar && Scroll::is_scrollable(self.total_lines as usize, list_size, 10)
+        self.options.scrollbar && Scroll::is_scrollable(self.total_lines as usize, list_size)
     }
 
     const fn update_scroll(&mut self, area_size: Size, list_height: u16) {

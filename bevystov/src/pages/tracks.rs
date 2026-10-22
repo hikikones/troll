@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, Scrollbar, ScrollbarData, list2::List};
+use widgets2::{Block, list2::List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
@@ -34,7 +34,7 @@ impl TracksPagePlugin {
     }
 }
 
-#[derive(Debug, Default, Resource)]
+#[derive(Debug, Resource)]
 pub struct TracksPage {
     list: List,
     params: Option<TrackId>,
@@ -43,6 +43,17 @@ pub struct TracksPage {
 impl TracksPage {
     pub const fn set_params(&mut self, id: TrackId) {
         self.params = Some(id);
+    }
+}
+
+impl Default for TracksPage {
+    fn default() -> Self {
+        Self {
+            list: List::new()
+                .with_scrollbar(0)
+                .with_padding(Margin::horizontal(1).with_top(1)),
+            params: Default::default(),
+        }
     }
 }
 
@@ -197,57 +208,40 @@ fn render_tracks(
     frame.render(area, TextOptions::span_center_top());
     frame.print_fmt(Sgr::reset_fg());
 
-    // Table
-    let (mut table_area, scoll_area) = {
-        let inner = area.inner(Margin::all(1));
-        let is_scrollable = tracks_len > inner.rows() as usize && inner.cols() > 16;
-        if is_scrollable {
-            let (ta, sa) = inner.split_right(1, 0);
-            (ta.inner(Margin::horizontal(1)), Some(sa))
-        } else {
-            (inner.inner(Margin::horizontal(1)), None)
-        }
-    };
-
-    let gap = if table_area.cols() < 10 { 0 } else { 2 };
-    let mut areas = TableAreas::new(gap, table_area.with_rows(1));
-
-    render_header(&areas, &mut frame, colors, &database);
-
-    table_area.shrink_down(1);
-
-    render_list(
-        table_area,
-        &mut areas,
+    render_table(
+        area.inner(Margin::all(1)),
         &mut frame,
         colors,
         &mut page.list,
-        tracks_len,
         &mut database,
         &jukebox,
+        tracks_len,
     );
-
-    if let Some(scroll_area) = scoll_area {
-        Scrollbar::new().with_colors(colors.scrollbar()).render(
-            scroll_area,
-            &mut frame,
-            ScrollbarData {
-                current_scroll: page.list.scroll(),
-                total_items: tracks_len,
-                viewport_height: table_area.rows(),
-            },
-        );
-    }
 
     render_shortcuts(**shortcuts_area, &mut frame, &colors);
 }
 
-fn render_header(
-    areas: &TableAreas,
+fn render_table(
+    area: Rect,
     frame: &mut Framebuffer,
     colors: &Colors,
-    database: &Database,
+    list: &mut List,
+    database: &mut Database,
+    jukebox: &Jukebox,
+    tracks_len: usize,
 ) {
+    let Some((table_area, lines)) = list
+        .set_len(tracks_len)
+        // .set_colors(colors.list()) TODO
+        .render(area, frame)
+    else {
+        return;
+    };
+
+    let gap = if area.cols() < 10 { 0 } else { 2 };
+    let mut areas = TableAreas::new(gap, table_area.with_rows(1));
+
+    // Header
     const fn sort_symbol<'a>(current_sort: TrackSort, sort: TrackSort, reverse: bool) -> &'a str {
         if current_sort.equals(sort) {
             if reverse { "⌃" } else { "⌄" }
@@ -258,6 +252,8 @@ fn render_header(
 
     let sort = database.get_sort();
     let reverse = database.get_reverse_sort();
+
+    areas.set_row(area.row());
 
     frame.print_fmt(Sgr::Fg(colors.normal));
 
@@ -278,24 +274,13 @@ fn render_header(
     frame.render(areas.rating(), TextOptions::span());
 
     frame.print_fmt(Sgr::reset_fg());
-}
 
-fn render_list(
-    area: Rect,
-    areas: &mut TableAreas,
-    frame: &mut Framebuffer,
-    colors: &Colors,
-    tracks_list: &mut List,
-    tracks_len: usize,
-    database: &mut Database,
-    jukebox: &Jukebox,
-) {
-    let line = area.with_rows(1);
-    let lines = tracks_list.set_len(tracks_len).render(area);
-    let selected = tracks_list.index();
-    let selection = tracks_list.selection_inclusive();
+    // List
+    let line = table_area.with_rows(1);
+    let selected = list.index();
+    let selection = list.selection_inclusive();
     let current_track = jukebox.current_track_id();
-    let mut row = area.pos.row;
+    let mut row = table_area.pos.row;
 
     database.tracks_table(lines, |track| {
         let TrackTable {
