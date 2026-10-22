@@ -66,6 +66,7 @@ impl Metadata {
             self.text.push_str(artist);
             self.text.push(' ');
         });
+        self.text.pop();
         self.artists = start..self.text.len();
 
         db.tracks_album(id, |album| {
