@@ -2,7 +2,6 @@ use std::{
     collections::HashSet,
     ops::Range,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 mod decoder;

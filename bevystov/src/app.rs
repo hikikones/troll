@@ -213,7 +213,7 @@ impl App {
 
     fn init(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         // Start database load
-        // self.world.non_send_mut::<Database>().load(); todo
+        self.world.non_send_mut::<Database>().load();
 
         // Update size
         self.update_size()?;

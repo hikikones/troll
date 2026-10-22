@@ -10,9 +10,13 @@ use crate::database2::{
     AudioExt, AudioFile, AudioFileError, AudioResult, TrackDuration, TrackRating,
 };
 
+type Sender = std::sync::mpsc::Sender<ScanResult>;
 type Receiver = std::sync::mpsc::Receiver<ScanResult>;
 
-pub struct Scanner(Receiver);
+pub struct Scanner {
+    scan: Option<(Sender, PathBuf)>,
+    receiver: Receiver,
+}
 
 pub enum ScanEvent {
     Track(ScannedTrack),
@@ -26,8 +30,18 @@ enum ScanResult {
 }
 
 impl Scanner {
-    pub fn start(dir: PathBuf) -> Self {
+    pub fn new(dir: PathBuf) -> Self {
         let (sender, receiver) = std::sync::mpsc::channel();
+        Self {
+            scan: Some((sender, dir)),
+            receiver,
+        }
+    }
+
+    pub fn start(&mut self) {
+        let Some((sender, dir)) = self.scan.take() else {
+            return;
+        };
 
         std::thread::spawn(move || {
             let mut track = ScannedTrack::default();
@@ -42,12 +56,10 @@ impl Scanner {
                 track.clear();
             });
         });
-
-        Self(receiver)
     }
 
     pub fn recv(&self) -> Option<ScanEvent> {
-        match self.0.try_recv() {
+        match self.receiver.try_recv() {
             Ok(result) => match result {
                 ScanResult::Success(track) => Some(ScanEvent::Track(track)),
                 ScanResult::Error(path, err) => Some(ScanEvent::Error(path, err)),
@@ -146,6 +158,7 @@ fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioRe
     track.data.sample_rate = p.sample_rate;
 
     // Artists
+    // TODO: What if empty?
     for artist in tag.get_all("ARTIST") {
         let range = track.text.push_str_get_range(artist);
         track.artists.push(range);

@@ -61,6 +61,12 @@ impl Database {
         Ok(db)
     }
 
+    pub fn load(&mut self) {
+        if let Some(scanner) = self.scanner.as_mut() {
+            scanner.start();
+        }
+    }
+
     pub fn path(&self) -> Option<&Path> {
         self.sqlite.path().map(Path::new)
     }
@@ -502,7 +508,7 @@ impl Database {
         };
 
         if rescan {
-            self.scanner = Some(Scanner::start(music_dir));
+            self.scanner = Some(Scanner::new(music_dir));
             self.sqlite.set_version(VERSION);
         }
 
