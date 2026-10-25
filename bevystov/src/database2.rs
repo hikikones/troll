@@ -198,8 +198,8 @@ impl Database {
             .single(
                 "SELECT t.title, GROUP_CONCAT(ar.name, ', '), al.name \
                 FROM tracks t \
-                JOIN artist_tracks atr ON atr.track_id = t.id \
-                JOIN artists ar ON ar.id = atr.artist_id \
+                JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
+                JOIN artists ar ON ar.id = ar_t.artist_id \
                 JOIN albums al ON al.id = t.album_id \
                 WHERE t.id = ? \
                 GROUP BY t.id",
@@ -555,12 +555,12 @@ impl SortedTracksQuery {
 
 impl std::fmt::Display for SortedTracksQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let sort_by = match self.sort {
-            TrackSort::Title => "t.title",
-            TrackSort::Artist => "ar.name",
-            TrackSort::Album => "al.name",
-            TrackSort::Time => "t.duration",
-            TrackSort::Rating => "t.rating",
+        let (sort1, sort2) = match self.sort {
+            TrackSort::Title => ("t.title", "t.id"),
+            TrackSort::Artist => ("ar.name", "t.id"),
+            TrackSort::Album => ("al.name", "t.album_id"),
+            TrackSort::Time => ("t.duration", "t.id"),
+            TrackSort::Rating => ("t.rating", "t.id"),
         };
         let order = if self.reverse_sort { "DESC" } else { "ASC" };
         let case = if self.case_sensitive {
@@ -571,7 +571,7 @@ impl std::fmt::Display for SortedTracksQuery {
 
         f.write_fmt(format_args!(
             "SELECT
-                ROW_NUMBER() OVER (ORDER BY {sort_by} {case} {order}, t.id {order}) - 1 AS row_num,
+                ROW_NUMBER() OVER (ORDER BY {sort1} {case} {order}, {sort2} {order}) - 1 AS row_num,
                 t.id,
                 t.title,
                 GROUP_CONCAT(ar.name, ', ') AS artists,
@@ -584,7 +584,7 @@ impl std::fmt::Display for SortedTracksQuery {
             JOIN artists ar ON ar.id = ar_t.artist_id
             JOIN albums al ON al.id = t.album_id
             GROUP BY t.id
-            ORDER BY {sort_by} {case} {order}, t.id {order}"
+            ORDER BY {sort1} {case} {order}, {sort2} {order}"
         ))
     }
 }
