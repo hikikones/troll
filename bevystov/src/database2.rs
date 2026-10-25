@@ -379,6 +379,11 @@ impl Database {
                     }));
                 }
                 ScanEvent::Done => {
+                    // TODO: remove
+                    self.sqlite
+                        .transaction(|tx| Self::add_track(tx, ScannedTrack::test()))
+                        .unwrap();
+
                     self.scanner = None;
                     on_event(DatabaseEvent::FinishedLoading);
                     break;

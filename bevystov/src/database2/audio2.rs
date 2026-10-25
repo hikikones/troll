@@ -152,6 +152,10 @@ impl AudioExt {
         })
     }
 
+    pub fn try_from_path(path: &Path) -> AudioResult<Self> {
+        Self::from_path(path).ok_or(AudioFileError::InvalidExtension)
+    }
+
     pub const fn as_lower_case(self) -> &'static str {
         match self {
             Self::Flac => "flac",
@@ -192,6 +196,7 @@ pub enum AudioFileError {
     Parse(lofty::error::FileParseError),
     Encode(lofty::error::FileEncodingError),
     MissingVorbisComments,
+    InvalidExtension,
 }
 
 impl std::fmt::Display for AudioFileError {
@@ -203,6 +208,7 @@ impl std::fmt::Display for AudioFileError {
             AudioFileError::MissingVorbisComments => {
                 f.write_str("No VorbisComments metadata container found")
             }
+            AudioFileError::InvalidExtension => f.write_str("No valid audio file extension found"),
         }
     }
 }

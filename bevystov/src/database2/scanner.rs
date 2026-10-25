@@ -79,6 +79,15 @@ pub struct ScannedTrack {
     data: Data,
 }
 
+impl ScannedTrack {
+    // TODO: Remove
+    pub fn test() -> Self {
+        let mut t = Self::default();
+        t.artists.push(Range::default());
+        t
+    }
+}
+
 #[derive(Default, Clone)]
 struct Data {
     rating: TrackRating,

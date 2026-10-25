@@ -113,7 +113,7 @@ fn start_write(id: TrackId, data: WriteData) -> WriteHandle {
 }
 
 fn write_rating(path: &Path, rating: TrackRating) -> AudioResult<()> {
-    let ext = AudioExt::from_path(path).unwrap();
+    let ext = AudioExt::try_from_path(path)?;
     let mut audio_file = AudioFile::read_all(path, ext)?;
     let tag = audio_file.vorbis_comments_mut()?;
 

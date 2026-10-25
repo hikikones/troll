@@ -51,7 +51,7 @@ impl Metadata {
 
         db.track_info(id, |info| {
             self.path.push(info.path);
-            self.ext = AudioExt::from_path(info.path).unwrap();
+            self.ext = AudioExt::from_path(info.path).unwrap_or_default();
             self.rating = info.rating;
             self.duration = info.duration;
             self.bit_rate_kbps = info.bit_rate_kbps;

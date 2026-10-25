@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::database2::{AudioExt, TrackId};
+use crate::database2::{AudioExt, AudioFileError, TrackId};
 
 type DecodeResult = Result<DecodeSuccess, DecodeFailure>;
 type DecodeHandle = std::thread::JoinHandle<DecodeResult>;
@@ -64,6 +64,7 @@ pub struct DecodeFailure {
 #[derive(Debug)]
 pub enum DecodeError {
     Io(std::io::Error),
+    Audio(AudioFileError),
     Decode(rodio::decoder::DecoderError),
 }
 
@@ -71,6 +72,7 @@ impl std::fmt::Display for DecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DecodeError::Io(err) => err.fmt(f),
+            DecodeError::Audio(err) => err.fmt(f),
             DecodeError::Decode(err) => err.fmt(f),
         }
     }
@@ -88,8 +90,7 @@ fn start_decode(request: DecodeRequest) -> DecodeHandle {
 }
 
 fn decode_audio(path: &Path) -> Result<Decoder, DecodeError> {
-    let ext = AudioExt::from_path(path).unwrap();
-
+    let ext = AudioExt::try_from_path(path).map_err(|err| DecodeError::Audio(err))?;
     let file = File::open(path).map_err(|err| DecodeError::Io(err))?;
     let len = file.metadata().map_err(|err| DecodeError::Io(err))?.len();
     let decoder = rodio::Decoder::builder()
