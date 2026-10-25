@@ -370,7 +370,7 @@ impl Database {
             match event {
                 ScanEvent::Track(track) => {
                     self.sqlite
-                        .transaction(|tx| Ok(Self::add_track(tx, track)))
+                        .transaction(|tx| Self::add_track(tx, track))
                         .unwrap();
                 }
                 ScanEvent::Error(path, err) => {
@@ -382,7 +382,7 @@ impl Database {
                 ScanEvent::Done => {
                     // TODO: remove
                     self.sqlite
-                        .transaction(|tx| Ok(Self::add_track(tx, ScannedTrack::test())))
+                        .transaction(|tx| Self::add_track(tx, ScannedTrack::test()))
                         .unwrap();
 
                     self.scanner = None;
@@ -422,7 +422,7 @@ impl Database {
             .unwrap();
     }
 
-    fn add_track(tx: &Transaction, track: ScannedTrack) {
+    fn add_track(tx: &Transaction, track: ScannedTrack) -> SqliteResult<()> {
         // Album
         let album_id = utils::hasher_fast(|hasher| {
             hasher.write(track.album().as_bytes());
@@ -491,6 +491,8 @@ impl Database {
             [track_id],
         )
         .unwrap();
+
+        Ok(())
     }
 
     fn migrate(&mut self, music_dir: PathBuf) -> DatabaseResult<()> {

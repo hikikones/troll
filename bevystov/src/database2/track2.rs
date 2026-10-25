@@ -270,6 +270,41 @@ impl TrackDate {
 
         Some(Self { year, month, day })
     }
+
+    pub const fn from_u32(yyyymmdd: u32) -> Self {
+        Self {
+            year: (yyyymmdd / 10_000) as u16,
+            month: ((yyyymmdd / 100) % 100) as u8,
+            day: (yyyymmdd % 100) as u8,
+        }
+    }
+
+    pub const fn as_u32(self) -> u32 {
+        self.year as u32 * 10_000 + self.month as u32 * 100 + self.day as u32
+    }
+}
+
+impl std::fmt::Display for TrackDate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{:04}-{:02}-{:02}",
+            self.year, self.month, self.day
+        ))
+    }
+}
+
+impl ToSql for TrackDate {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Owned(
+            Value::Integer(self.as_u32() as SqliteId),
+        ))
+    }
+}
+
+impl FromSql for TrackDate {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().map(|n| Self::from_u32(n as u32))
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
