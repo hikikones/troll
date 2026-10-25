@@ -764,21 +764,19 @@ fn update_app(
         }
     }
 
-    jukebox.update(&database, |event| {
+    jukebox.update(&database, |jb, event| {
         render = true;
 
         match event {
             JukeboxEvent::Play(id) => {
                 if let Some(mc) = media_controls.as_ref() {
-                    match id {
-                        Some(id) => {
-                            let metadata = MprisMetadata::new(id, &database);
-                            mc.send(MprisEvent::Both(MprisStatus::Playing, Some(metadata)));
-                        }
-                        None => {
-                            mc.send(MprisEvent::Status(MprisStatus::Playing));
-                        }
-                    }
+                    let mpris_event = id
+                        .and_then(|_| jb.current_track())
+                        .map(|track| {
+                            MprisEvent::Both(MprisStatus::Playing, Some(MprisMetadata::new(track)))
+                        })
+                        .unwrap_or(MprisEvent::Status(MprisStatus::Playing));
+                    mc.send(mpris_event);
                 }
             }
             JukeboxEvent::Pause => {

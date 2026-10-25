@@ -58,19 +58,19 @@ impl Metadata {
             self.bit_depth = info.bit_depth;
             self.sample_rate = info.sample_rate;
             self.title = self.text.push_str_get_range(info.title);
+
+            db.album_name(info.album_id, |album| {
+                self.album = self.text.push_str_get_range(album)
+            });
         });
 
         let start = self.text.len();
-        db.tracks_artists(id, |artist| {
+        db.track_artists(id, |artist| {
             self.text.push_str(artist);
             self.text.push(' ');
         });
         self.text.pop();
         self.artists = start..self.text.len();
-
-        db.tracks_album(id, |album| {
-            self.album = self.text.push_str_get_range(album);
-        });
     }
 }
 
@@ -406,7 +406,7 @@ impl Jukebox {
         match self.current_track_id() {
             Some(id) => {
                 loop {
-                    rand = match db.tracks_random_id_except(id) {
+                    rand = match db.random_track_id_except(id) {
                         Some(id) => id,
                         None => {
                             // Only one track in the entire db
@@ -422,7 +422,7 @@ impl Jukebox {
                 }
             }
             None => loop {
-                rand = db.tracks_random_id();
+                rand = db.random_track_id();
                 count += 1;
 
                 let is_bad = self.is_faulty(rand) || self.should_skip(rand, db);
@@ -481,7 +481,7 @@ impl Jukebox {
     }
 
     fn should_skip(&self, id: TrackId, db: &Database) -> bool {
-        let rating = db.tracks_rating(id);
+        let rating = db.track_rating(id);
         match rating {
             TrackRating::None => false,
             _ => rating.as_u8() <= self.skip.as_u8(),
@@ -489,7 +489,7 @@ impl Jukebox {
     }
 
     fn start_decode(&mut self, id: TrackId, index: usize, db: &Database) {
-        let path = db.tracks_path(id);
+        let path = db.track_path(id);
         self.decoder.start(DecodeRequest { id, index, path });
     }
 
@@ -504,13 +504,14 @@ impl Jukebox {
         }
     }
 
-    pub fn update(&mut self, db: &Database, mut on_event: impl FnMut(JukeboxEvent)) {
+    pub fn update(&mut self, db: &Database, mut on_event: impl FnMut(&Self, JukeboxEvent)) {
         self.poll_decoder(db);
         self.update_state(db);
 
         // Drain events
-        for event in self.events.drain(..) {
-            on_event(event);
+        self.events.reverse();
+        while let Some(event) = self.events.pop() {
+            on_event(self, event);
         }
     }
 

@@ -115,7 +115,7 @@ fn input_tracks(
 
     match key.code {
         KeyCode::Enter => {
-            let id = database.tracks_id(page.list.index());
+            let id = database.track_id(page.list.index());
             jukebox.play_id(id, &database);
         }
         KeyCode::Char(c) => match c {
@@ -123,7 +123,7 @@ fn input_tracks(
                 let rating = TrackRating::from_char(c).unwrap();
                 let mut render = false;
                 for i in page.list.selection_inclusive() {
-                    let id = database.tracks_id(i);
+                    let id = database.track_id(i);
                     if database.write_rating(id, rating) {
                         render = true;
                     }
@@ -137,12 +137,12 @@ fn input_tracks(
                 jukebox.extend(
                     page.list
                         .selection_inclusive()
-                        .map(|i| database.tracks_id(i)),
+                        .map(|i| database.track_id(i)),
                 );
             }
             'n' => {
                 for i in page.list.selection_inclusive().rev() {
-                    let id = database.tracks_id(i);
+                    let id = database.track_id(i);
                     jukebox.enqueue_next(id);
                 }
             }
@@ -177,7 +177,7 @@ fn enter_tracks(mut page: ResMut<TracksPage>, mut database: NonSendMut<Database>
         return;
     };
 
-    let index = database.tracks_index(id);
+    let index = database.track_index(id);
     page.list.set_index(index).set_selector(None);
 }
 

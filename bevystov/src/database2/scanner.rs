@@ -14,7 +14,7 @@ type Sender = std::sync::mpsc::Sender<ScanResult>;
 type Receiver = std::sync::mpsc::Receiver<ScanResult>;
 
 pub struct Scanner {
-    scan: Option<(Sender, PathBuf)>,
+    sender: Option<(Sender, PathBuf)>,
     receiver: Receiver,
 }
 
@@ -33,13 +33,13 @@ impl Scanner {
     pub fn new(dir: PathBuf) -> Self {
         let (sender, receiver) = std::sync::mpsc::channel();
         Self {
-            scan: Some((sender, dir)),
+            sender: Some((sender, dir)),
             receiver,
         }
     }
 
     pub fn start(&mut self) {
-        let Some((sender, dir)) = self.scan.take() else {
+        let Some((sender, dir)) = self.sender.take() else {
             return;
         };
 
@@ -162,6 +162,10 @@ fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioRe
     for artist in tag.get_all("ARTIST") {
         let range = track.text.push_str_get_range(artist);
         track.artists.push(range);
+    }
+
+    if track.artists.is_empty() {
+        track.artists.push(Range::default());
     }
 
     // Album

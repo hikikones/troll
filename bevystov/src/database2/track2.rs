@@ -5,6 +5,8 @@ use shared::sqlite::{
     ValueRef,
 };
 
+use crate::database2::AlbumId;
+
 #[derive(Debug)]
 pub struct TrackInfo<'a> {
     pub title: &'a str,
@@ -14,6 +16,7 @@ pub struct TrackInfo<'a> {
     pub bit_depth: Option<u8>,
     pub sample_rate: Option<u32>,
     pub path: &'a Path,
+    pub album_id: AlbumId,
 }
 
 #[derive(Debug)]
@@ -25,6 +28,13 @@ pub struct TrackTable<'a> {
     pub album: &'a str,
     pub duration: TrackDuration,
     pub rating: TrackRating,
+}
+
+#[derive(Debug)]
+pub struct TrackText<'a> {
+    pub title: &'a str,
+    pub artists: &'a str,
+    pub album: &'a str,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

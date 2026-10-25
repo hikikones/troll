@@ -308,7 +308,7 @@ fn render_cover(
 ) {
     let Some(rating) = jukebox
         .current_track_id()
-        .map(|id| database.tracks_rating(id))
+        .map(|id| database.track_rating(id))
     else {
         frame.push_str_fg("No track currently playing", colors.neutral);
         frame.render(
@@ -410,7 +410,7 @@ fn render_queue(
             frame.push_fmt(Sgr::CrossedOut);
         }
 
-        database.tracks_title(id, |title| {
+        database.track_title(id, |title| {
             frame.push_str(title);
         });
 
@@ -472,7 +472,7 @@ fn update_cover(
         return;
     };
 
-    let path = database.tracks_path(id);
+    let path = database.track_path(id);
     cover.handle = Some(load_front_cover(path, page.next_image_id()));
 }
 
