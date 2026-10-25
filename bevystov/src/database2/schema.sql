@@ -17,7 +17,7 @@ CREATE TABLE artists (
 
 CREATE TABLE albums (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL
 );
 
 CREATE TABLE artist_tracks (

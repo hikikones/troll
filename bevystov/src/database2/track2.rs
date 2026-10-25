@@ -245,6 +245,33 @@ impl FromSql for TrackDuration {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TrackDate {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+}
+
+impl TrackDate {
+    /// Parses dates in ISO 8601 "YYYY-MM-DD".
+    /// Months and days defaults to zero when not found.
+    pub fn parse(s: &str) -> Option<Self> {
+        let mut parts = s.split('-');
+
+        let year = parts.next()?.parse().ok()?;
+        let month = parts
+            .next()
+            .map(|s| s.parse().unwrap_or_default())
+            .unwrap_or_default();
+        let day = parts
+            .next()
+            .map(|s| s.parse().unwrap_or_default())
+            .unwrap_or_default();
+
+        Some(Self { year, month, day })
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum TrackSort {
     Title,

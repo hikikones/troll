@@ -1,4 +1,5 @@
 use std::{
+    hash::Hasher,
     ops::Range,
     path::{Path, PathBuf},
 };
@@ -369,7 +370,7 @@ impl Database {
             match event {
                 ScanEvent::Track(track) => {
                     self.sqlite
-                        .transaction(|tx| Self::add_track(tx, track))
+                        .transaction(|tx| Ok(Self::add_track(tx, track)))
                         .unwrap();
                 }
                 ScanEvent::Error(path, err) => {
@@ -381,7 +382,7 @@ impl Database {
                 ScanEvent::Done => {
                     // TODO: remove
                     self.sqlite
-                        .transaction(|tx| Self::add_track(tx, ScannedTrack::test()))
+                        .transaction(|tx| Ok(Self::add_track(tx, ScannedTrack::test())))
                         .unwrap();
 
                     self.scanner = None;
@@ -421,22 +422,18 @@ impl Database {
             .unwrap();
     }
 
-    fn add_track(tx: &Transaction, track: ScannedTrack) -> SqliteResult<()> {
+    fn add_track(tx: &Transaction, track: ScannedTrack) {
         // Album
-        // TODO: Albums can have same name. Need to compute uniqueness from more data.
-        let rows_changed = tx.execute(
-            "INSERT INTO albums (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
-            [track.album()],
-        )?;
-        let album_id: SqliteId = if rows_changed > 0 {
-            tx.last_insert_rowid()
-        } else {
-            tx.query_row(
-                "SELECT id FROM albums WHERE name = ?1",
-                [track.album()],
-                |row| row.get(0),
-            )?
-        };
+        let album_id = utils::hasher_fast(|hasher| {
+            hasher.write(track.album().as_bytes());
+            hasher.write(track.album_artist().as_bytes());
+            hasher.write(track.date().as_bytes());
+        }) as SqliteId;
+        tx.execute(
+            "INSERT INTO albums (id, name) VALUES (?1, ?2) ON CONFLICT(id) DO NOTHING",
+            (album_id, track.album()),
+        )
+        .unwrap();
 
         // Track
         tx.execute(
@@ -453,24 +450,27 @@ impl Database {
                 track.path(),
                 album_id,
             ),
-        )?;
+        )
+        .unwrap();
         let track_id = tx.last_insert_rowid();
 
         // Artists
-        // TODO: Artists can have same name?
         for artist in track.artists() {
-            let rows_changed = tx.execute(
-                "INSERT INTO artists (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
-                [artist],
-            )?;
+            let rows_changed = tx
+                .execute(
+                    "INSERT INTO artists (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
+                    [artist],
+                )
+                .unwrap();
             let artist_id: SqliteId = if rows_changed > 0 {
                 tx.last_insert_rowid()
             } else {
                 tx.query_row("SELECT id FROM artists WHERE name = ?1", [artist], |row| {
                     row.get(0)
-                })?
+                })
+                .unwrap()
             };
-            tx.execute("INSERT INTO artist_tracks (artist_id, track_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (artist_id, track_id))?;
+            tx.execute("INSERT INTO artist_tracks (artist_id, track_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (artist_id, track_id)).unwrap();
         }
 
         tx.execute(
@@ -489,9 +489,8 @@ impl Database {
         JOIN albums al ON al.id = t.album_id
         WHERE t.id = ?1",
             [track_id],
-        )?;
-
-        Ok(())
+        )
+        .unwrap();
     }
 
     fn migrate(&mut self, music_dir: PathBuf) -> DatabaseResult<()> {

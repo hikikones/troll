@@ -81,6 +81,7 @@ pub struct ScannedTrack {
 
 #[derive(Default, Clone)]
 struct Data {
+    number: u8,
     rating: TrackRating,
     duration: TrackDuration,
     bit_rate_kbps: u32,
@@ -88,6 +89,8 @@ struct Data {
     sample_rate: Option<u32>,
     title: Range<usize>,
     album: Range<usize>,
+    album_artist: Range<usize>,
+    date: Range<usize>,
     path: Range<usize>,
 }
 
@@ -97,6 +100,10 @@ impl ScannedTrack {
         let mut t = Self::default();
         t.artists.push(Range::default());
         t
+    }
+
+    pub const fn number(&self) -> u8 {
+        self.data.number
     }
 
     pub const fn rating(&self) -> TrackRating {
@@ -131,6 +138,14 @@ impl ScannedTrack {
         self.slice(self.data.album.clone())
     }
 
+    pub fn album_artist(&self) -> &str {
+        self.slice(self.data.album_artist.clone())
+    }
+
+    pub fn date(&self) -> &str {
+        self.slice(self.data.date.clone())
+    }
+
     pub fn path(&self) -> &str {
         self.slice(self.data.path.clone())
     }
@@ -162,7 +177,10 @@ fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioRe
                 track.artists.push(range)
             }
             "ALBUM" => track.data.album = track.text.push_str_get_range(val),
+            "ALBUMARTIST" => track.data.album_artist = track.text.push_str_get_range(val),
             "RATING" => track.data.rating = TrackRating::from_vorbis_comments(val),
+            "TRACKNUMBER" => track.data.number = val.parse::<u8>().unwrap_or_default(),
+            "DATE" => track.data.date = track.text.push_str_get_range(val),
             _ => {}
         }
     }
