@@ -213,6 +213,18 @@ impl TrackDuration {
     }
 }
 
+impl From<Duration> for TrackDuration {
+    fn from(value: Duration) -> Self {
+        Self::from_duration(value)
+    }
+}
+
+impl From<TrackDuration> for Duration {
+    fn from(value: TrackDuration) -> Self {
+        value.as_duration()
+    }
+}
+
 impl std::fmt::Display for TrackDuration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let seconds = self.0 % 60;

@@ -79,15 +79,6 @@ pub struct ScannedTrack {
     data: Data,
 }
 
-impl ScannedTrack {
-    // TODO: Remove
-    pub fn test() -> Self {
-        let mut t = Self::default();
-        t.artists.push(Range::default());
-        t
-    }
-}
-
 #[derive(Default, Clone)]
 struct Data {
     rating: TrackRating,
@@ -101,6 +92,13 @@ struct Data {
 }
 
 impl ScannedTrack {
+    // TODO: Remove
+    pub fn test() -> Self {
+        let mut t = Self::default();
+        t.artists.push(Range::default());
+        t
+    }
+
     pub const fn rating(&self) -> TrackRating {
         self.data.rating
     }
@@ -149,38 +147,36 @@ impl ScannedTrack {
 }
 
 fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioResult<ScannedTrack> {
-    let audio = AudioFile::read_metadata(path, ext)?;
-    let tag = audio.vorbis_comments()?;
-    let p = audio.properties();
+    let mut audio = AudioFile::read_metadata(path, ext)?;
+    let vorbis_comments = audio.vorbis_comments_mut()?;
 
-    // Track
-    track.data.title = track
-        .text
-        .push_str_get_range(tag.get("TITLE").unwrap_or(""));
-    track.data.rating = tag
-        .get("RATING")
-        .map(TrackRating::from_vorbis_comments)
-        .unwrap_or(TrackRating::None);
-    track.data.duration = TrackDuration::from_duration(p.duration);
-    track.data.bit_rate_kbps = p.bit_rate_kbps;
-    track.data.bit_depth = p.bit_depth;
-    track.data.sample_rate = p.sample_rate;
+    // Metadata
+    for (mut key, value) in vorbis_comments.take_items() {
+        key.make_ascii_uppercase();
+        let val = value.as_str();
 
-    // Artists
-    // TODO: What if empty?
-    for artist in tag.get_all("ARTIST") {
-        let range = track.text.push_str_get_range(artist);
-        track.artists.push(range);
+        match key.as_str() {
+            "TITLE" => track.data.title = track.text.push_str_get_range(val),
+            "ARTIST" => {
+                let range = track.text.push_str_get_range(val);
+                track.artists.push(range)
+            }
+            "ALBUM" => track.data.album = track.text.push_str_get_range(val),
+            "RATING" => track.data.rating = TrackRating::from_vorbis_comments(val),
+            _ => {}
+        }
     }
 
     if track.artists.is_empty() {
         track.artists.push(Range::default());
     }
 
-    // Album
-    track.data.album = track
-        .text
-        .push_str_get_range(tag.get("ALBUM").unwrap_or(""));
+    // Properties
+    let p = audio.properties();
+    track.data.duration = p.duration.into();
+    track.data.bit_rate_kbps = p.bit_rate_kbps;
+    track.data.bit_depth = p.bit_depth;
+    track.data.sample_rate = p.sample_rate;
 
     // Path
     track.data.path = track.text.push_str_get_range(&path.to_string_lossy());
