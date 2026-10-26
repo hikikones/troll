@@ -108,6 +108,7 @@ fn input_tracks(
     mut jukebox: NonSendMut<Jukebox>,
     mut page: ResMut<TracksPage>,
     mut actions: ResMut<Actions>,
+    settings: Res<Settings>,
 ) {
     let Some(key) = input.get() else {
         return;
@@ -147,11 +148,23 @@ fn input_tracks(
                 }
             }
             's' => {
-                database.next_sort();
+                if settings.keep_selected() {
+                    let id = database.track_id(page.list.index());
+                    database.next_sort();
+                    page.list.set_index(database.track_index(id));
+                } else {
+                    database.next_sort();
+                }
                 actions.push(Action::Render);
             }
             'S' => {
-                database.toggle_reverse_sort();
+                if settings.keep_selected() {
+                    let id = database.track_id(page.list.index());
+                    database.toggle_reverse_sort();
+                    page.list.set_index(database.track_index(id));
+                } else {
+                    database.toggle_reverse_sort();
+                }
                 actions.push(Action::Render);
             }
             'm' => {

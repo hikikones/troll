@@ -235,16 +235,16 @@ fn handle_setting(
         Setting::SkipRating => {
             if let KeyCode::Char(c) = key.code
                 && let Some(rating) = TrackRating::from_char(c)
-                && settings.general().skip_tracks_with_rating != rating
+                && settings.general().skip_rating != rating
             {
-                settings.general_mut().skip_tracks_with_rating = rating;
+                settings.general_mut().skip_rating = rating;
                 actions.push(Action::Render);
             }
         }
         Setting::KeepTrackSort => {
             if let KeyCode::Char(' ') = key.code {
-                let toggle = !settings.general().keep_selected_track_on_sort;
-                settings.general_mut().keep_selected_track_on_sort = toggle;
+                let toggle = !settings.general().keep_selected;
+                settings.general_mut().keep_selected = toggle;
                 actions.push(Action::Render);
             }
         }
@@ -352,8 +352,7 @@ fn render_settings(
                     frame.push_str("Skip tracks with rating:");
                     frame.render(left, TextOptions::span_right());
 
-                    let (filled_stars, empty_stars) =
-                        settings.general().skip_tracks_with_rating.stars_split();
+                    let (filled_stars, empty_stars) = settings.general().skip_rating.stars_split();
                     frame.push_fmt(Sgr::Fg(colors.primary));
                     frame.push_str(filled_stars);
                     frame.push_fmt(Sgr::Fg(colors.neutral));
@@ -364,7 +363,7 @@ fn render_settings(
                 Setting::KeepTrackSort => {
                     print_toggle(
                         "Keep selected track on sort:",
-                        settings.general().keep_selected_track_on_sort,
+                        settings.general().keep_selected,
                         left,
                         right,
                         frame,
