@@ -436,6 +436,7 @@ fn input_app(
     logs: Res<Logs>,
     mut jukebox: NonSendMut<Jukebox>,
     database: NonSend<Database>,
+    settings: Res<Settings>,
 ) {
     let key = input.take();
 
@@ -455,7 +456,7 @@ fn input_app(
         }
         KeyCode::Left => {
             if key.ctrl() {
-                jukebox.play_previous(&database);
+                jukebox.play_previous(&database, settings.skip_rating());
             } else if key.alt() {
                 if jukebox.seek_backwards() {
                     actions.push(Action::Render);
@@ -466,7 +467,7 @@ fn input_app(
         }
         KeyCode::Right => {
             if key.ctrl() {
-                jukebox.play_next(&database);
+                jukebox.play_next(&database, settings.skip_rating());
             } else if key.alt() {
                 if jukebox.seek_forwards() {
                     actions.push(Action::Render);
@@ -739,6 +740,7 @@ fn update_app(
     media_controls: Option<NonSend<MediaControls>>,
     mut logs: ResMut<Logs>,
     mut actions: ResMut<Actions>,
+    settings: Res<Settings>,
 ) {
     let mut render = false;
 
@@ -759,12 +761,12 @@ fn update_app(
             MprisCommand::Pause => jukebox.pause(),
             MprisCommand::PlayPause => jukebox.pause_or_play(),
             MprisCommand::Stop => jukebox.stop(),
-            MprisCommand::Next => jukebox.play_next(&database),
-            MprisCommand::Previous => jukebox.play_previous(&database),
+            MprisCommand::Next => jukebox.play_next(&database, settings.skip_rating()),
+            MprisCommand::Previous => jukebox.play_previous(&database, settings.skip_rating()),
         }
     }
 
-    jukebox.update(&database, |jb, event| {
+    jukebox.update(&database, settings.skip_rating(), |jb, event| {
         render = true;
 
         match event {

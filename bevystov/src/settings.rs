@@ -42,6 +42,7 @@ impl Settings {
     }
 
     pub const fn set_config(&mut self, config: &Config) {
+        // TODO: rename fields, but keep serde names
         self.config.general.skip_tracks_with_rating = config.general.skip_tracks_with_rating;
         self.config.general.keep_selected_track_on_sort =
             config.general.keep_selected_track_on_sort;
@@ -57,6 +58,10 @@ impl Settings {
 
     pub const fn general_mut(&mut self) -> &mut General {
         &mut self.config.general
+    }
+
+    pub const fn skip_rating(&self) -> TrackRating {
+        self.config.general.skip_tracks_with_rating
     }
 
     pub const fn search_by_path(&self) -> bool {

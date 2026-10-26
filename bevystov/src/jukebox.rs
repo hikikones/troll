@@ -21,7 +21,6 @@ pub struct Jukebox {
     current: Option<(TrackId, usize)>,
     queue: PlayQueue,
     state: PlayState,
-    skip: TrackRating,
     decoder: AudioDecoder,
     events: Vec<JukeboxEvent>,
     faulty: HashSet<TrackId>,
@@ -158,7 +157,6 @@ impl Jukebox {
             current: None,
             queue: PlayQueue::new(),
             state: PlayState::Stop,
-            skip: TrackRating::default(), // TODO: Set from settings.
             decoder: AudioDecoder::new(),
             events: Vec::new(),
             faulty: HashSet::new(),
@@ -370,7 +368,7 @@ impl Jukebox {
         self.events.push(JukeboxEvent::Stop);
     }
 
-    pub fn play_next(&mut self, db: &Database) {
+    pub fn play_next(&mut self, db: &Database, skip: TrackRating) {
         if db.is_tracks_empty() {
             return;
         }
@@ -383,7 +381,7 @@ impl Jukebox {
         loop {
             match next {
                 Some((id, index)) => {
-                    if self.is_faulty(id) || self.should_skip(id, db) {
+                    if self.is_faulty(id) || self.should_skip(id, db, skip) {
                         next = self.queue.next();
                         continue;
                     }
@@ -415,7 +413,7 @@ impl Jukebox {
                     };
                     count += 1;
 
-                    let is_bad = self.is_faulty(rand) || self.should_skip(rand, db);
+                    let is_bad = self.is_faulty(rand) || self.should_skip(rand, db, skip);
                     if !is_bad || count >= TRIES {
                         break;
                     }
@@ -425,7 +423,7 @@ impl Jukebox {
                 rand = db.random_track_id();
                 count += 1;
 
-                let is_bad = self.is_faulty(rand) || self.should_skip(rand, db);
+                let is_bad = self.is_faulty(rand) || self.should_skip(rand, db, skip);
                 if !is_bad || count >= TRIES {
                     break;
                 }
@@ -437,9 +435,9 @@ impl Jukebox {
         self.start_decode(id, index, db);
     }
 
-    pub fn play_previous(&mut self, db: &Database) {
+    pub fn play_previous(&mut self, db: &Database, skip: TrackRating) {
         while let Some((id, index)) = self.queue.previous() {
-            if self.is_faulty(id) || self.should_skip(id, db) {
+            if self.is_faulty(id) || self.should_skip(id, db, skip) {
                 continue;
             }
 
@@ -476,15 +474,11 @@ impl Jukebox {
         true
     }
 
-    pub const fn set_skip(&mut self, rating: TrackRating) {
-        self.skip = rating;
-    }
-
-    fn should_skip(&self, id: TrackId, db: &Database) -> bool {
+    fn should_skip(&self, id: TrackId, db: &Database, skip: TrackRating) -> bool {
         let rating = db.track_rating(id);
         match rating {
             TrackRating::None => false,
-            _ => rating.as_u8() <= self.skip.as_u8(),
+            _ => rating.as_u8() <= skip.as_u8(),
         }
     }
 
@@ -504,9 +498,14 @@ impl Jukebox {
         }
     }
 
-    pub fn update(&mut self, db: &Database, mut on_event: impl FnMut(&Self, JukeboxEvent)) {
-        self.poll_decoder(db);
-        self.update_state(db);
+    pub fn update(
+        &mut self,
+        db: &Database,
+        skip: TrackRating,
+        mut on_event: impl FnMut(&Self, JukeboxEvent),
+    ) {
+        self.poll_decoder(db, skip);
+        self.update_state(db, skip);
 
         // Drain events
         self.events.reverse();
@@ -515,7 +514,7 @@ impl Jukebox {
         }
     }
 
-    fn poll_decoder(&mut self, db: &Database) {
+    fn poll_decoder(&mut self, db: &Database, skip: TrackRating) {
         let Some(result) = self.decoder.poll() else {
             return;
         };
@@ -541,10 +540,10 @@ impl Jukebox {
 
                 match self.state {
                     PlayState::Play | PlayState::Next => {
-                        self.play_next(db);
+                        self.play_next(db, skip);
                     }
                     PlayState::Previous => {
-                        self.play_previous(db);
+                        self.play_previous(db, skip);
                     }
                     PlayState::Track => {
                         self.state = PlayState::Play;
@@ -556,12 +555,12 @@ impl Jukebox {
         }
     }
 
-    fn update_state(&mut self, db: &Database) {
+    fn update_state(&mut self, db: &Database, skip: TrackRating) {
         // Play next when empty and idle
         if self.player.is_empty() && !self.player.is_paused() {
             match self.state {
                 PlayState::Play => {
-                    self.play_next(db);
+                    self.play_next(db, skip);
                 }
                 PlayState::Next | PlayState::Previous | PlayState::Track => {
                     self.state = PlayState::Play;
