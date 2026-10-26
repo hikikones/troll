@@ -10,6 +10,7 @@ use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database2::{AudioExt, AudioFile, AudioFileError, Database, TrackId, TrackRating},
     jukebox::Jukebox,
+    modals::Logs,
     pages::{Page, Route},
     settings::{Colors, Settings},
 };
@@ -106,49 +107,57 @@ impl ViewLayout {
 
 #[derive(Debug, Default)]
 struct FrontCover {
-    result: Option<ImageResult>,
+    state: CoverState,
     handle: Option<ImageHandle>,
+}
+
+#[derive(Debug, Default)]
+enum CoverState {
+    #[default]
+    None,
+    Loading,
+    NoImage,
+    Error,
+    Image(Image),
 }
 
 impl FrontCover {
     fn clear(&mut self) {
-        self.result = None;
+        self.state = CoverState::default();
         self.handle = None;
     }
 
-    fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) -> Rect {
-        match self.result.as_ref() {
-            Some(Ok(Some(image))) => {
-                return image.render(area, frame, ImageOptions::fit_center());
-            }
-            Some(Ok(None)) => {
+    fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) -> Option<Rect> {
+        let msg = match &self.state {
+            CoverState::None => return None,
+            CoverState::Loading => {
                 frame.print_fmt(Sgr::Fg(colors.neutral));
                 Block::rectangle().render(area, frame);
-                frame.print_span_with(area, "No Image", SpanOptions::center());
-                frame.print_fmt(Sgr::reset_fg());
-            }
-            Some(Err(err)) => {
-                frame.print_fmt(Sgr::Fg(colors.red));
-                Block::rectangle().render(area, frame);
-                frame.push_fmt(format_args!("ERROR\n{err}"));
-                frame.render(
-                    area.inner(Margin::proportional(1)),
-                    TextOptions::paragraph_center(),
-                );
-                frame.print_fmt(Sgr::reset_fg());
-            }
-            None => {
-                frame.print_fmt(Sgr::Fg(colors.neutral));
                 frame.print_span_with(
                     area.inner(Margin::proportional(1)),
                     "Loading",
                     SpanOptions::center(),
                 );
                 frame.print_fmt(Sgr::reset_fg());
+                return None;
             }
-        }
+            CoverState::NoImage => "No image",
+            CoverState::Error => "Failed to load image",
+            CoverState::Image(image) => {
+                return Some(image.render(area, frame, ImageOptions::fit_center()));
+            }
+        };
 
-        area
+        frame.print_fmt(Sgr::Fg(colors.neutral));
+        Block::rectangle().render(area, frame);
+        frame.push_str(msg);
+        frame.render(
+            area.inner(Margin::proportional(1)),
+            TextOptions::paragraph_center(),
+        );
+        frame.print_fmt(Sgr::reset_fg());
+
+        Some(area)
     }
 }
 
@@ -316,18 +325,18 @@ fn render_cover(
     };
 
     if area.size.rows > 15 {
-        let image_area = cover.render(area.inner(Margin::vertical(1)), frame, colors);
-
-        let (filled_stars, empty_stars) = rating.stars_split();
-        frame.push_fmt(Sgr::Fg(colors.primary));
-        frame.push_str(filled_stars);
-        frame.push_fmt(Sgr::Fg(colors.neutral));
-        frame.push_str(empty_stars);
-        frame.push_fmt(Sgr::reset_fg());
-        frame.render(
-            image_area.with_row(image_area.bottom_out()),
-            TextOptions::span_center_top(),
-        );
+        if let Some(image_area) = cover.render(area.inner(Margin::vertical(1)), frame, colors) {
+            let (filled_stars, empty_stars) = rating.stars_split();
+            frame.push_fmt(Sgr::Fg(colors.primary));
+            frame.push_str(filled_stars);
+            frame.push_fmt(Sgr::Fg(colors.neutral));
+            frame.push_str(empty_stars);
+            frame.push_fmt(Sgr::reset_fg());
+            frame.render(
+                image_area.with_row(image_area.bottom_out()),
+                TextOptions::span_center_top(),
+            );
+        }
     } else {
         cover.render(area, frame, colors);
     }
@@ -468,6 +477,7 @@ fn update_cover(
         return;
     };
 
+    cover.state = CoverState::Loading;
     cover.handle = Some(load_front_cover(
         track.path().to_path_buf(),
         track.ext(),
@@ -475,13 +485,28 @@ fn update_cover(
     ));
 }
 
-fn poll_cover(mut cover: NonSendMut<FrontCover>, mut actions: ResMut<Actions>) {
+fn poll_cover(
+    mut cover: NonSendMut<FrontCover>,
+    mut logs: ResMut<Logs>,
+    mut actions: ResMut<Actions>,
+) {
     if let Some(handle) = cover.handle.as_ref()
         && handle.is_finished()
         && let Some(handle) = cover.handle.take()
-        && let Ok(image) = handle.join()
+        && let Ok(result) = handle.join()
     {
-        cover.result = Some(image);
+        match result {
+            Ok(image) => {
+                cover.state = image
+                    .map(|img| CoverState::Image(img))
+                    .unwrap_or(CoverState::NoImage);
+            }
+            Err(err) => {
+                logs.push_err(err);
+                cover.state = CoverState::Error;
+            }
+        }
+
         actions.push(Action::Render);
     }
 }
