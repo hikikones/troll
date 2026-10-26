@@ -2,9 +2,9 @@ use std::{fs::File, path::Path, time::Duration};
 
 use lofty::{
     config::{ParseOptions, WriteOptions},
-    file::{AudioFile as LoftyAudioFile, TaggedFile, TaggedFileExt},
+    file::AudioFile as LoftyAudioFile,
     flac::FlacFile,
-    ogg::{OpusFile, VorbisFile, tag::VorbisComments},
+    ogg::{OggPictureStorage, OpusFile, VorbisFile, tag::VorbisComments},
     picture::PictureType,
 };
 
@@ -24,7 +24,25 @@ impl AudioFile {
     }
 
     pub fn read_metadata(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
-        Self::read(path, ext, ParseOptions::new().read_cover_art(false))
+        Self::read(
+            path,
+            ext,
+            ParseOptions::new()
+                .read_tags(true)
+                .read_properties(true)
+                .read_cover_art(false),
+        )
+    }
+
+    pub fn read_cover(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
+        Self::read(
+            path,
+            ext,
+            ParseOptions::new()
+                .read_cover_art(true)
+                .read_tags(ext != AudioExt::Flac)
+                .read_properties(false),
+        )
     }
 
     fn read(path: impl AsRef<Path>, ext: AudioExt, options: ParseOptions) -> AudioResult<Self> {
@@ -100,6 +118,20 @@ impl AudioFile {
         }
     }
 
+    pub fn front_cover(&self) -> Option<&[u8]> {
+        let pictures = match &self.0 {
+            AudioFormat::Flac(flac) => flac.pictures(),
+            AudioFormat::Opus(opus) => opus.vorbis_comments().pictures(),
+            AudioFormat::Vorbis(vorbis) => vorbis.vorbis_comments().pictures(),
+        };
+
+        pictures
+            .iter()
+            .find(|(picture, _)| picture.pic_type() == PictureType::CoverFront)
+            .or_else(|| pictures.first())
+            .map(|(picture, _)| picture.data())
+    }
+
     pub fn save(&self, path: impl AsRef<Path>) -> AudioResult<()> {
         let options = WriteOptions::new();
 
@@ -127,7 +159,7 @@ pub struct AudioProperties {
     pub sample_rate: Option<u32>,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum AudioExt {
     #[default]
     Flac,
@@ -170,23 +202,6 @@ impl AudioExt {
             Self::Opus => "OPUS",
             Self::Ogg => "OGG",
         }
-    }
-}
-
-pub struct AudioFrontCover(TaggedFile);
-
-impl AudioFrontCover {
-    pub fn read(path: impl AsRef<Path>) -> AudioResult<Self> {
-        // TODO: Only read image from supported AudioExt.
-        Ok(Self(lofty::read_from_path(path)?))
-    }
-
-    pub fn bytes(&self) -> Option<&[u8]> {
-        self.0
-            .primary_tag()
-            .or_else(|| self.0.first_tag())
-            .and_then(|tag| tag.get_picture_type(PictureType::CoverFront))
-            .map(|pic| pic.data())
     }
 }
 

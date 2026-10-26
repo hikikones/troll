@@ -8,7 +8,7 @@ use widgets2::{
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database2::{AudioFileError, AudioFrontCover, Database, TrackId, TrackRating},
+    database2::{AudioExt, AudioFile, AudioFileError, Database, TrackId, TrackRating},
     jukebox::Jukebox,
     pages::{Page, Route},
     settings::{Colors, Settings},
@@ -454,7 +454,6 @@ fn update_cover(
     mut page: ResMut<PlayingPage>,
     mut cover: NonSendMut<FrontCover>,
     jukebox: NonSend<Jukebox>,
-    database: NonSend<Database>,
 ) {
     let id = jukebox.track_id();
 
@@ -464,13 +463,16 @@ fn update_cover(
 
     page.current_id = id;
 
-    let Some(id) = id else {
+    let Some(track) = jukebox.track() else {
         cover.clear();
         return;
     };
 
-    let path = database.track_path(id);
-    cover.handle = Some(load_front_cover(path, page.next_image_id()));
+    cover.handle = Some(load_front_cover(
+        track.path().to_path_buf(),
+        track.ext(),
+        page.next_image_id(),
+    ));
 }
 
 fn poll_cover(mut cover: NonSendMut<FrontCover>, mut actions: ResMut<Actions>) {
@@ -484,15 +486,15 @@ fn poll_cover(mut cover: NonSendMut<FrontCover>, mut actions: ResMut<Actions>) {
     }
 }
 
-fn load_front_cover(path: std::path::PathBuf, image_id: u32) -> ImageHandle {
+fn load_front_cover(path: std::path::PathBuf, ext: AudioExt, image_id: u32) -> ImageHandle {
     std::thread::spawn(move || {
-        let cover = AudioFrontCover::read(&path).map_err(|err| LoadImageError {
+        let audio_file = AudioFile::read_cover(&path, ext).map_err(|err| LoadImageError {
             message: format!("Failed to read front cover image from '{}'", path.display()),
             source: Some(LoadErrorSource::Audio(err)),
         })?;
 
-        cover
-            .bytes()
+        audio_file
+            .front_cover()
             .map(|bytes| {
                 Image::from_bytes(
                     bytes,
