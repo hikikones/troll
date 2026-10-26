@@ -143,7 +143,7 @@ fn input_tracks(
             'n' => {
                 for i in page.list.selection_inclusive().rev() {
                     let id = database.track_id(i);
-                    jukebox.enqueue_next(id);
+                    jukebox.add_next(id);
                 }
             }
             's' => {
@@ -279,7 +279,7 @@ fn render_table(
     let line = table_area.with_rows(1);
     let selected = list.index();
     let selection = list.selection_inclusive();
-    let current_track = jukebox.current_track_id();
+    let current_track = jukebox.track_id();
     let mut row = table_area.pos.row;
 
     database.tracks_table(lines, |track| {

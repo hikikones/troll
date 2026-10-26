@@ -64,12 +64,12 @@ impl PlayQueue {
         self.list.iter().enumerate().map(|(i, id)| (*id, i))
     }
 
-    pub fn enqueue(&mut self, id: TrackId) -> &mut Self {
+    pub fn add(&mut self, id: TrackId) -> &mut Self {
         self.list.push(id);
         self
     }
 
-    pub fn enqueue_next(&mut self, id: TrackId) -> &mut Self {
+    pub fn add_next(&mut self, id: TrackId) -> &mut Self {
         let insert_index = self.index.map(|i| i + 1).unwrap_or_default();
         self.list.insert(insert_index, id);
         self
@@ -310,7 +310,7 @@ mod tests {
         let mut queue = PlayQueue::new();
 
         for i in 0..TRACKS_LEN {
-            queue.enqueue(TrackId(i as i64));
+            queue.add(TrackId(i as i64));
         }
 
         assert_eq!(queue.current(), None);

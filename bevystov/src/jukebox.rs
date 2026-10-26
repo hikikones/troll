@@ -74,13 +74,13 @@ impl Metadata {
     }
 }
 
-pub struct Track<'a> {
+pub struct CurrentTrack<'a> {
     id: TrackId,
     index: usize,
     data: &'a Metadata,
 }
 
-impl<'a> Track<'a> {
+impl<'a> CurrentTrack<'a> {
     pub const fn id(&self) -> TrackId {
         self.id
     }
@@ -200,23 +200,23 @@ impl Jukebox {
         self.current.is_some()
     }
 
-    pub fn current_track(&self) -> Option<Track<'_>> {
-        self.current.map(|(id, index)| Track {
+    pub fn track(&self) -> Option<CurrentTrack<'_>> {
+        self.current.map(|(id, index)| CurrentTrack {
             id,
             index,
             data: &self.metadata,
         })
     }
 
-    pub fn current_track_id(&self) -> Option<TrackId> {
+    pub fn track_id(&self) -> Option<TrackId> {
         self.current.map(|(id, _)| id)
     }
 
-    pub fn current_queue_index(&self) -> Option<usize> {
+    pub fn queue_index(&self) -> Option<usize> {
         self.current.map(|(_, index)| index)
     }
 
-    pub fn current_track_pos(&self) -> TrackDuration {
+    pub fn track_pos(&self) -> TrackDuration {
         TrackDuration::from_duration(self.player.position())
     }
 
@@ -230,7 +230,7 @@ impl Jukebox {
 
     pub fn shuffle(&mut self) -> bool {
         let start_index = self
-            .current_queue_index()
+            .queue_index()
             .map(|i| i + 1)
             .or(self.queue.index())
             .unwrap_or(0);
@@ -292,18 +292,18 @@ impl Jukebox {
         self.queue.clear();
 
         if let Some((id, _)) = self.current.take() {
-            self.current = self.queue.enqueue(id).next();
+            self.current = self.queue.add(id).next();
         }
 
         true
     }
 
-    pub fn enqueue(&mut self, id: TrackId) {
-        self.queue.enqueue(id);
+    pub fn add(&mut self, id: TrackId) {
+        self.queue.add(id);
     }
 
-    pub fn enqueue_next(&mut self, id: TrackId) {
-        self.queue.enqueue_next(id);
+    pub fn add_next(&mut self, id: TrackId) {
+        self.queue.add_next(id);
     }
 
     pub fn extend(&mut self, ids: impl IntoIterator<Item = TrackId>) {
@@ -326,7 +326,7 @@ impl Jukebox {
     }
 
     pub fn play_id(&mut self, id: TrackId, db: &Database) {
-        let (id, index) = self.queue.enqueue_next(id).next().unwrap();
+        let (id, index) = self.queue.add_next(id).next().unwrap();
         self.state = PlayState::Track;
         self.start_decode(id, index, db);
     }
@@ -403,7 +403,7 @@ impl Jukebox {
         let mut count = 0;
         let mut rand;
 
-        match self.current_track_id() {
+        match self.track_id() {
             Some(id) => {
                 loop {
                     rand = match db.random_track_id_except(id) {
@@ -432,7 +432,7 @@ impl Jukebox {
             },
         }
 
-        let (id, index) = self.queue.enqueue(rand).next().unwrap();
+        let (id, index) = self.queue.add(rand).next().unwrap();
         self.state = PlayState::Next;
         self.start_decode(id, index, db);
     }
@@ -457,7 +457,7 @@ impl Jukebox {
             return false;
         }
 
-        let pos = self.current_track_pos();
+        let pos = self.track_pos();
         let min = TrackDuration::new(1);
         let secs = self.metadata.duration.mul_f32(0.10).max(min);
         self.player.seek(pos.add(secs).as_duration());
@@ -469,7 +469,7 @@ impl Jukebox {
             return false;
         }
 
-        let pos = self.current_track_pos();
+        let pos = self.track_pos();
         let min = TrackDuration::new(2);
         let secs = self.metadata.duration.mul_f32(0.10).max(min);
         self.player.seek(pos.sub(secs).as_duration());

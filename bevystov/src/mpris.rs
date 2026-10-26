@@ -167,7 +167,7 @@ pub struct MprisMetadata {
 }
 
 impl MprisMetadata {
-    pub fn new(track: crate::jukebox::Track<'_>) -> Self {
+    pub fn new(track: crate::jukebox::CurrentTrack<'_>) -> Self {
         Self {
             id: format!("/org/mpris/MediaPlayer2/Track/{}", track.id().0),
             title: track.title().into(),

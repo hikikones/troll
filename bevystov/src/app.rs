@@ -610,7 +610,7 @@ fn render_playback(
     let progress_ch = '─';
     let highlight_ch = '━';
 
-    let Some(track) = jukebox.current_track() else {
+    let Some(track) = jukebox.track() else {
         // Neutral playback status
         frame.push_fmt(Sgr::Fg(colors.neutral));
         frame.push_str("00:00 ");
@@ -651,7 +651,7 @@ fn render_playback(
     frame.render(title_area, TextOptions::span_center_top());
 
     // Playback status
-    let track_pos = jukebox.current_track_pos();
+    let track_pos = jukebox.track_pos();
     let track_dur = track.duration();
 
     frame.push_fmt(track_pos);
@@ -742,7 +742,7 @@ fn update_app(
 ) {
     let mut render = false;
 
-    database.update(jukebox.current_track_id(), |event| {
+    database.update(jukebox.track_id(), |event| {
         render = true;
 
         match event {
@@ -771,7 +771,7 @@ fn update_app(
             JukeboxEvent::Play(id) => {
                 if let Some(mc) = media_controls.as_ref() {
                     let mpris_event = id
-                        .and_then(|_| jb.current_track())
+                        .and_then(|_| jb.track())
                         .map(|track| {
                             MprisEvent::Both(MprisStatus::Playing, Some(MprisMetadata::new(track)))
                         })

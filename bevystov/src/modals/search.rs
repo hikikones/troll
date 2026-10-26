@@ -146,7 +146,7 @@ fn input_search(
                     .rev()
                     .filter_map(|i| results.get(i).map(|id| *id))
                     .for_each(|id| {
-                        jukebox.enqueue_next(id);
+                        jukebox.add_next(id);
                     });
             }
             KeyCode::Char('g') => {

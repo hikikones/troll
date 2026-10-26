@@ -48,7 +48,7 @@ struct PlayingPage {
 
 impl PlayingPage {
     fn update_scroll_on_new_track(&mut self, jb: &Jukebox) {
-        let current_queue_index = jb.current_queue_index();
+        let current_queue_index = jb.queue_index();
 
         if self.current_qi == current_queue_index {
             return;
@@ -176,7 +176,7 @@ fn input_playing(
         }
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
-                if let Some(id) = jukebox.current_track_id() {
+                if let Some(id) = jukebox.track_id() {
                     let rating = TrackRating::from_char(c).unwrap();
                     if database.write_rating(id, rating) {
                         actions.push(Action::Render);
@@ -208,7 +208,7 @@ fn input_playing(
                 };
 
                 if success {
-                    page.current_qi = jukebox.current_queue_index();
+                    page.current_qi = jukebox.queue_index();
                     page.list.move_selection_down();
                     actions.push(Action::Render);
                 }
@@ -223,7 +223,7 @@ fn input_playing(
                 };
 
                 if success {
-                    page.current_qi = jukebox.current_queue_index();
+                    page.current_qi = jukebox.queue_index();
                     page.list.move_selection_up();
                     actions.push(Action::Render);
                 }
@@ -238,7 +238,7 @@ fn input_playing(
                 };
 
                 if success {
-                    page.current_qi = jukebox.current_queue_index();
+                    page.current_qi = jukebox.queue_index();
                     page.list.set_index(start).set_selector(None);
                     actions.push(Action::Render);
                 }
@@ -306,10 +306,7 @@ fn render_cover(
     jukebox: &Jukebox,
     cover: &FrontCover,
 ) {
-    let Some(rating) = jukebox
-        .current_track_id()
-        .map(|id| database.track_rating(id))
-    else {
+    let Some(rating) = jukebox.track_id().map(|id| database.track_rating(id)) else {
         frame.push_str_fg("No track currently playing", colors.neutral);
         frame.render(
             area.inner(Margin::proportional(1)),
@@ -383,7 +380,7 @@ fn render_queue(
     let selected = list.index();
     let selection = list.selection_inclusive();
     let hlen = jukebox.history();
-    let current_qi = jukebox.current_queue_index();
+    let current_qi = jukebox.queue_index();
     let mut row = list_area.pos.row;
 
     for (index, (id, qi)) in lines.zip(jukebox.iter().skip(list.scroll())) {
@@ -459,7 +456,7 @@ fn update_cover(
     jukebox: NonSend<Jukebox>,
     database: NonSend<Database>,
 ) {
-    let id = jukebox.current_track_id();
+    let id = jukebox.track_id();
 
     if page.current_id == id {
         return;

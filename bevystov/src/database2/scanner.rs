@@ -102,7 +102,7 @@ impl ScannedTrack {
         t
     }
 
-    pub const fn number(&self) -> u8 {
+    pub const fn _number(&self) -> u8 {
         self.data.number
     }
 
