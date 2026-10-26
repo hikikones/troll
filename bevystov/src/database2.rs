@@ -276,14 +276,28 @@ impl Database {
             .map(Result::unwrap)
     }
 
-    pub fn search(&self, input: &str, mut f: impl FnMut(TrackId)) -> SqliteResult<()> {
-        self.sqlite.for_each(
+    pub fn search(
+        &mut self,
+        input: &str,
+        include_path: bool,
+        mut f: impl FnMut(TrackId),
+    ) -> SqliteResult<()> {
+        let param = if !include_path {
+            self.sql.extend(["-path:", input]);
+            self.sql.as_str()
+        } else {
+            input
+        };
+
+        let res = self.sqlite.for_each(
             "SELECT rowid FROM track_fts \
                 WHERE track_fts MATCH ? \
                 ORDER BY rank",
-            [input],
+            [param],
             |row| Ok(f(row.get(0)?)),
-        )
+        );
+        self.sql.clear();
+        res
     }
 
     pub fn search_highlight(
@@ -475,7 +489,7 @@ impl Database {
         }
 
         tx.execute(
-            "INSERT INTO track_fts (rowid, title, artist, album)
+            "INSERT INTO track_fts (rowid, title, artist, album, path)
         SELECT
             t.id,
             t.title,
@@ -485,7 +499,8 @@ impl Database {
                 JOIN artists ar ON ar.id = ar_t.artist_id
                 WHERE ar_t.track_id = t.id
             ), ''),
-            al.name
+            al.name,
+            t.path
         FROM tracks t
         JOIN albums al ON al.id = t.album_id
         WHERE t.id = ?1",

@@ -35,7 +35,6 @@ struct SearchModal {
     state: SearchState,
     prompt: Prompt,
     prompt_hash: u64,
-    _include_path: bool, // TODO
     list: List,
 }
 
@@ -54,7 +53,6 @@ impl Default for SearchModal {
             state: SearchState::Prompt,
             prompt: Prompt::new().with_placeholder("Search..."),
             prompt_hash: 0,
-            _include_path: false,
             list: List::new()
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
@@ -322,8 +320,9 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state:
 fn update_search(
     mut modal: ResMut<SearchModal>,
     mut results: ResMut<SearchResults>,
-    database: NonSendMut<Database>,
+    mut database: NonSendMut<Database>,
     mut actions: ResMut<Actions>,
+    settings: Res<Settings>,
 ) {
     let hash = modal.prompt.hash_trim();
 
@@ -341,7 +340,7 @@ fn update_search(
         return;
     }
 
-    if let Err(_err) = database.search(input, |id| results.push(id)) {
+    if let Err(_err) = database.search(input, settings.search_by_path(), |id| results.push(id)) {
         // TODO
     }
 

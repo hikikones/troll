@@ -59,6 +59,10 @@ impl Settings {
         &mut self.config.general
     }
 
+    pub const fn search_by_path(&self) -> bool {
+        self.config.general.search_by_path
+    }
+
     pub const fn colors(&self) -> &Colors {
         &self.config.colors
     }

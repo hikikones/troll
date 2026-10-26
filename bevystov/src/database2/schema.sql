@@ -34,6 +34,7 @@ CREATE VIRTUAL TABLE track_fts USING fts5(
     title,
     artist,
     album,
+    path,
     tokenize = 'trigram'
 );
 
