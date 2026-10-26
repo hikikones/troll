@@ -438,10 +438,11 @@ impl Database {
         // Track
         tx.execute(
             "INSERT INTO tracks \
-            (title, rating, duration, bit_rate_kbps, bit_depth, sample_rate, path, album_id) \
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (title, number, rating, duration, bit_rate_kbps, bit_depth, sample_rate, path, album_id) \
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             (
                 track.title(),
+                track.number(),
                 track.rating(),
                 track.duration(),
                 track.bit_rate_kbps(),
@@ -555,13 +556,6 @@ impl SortedTracksQuery {
 
 impl std::fmt::Display for SortedTracksQuery {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (sort1, sort2) = match self.sort {
-            TrackSort::Title => ("t.title", "t.id"),
-            TrackSort::Artist => ("ar.name", "t.id"),
-            TrackSort::Album => ("al.name", "t.album_id"),
-            TrackSort::Time => ("t.duration", "t.id"),
-            TrackSort::Rating => ("t.rating", "t.id"),
-        };
         let order = if self.reverse_sort { "DESC" } else { "ASC" };
         let case = if self.case_sensitive {
             ""
@@ -569,22 +563,33 @@ impl std::fmt::Display for SortedTracksQuery {
             "COLLATE NOCASE"
         };
 
+        let sort_by = match self.sort {
+            TrackSort::Title => format_args!("t.title {case} {order}, t.id {order}"),
+            TrackSort::Artist => format_args!("ar.name {case} {order}, t.id {order}"),
+            TrackSort::Album => format_args!(
+                "al.name {case} {order}, t.album_id {order}, t.number {order}, t.id {order}"
+            ),
+            TrackSort::Time => format_args!("t.duration {case} {order}, t.id {order}"),
+            TrackSort::Rating => format_args!("t.rating {case} {order}, t.id {order}"),
+        };
+
         f.write_fmt(format_args!(
             "SELECT
-                ROW_NUMBER() OVER (ORDER BY {sort1} {case} {order}, {sort2} {order}) - 1 AS row_num,
+                ROW_NUMBER() OVER (ORDER BY {sort_by}) - 1 AS row_num,
                 t.id,
                 t.title,
                 GROUP_CONCAT(ar.name, ', ') AS artists,
                 al.name AS album,
                 t.duration,
                 t.rating,
-                t.album_id
+                t.album_id,
+                t.number
             FROM tracks t
             JOIN artist_tracks ar_t ON ar_t.track_id = t.id
             JOIN artists ar ON ar.id = ar_t.artist_id
             JOIN albums al ON al.id = t.album_id
             GROUP BY t.id
-            ORDER BY {sort1} {case} {order}, {sort2} {order}"
+            ORDER BY {sort_by}"
         ))
     }
 }

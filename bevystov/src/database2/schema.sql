@@ -1,6 +1,7 @@
 CREATE TABLE tracks (
     id INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
+    number INTEGER NOT NULL,
     rating INTEGER NOT NULL,
     duration INTEGER NOT NULL,
     bit_rate_kbps INTEGER NOT NULL,
