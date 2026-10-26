@@ -7,7 +7,7 @@ CREATE TABLE tracks (
     bit_depth INTEGER,
     sample_rate INTEGER,
     path TEXT NOT NULL,
-    album_id INTEGER NOT NULL -- TODO: index
+    album_id INTEGER NOT NULL
 );
 
 CREATE TABLE artists (
@@ -41,3 +41,7 @@ CREATE TRIGGER tracks_ad AFTER DELETE ON tracks
 BEGIN
     DELETE FROM track_fts WHERE rowid = old.id;
 END;
+
+-- Indexes
+CREATE INDEX idx_tracks_album_id ON tracks(album_id);
+CREATE INDEX idx_artist_tracks_track_id ON artist_tracks(track_id);
