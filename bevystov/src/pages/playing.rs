@@ -2,8 +2,7 @@ use ecs::*;
 use shared::symbols;
 use terminal::*;
 use widgets2::{
-    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, ScrollMargins,
-    list2::List,
+    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, List, ScrollMargins,
 };
 
 use crate::{
@@ -379,7 +378,7 @@ fn render_queue(
     let Some((list_area, lines)) = list
         .set_scrolloff(ScrollMargins::all(scrolloff))
         .set_len(jukebox.len())
-        // .set_colors(colors.list()) TODO
+        .set_colors(colors.list())
         .render(inner, frame)
     else {
         return;

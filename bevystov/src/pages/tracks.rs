@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, list2::List};
+use widgets2::{Block, List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
@@ -245,7 +245,7 @@ fn render_table(
 ) {
     let Some((table_area, lines)) = list
         .set_len(tracks_len)
-        // .set_colors(colors.list()) TODO
+        .set_colors(colors.list())
         .render(area, frame)
     else {
         return;

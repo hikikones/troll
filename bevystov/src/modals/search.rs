@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, Prompt, list2::List};
+use widgets2::{Block, List, Prompt};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, RenderSet},
@@ -210,7 +210,7 @@ fn render_search(
     let Some((list_area, lines)) = modal
         .list
         .set_len(results.len())
-        // .set_colors(colors.list()) TODO
+        .set_colors(colors.list())
         .render(results_area.inner(Margin::horizontal(1)), &mut frame)
     else {
         return;

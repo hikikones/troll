@@ -1,7 +1,7 @@
 use ecs::*;
 use shared::symbols;
 use terminal::*;
-use widgets2::{Block, List, ListIndex, Prompt, ScrollMargins};
+use widgets2::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
@@ -324,104 +324,115 @@ fn render_settings(
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
 
-    let (top, body, bottom) = area.split_ends(1, 1);
+    let (top, body, bottom) = area.inner(Margin::horizontal(1)).split_ends(1, 1);
 
     frame.print_span_with(top, " Settings ", SpanOptions::center_top());
     frame.print_fmt(Sgr::reset_fg());
 
+    let Some((list_area, lines)) = list
+        .set_len(SETTINGS.len())
+        .set_colors(colors.list())
+        .render(body, &mut frame)
+    else {
+        return;
+    };
+
+    let mut line = list_area.with_rows(1);
+    let (mut left, mut right) = line.split_vertically_with_gap(0);
+    let selected = list.index();
     let current = list.current();
-    list.set_colors(colors.list()).render(
-        body.inner(Margin::horizontal(1)),
-        &mut frame,
-        SETTINGS.into_iter(),
-        |line, frame, setting, index| {
-            let (left, right) = line.split_vertically_with_gap(0);
+    let mut row = line.row();
 
-            if index == ListIndex::Selected {
-                frame.print_fmt(Sgr::Bold);
-                frame.push_str("> ");
+    for (index, setting) in lines.zip(SETTINGS.into_iter().skip(list.scroll())) {
+        line = line.with_row(row);
+        left = left.with_row(row);
+        right = right.with_row(row);
+
+        if index == selected {
+            frame.print_fmt(Sgr::Bold);
+            frame.push_str("> ");
+        }
+
+        frame.print_fmt(Sgr::Fg(colors.normal));
+
+        match setting {
+            Setting::General => {
+                print_section("GENERAL", line, &mut frame, colors);
             }
+            Setting::SkipRating => {
+                frame.push_str("Skip tracks with rating:");
+                frame.render(left, TextOptions::span_right());
 
-            frame.print_fmt(Sgr::Fg(colors.normal));
-
-            match setting {
-                Setting::General => {
-                    print_section("GENERAL", line, frame, colors);
-                }
-                Setting::SkipRating => {
-                    frame.push_str("Skip tracks with rating:");
-                    frame.render(left, TextOptions::span_right());
-
-                    let (filled_stars, empty_stars) = settings.general().skip_rating.stars_split();
-                    frame.push_fmt(Sgr::Fg(colors.primary));
-                    frame.push_str(filled_stars);
-                    frame.push_fmt(Sgr::Fg(colors.neutral));
-                    frame.push_str(empty_stars);
-                    frame.push_fmt(Sgr::reset_fg());
-                    frame.render(right, TextOptions::span());
-                }
-                Setting::KeepTrackSort => {
-                    print_toggle(
-                        "Keep selected track on sort:",
-                        settings.general().keep_selected,
-                        left,
-                        right,
-                        frame,
-                        colors,
-                    );
-                }
-                Setting::SearchByPath => {
-                    print_toggle(
-                        "Search by path:",
-                        settings.general().search_by_path,
-                        left,
-                        right,
-                        frame,
-                        colors,
-                    );
-                }
-                Setting::Colors => {
-                    print_section("COLORS", line, frame, colors);
-                }
-                Setting::PrimaryColor => {
-                    print_color(
-                        "Primary:",
-                        &mut page.primary,
-                        left,
-                        right,
-                        frame,
-                        colors,
-                        current == Setting::PrimaryColor,
-                    );
-                }
-                Setting::SecondaryColor => {
-                    print_color(
-                        "Secondary:",
-                        &mut page.secondary,
-                        left,
-                        right,
-                        frame,
-                        colors,
-                        current == Setting::SecondaryColor,
-                    );
-                }
-                Setting::NeutralColor => {
-                    print_color(
-                        "Neutral:",
-                        &mut page.neutral,
-                        left,
-                        right,
-                        frame,
-                        colors,
-                        current == Setting::NeutralColor,
-                    );
-                }
-                Setting::Empty => {}
+                let (filled_stars, empty_stars) = settings.general().skip_rating.stars_split();
+                frame.push_fmt(Sgr::Fg(colors.primary));
+                frame.push_str(filled_stars);
+                frame.push_fmt(Sgr::Fg(colors.neutral));
+                frame.push_str(empty_stars);
+                frame.push_fmt(Sgr::reset_fg());
+                frame.render(right, TextOptions::span());
             }
+            Setting::KeepTrackSort => {
+                print_toggle(
+                    "Keep selected track on sort:",
+                    settings.general().keep_selected,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                );
+            }
+            Setting::SearchByPath => {
+                print_toggle(
+                    "Search by path:",
+                    settings.general().search_by_path,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                );
+            }
+            Setting::Colors => {
+                print_section("COLORS", line, &mut frame, colors);
+            }
+            Setting::PrimaryColor => {
+                print_color(
+                    "Primary:",
+                    &mut page.primary,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                    current == Setting::PrimaryColor,
+                );
+            }
+            Setting::SecondaryColor => {
+                print_color(
+                    "Secondary:",
+                    &mut page.secondary,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                    current == Setting::SecondaryColor,
+                );
+            }
+            Setting::NeutralColor => {
+                print_color(
+                    "Neutral:",
+                    &mut page.neutral,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                    current == Setting::NeutralColor,
+                );
+            }
+            Setting::Empty => {}
+        }
 
-            frame.print_fmt(Sgr::NotBold);
-        },
-    );
+        frame.print_fmt(Sgr::NotBold);
+        row += 1;
+    }
 
     let description = match current {
         Setting::SkipRating => "Skips tracks that are less than or equal to set rating",
