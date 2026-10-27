@@ -4,7 +4,7 @@ use widgets2::{Block, List, Prompt};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, RenderSet},
-    database2::{Database, TrackId},
+    database::{Database, TrackId},
     jukebox::Jukebox,
     modals::Modal,
     pages::Route,

@@ -1,4 +1,4 @@
-use crate::database2::TrackId;
+use crate::database::TrackId;
 
 pub(super) struct PlayQueue {
     list: Vec<TrackId>,

@@ -5,7 +5,7 @@ use widgets2::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database2::TrackRating,
+    database::TrackRating,
     modals::Logs,
     pages::Page,
     settings::{Colors, Config, Settings},

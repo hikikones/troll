@@ -6,7 +6,7 @@ use std::{
 
 use utils::StringExt;
 
-use crate::database2::{
+use crate::database::{
     AudioExt, AudioFile, AudioFileError, AudioResult, TrackDuration, TrackRating,
 };
 

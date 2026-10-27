@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use terminal::Color;
 use widgets2::{ListColors, PromptColors, ScrollbarColors};
 
-use crate::database2::TrackRating;
+use crate::database::TrackRating;
 
 // TODO: Add show_scrollbars to config.
 

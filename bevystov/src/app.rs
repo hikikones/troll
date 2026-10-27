@@ -4,7 +4,7 @@ use ecs::*;
 use terminal::*;
 
 use crate::{
-    database2::{Database, DatabaseEvent},
+    database::{Database, DatabaseEvent},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},

@@ -7,7 +7,7 @@ use widgets2::{
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database2::{AudioExt, AudioFile, AudioFileError, Database, TrackId, TrackRating},
+    database::{AudioExt, AudioFile, AudioFileError, Database, TrackId, TrackRating},
     jukebox::Jukebox,
     modals::Logs,
     pages::{Page, Route},

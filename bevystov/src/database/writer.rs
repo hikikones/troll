@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::database2::{AudioExt, AudioFile, AudioFileError, AudioResult, TrackId, TrackRating};
+use crate::database::{AudioExt, AudioFile, AudioFileError, AudioResult, TrackId, TrackRating};
 
 type WriteResult = Result<(), WriteFailure>;
 type WriteHandle = std::thread::JoinHandle<WriteResult>;

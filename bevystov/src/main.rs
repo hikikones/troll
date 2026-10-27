@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use bevystov::{
     app::App,
-    database2::Database,
+    database::Database,
     jukebox::Jukebox,
     mpris::MediaControls,
     settings::{ConfigError, ConfigErrorSource, Settings},
