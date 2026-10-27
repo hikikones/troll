@@ -6,7 +6,6 @@ use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::{Database, TrackId, TrackRating, TrackSort, TrackTable},
     jukebox::Jukebox,
-    modals::Modal,
     pages::Page,
     settings::{Colors, Settings},
 };
@@ -17,19 +16,10 @@ impl TracksPagePlugin {
     pub fn build(app: &mut App) {
         app.insert_resource(TracksPage::default())
             .add_input(InputSet::Page, input_tracks.run_if(in_state(Page::Tracks)))
-            .add_input(
-                InputSet::Modal,
-                input_tracks_modal.run_if(in_state(Page::Tracks).and_then(in_state(Modal::Custom))),
-            )
             .add_enter(Page::Tracks, enter_tracks)
             .add_render(
                 RenderSet::Page,
                 render_tracks.run_if(in_state(Page::Tracks)),
-            )
-            .add_render(
-                RenderSet::Modal,
-                render_tracks_modal
-                    .run_if(in_state(Page::Tracks).and_then(in_state(Modal::Custom))),
             );
     }
 }
@@ -166,10 +156,6 @@ fn input_tracks(
                     database.toggle_reverse_sort();
                 }
                 actions.push(Action::Render);
-            }
-            'm' => {
-                // TODO: remove
-                actions.push(Action::Modal(Modal::Custom));
             }
             _ => {
                 if page.list.input(key) {
@@ -361,37 +347,4 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
 
     frame.push_fmt(Sgr::reset_fg());
     frame.render(area, TextOptions::span_center_top());
-}
-
-fn input_tracks_modal(input: Res<Input>, mut actions: ResMut<Actions>) {
-    let Some(key) = input.get() else {
-        return;
-    };
-
-    match key.code {
-        KeyCode::Char('m') => {
-            actions.push(Action::Modal(Modal::None));
-        }
-        _ => {}
-    }
-}
-
-// TODO: remove
-fn render_tracks_modal(mut frame: ResMut<Framebuffer>, settings: Res<Settings>) {
-    let area = frame.area();
-    let area = area.with_size(area.size / 2).center(area);
-    let colors = settings.colors();
-
-    frame.fill(area, colors.background, false);
-
-    frame.print_fmt(Sgr::Fg(colors.normal));
-    Block::rectangle().render(area, &mut frame);
-    frame.print_span_with(area, " Custom ", SpanOptions::center_top());
-
-    frame.push_str("A custom modal only for the tracks page.");
-    frame.render(
-        area.inner(Margin::proportional(1)),
-        TextOptions::paragraph_center(),
-    );
-    frame.print_fmt(Sgr::Reset);
 }

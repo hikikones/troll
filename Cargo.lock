@@ -732,9 +732,7 @@ dependencies = [
  "directories",
  "ecs",
  "fastrand 2.5.0",
- "indexmap",
  "lofty",
- "nucleo-matcher",
  "rodio",
  "serde",
  "serde_repr",
@@ -5868,7 +5866,6 @@ name = "widgets2"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
- "bevy_ecs",
  "image",
  "terminal",
  "utils",
