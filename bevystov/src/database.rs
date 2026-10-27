@@ -38,7 +38,7 @@ impl Database {
         Self {
             sqlite,
             sql: String::new(),
-            sort: TrackSort::Album,
+            sort: TrackSort::default(),
             reverse_sort: false,
             scanner: None,
             writer: RatingsWriter::new(),
@@ -109,15 +109,9 @@ impl Database {
     }
 
     pub fn track_id(&mut self, index: usize) -> TrackId {
-        let query = SortedTracksQuery {
-            sort: self.sort,
-            reverse_sort: self.reverse_sort,
-            case_sensitive: false,
-        };
-        let _ = std::fmt::write(
-            &mut self.sql,
-            format_args!("{query} LIMIT 1 OFFSET {index}"),
-        );
+        let query = self.sorted_tracks_query();
+        self.sql
+            .write(format_args!("{query} LIMIT 1 OFFSET {index}"));
 
         let id = self
             .sqlite
@@ -128,15 +122,11 @@ impl Database {
     }
 
     pub fn track_index(&mut self, id: TrackId) -> usize {
-        let query = SortedTracksQuery {
-            sort: self.sort,
-            reverse_sort: self.reverse_sort,
-            case_sensitive: false,
-        };
-        let _ = std::fmt::write(
-            &mut self.sql,
-            format_args!("SELECT row_num FROM ({query}) WHERE id = {}", id.0),
-        );
+        let query = self.sorted_tracks_query();
+        self.sql.write(format_args!(
+            "SELECT row_num FROM ({query}) WHERE id = {}",
+            id.0
+        ));
 
         let index = self
             .sqlite
@@ -242,16 +232,10 @@ impl Database {
     pub fn tracks_table(&mut self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
         let offset = range.start;
         let limit = range.end - offset;
-        let query = SortedTracksQuery {
-            sort: self.sort,
-            reverse_sort: self.reverse_sort,
-            case_sensitive: false,
-        };
+        let query = self.sorted_tracks_query();
 
-        let _ = std::fmt::write(
-            &mut self.sql,
-            format_args!("{query} LIMIT {limit} OFFSET {offset}"),
-        );
+        self.sql
+            .write(format_args!("{query} LIMIT {limit} OFFSET {offset}"));
         self.sqlite
             .for_each(&self.sql, (), |row| Ok(f(query.table(row)?)))
             .unwrap();
@@ -523,11 +507,12 @@ impl Database {
                         message: String::from("Failed to execute schema"),
                         source: Some(DatabaseErrorSource::Sqlite(err)),
                     })?;
+                // TODO: Add dir metadata.
                 true
             }
             VERSION => false,
             _ => {
-                // TODO: Either delete or purge current db.
+                // TODO: Compare dir metadata -> either keep or rescan.
                 true
             }
         };
@@ -538,6 +523,14 @@ impl Database {
         }
 
         Ok(())
+    }
+
+    const fn sorted_tracks_query(&self) -> SortedTracksQuery {
+        SortedTracksQuery {
+            sort: self.sort,
+            reverse_sort: self.reverse_sort,
+            case_sensitive: false,
+        }
     }
 }
 
