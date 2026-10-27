@@ -149,7 +149,7 @@ impl TagList {
 
         let (mut next_index, mut distance) = (0, u16::MAX);
         for (i, x, y, _) in
-            iter_items_in_col_row(self.list_width, self.options.gap, tags).skip(self.index + 1)
+            iter_tags_in_col_row(self.list_width, self.options.gap, tags).skip(self.index + 1)
         {
             if y == self.index_row + 1 {
                 let d = self.index_col.abs_diff(x);
@@ -166,7 +166,7 @@ impl TagList {
         self.index != old_index
     }
 
-    pub fn move_up(&mut self, items: impl IntoIterator<Item = impl TagItem>) -> bool {
+    pub fn move_up(&mut self, tags: impl IntoIterator<Item = impl TagItem>) -> bool {
         if self.index_row == 0 {
             return false;
         }
@@ -174,7 +174,7 @@ impl TagList {
         let old_index = self.index;
 
         let (mut next_index, mut distance) = (0, u16::MAX);
-        for (i, x, y, _) in iter_items_in_col_row(self.list_width, self.options.gap, items) {
+        for (i, x, y, _) in iter_tags_in_col_row(self.list_width, self.options.gap, tags) {
             if y == self.index_row.saturating_sub(1) {
                 let d = self.index_col.abs_diff(x);
                 if d <= distance {
@@ -214,8 +214,8 @@ impl TagList {
         &mut self,
         mut area: Rect,
         frame: &mut Framebuffer,
-        items: impl IntoIterator<Item = T, IntoIter: Clone>,
-        mut render_item: impl FnMut(Rect, &mut Framebuffer, T, bool),
+        tags: impl IntoIterator<Item = T, IntoIter: Clone>,
+        mut render_tag: impl FnMut(Rect, &mut Framebuffer, T, bool),
     ) {
         let mut inner = area.inner(self.options.padding);
 
@@ -223,17 +223,17 @@ impl TagList {
             return;
         }
 
-        let items = items.into_iter();
+        let tags = tags.into_iter();
 
         // First pass
-        self.process_items(inner, items.clone());
+        self.process_tags(inner, tags.clone());
 
         let scroll_area = if self.is_scrollable(inner.size) {
             let scroll_area = Scroll::make_area(&mut area, self.options.scrollbar_margin);
             inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
 
             // Second pass after scrollbar
-            self.process_items(inner, items.clone());
+            self.process_tags(inner, tags.clone());
             Some(scroll_area)
         } else {
             None
@@ -245,7 +245,7 @@ impl TagList {
         self.list_width = inner.cols();
 
         // Render tags
-        for (i, x, y, item) in iter_items_in_col_row(inner.cols(), self.options.gap, items) {
+        for (i, x, y, tag) in iter_tags_in_col_row(inner.cols(), self.options.gap, tags) {
             if y >= inner.size.rows + self.scroll {
                 break;
             }
@@ -257,11 +257,11 @@ impl TagList {
                         row: inner.row() + y.saturating_sub(self.scroll),
                     },
                     size: Size {
-                        cols: item.width().min(inner.cols().saturating_sub(x)),
+                        cols: tag.width().min(inner.cols().saturating_sub(x)),
                         rows: 1,
                     },
                 };
-                render_item(tag_area, frame, item, self.index == i);
+                render_tag(tag_area, frame, tag, self.index == i);
             }
         }
 
@@ -277,14 +277,14 @@ impl TagList {
         }
     }
 
-    fn process_items<T: TagItem>(
+    fn process_tags<T: TagItem>(
         &mut self,
         area: Rect,
-        items: impl IntoIterator<Item = T>,
+        tags: impl IntoIterator<Item = T>,
     ) -> &mut Self {
         self.total_items = 0;
 
-        for (i, x, y, _) in iter_items_in_col_row(area.cols(), self.options.gap, items) {
+        for (i, x, y, _) in iter_tags_in_col_row(area.cols(), self.options.gap, tags) {
             if self.index == i {
                 self.index_col = x;
                 self.index_row = y;
@@ -317,14 +317,14 @@ impl TagList {
     }
 }
 
-fn iter_items_in_col_row<T: TagItem>(
+fn iter_tags_in_col_row<T: TagItem>(
     max_width: u16,
-    item_gap: u16,
+    gap: u16,
     tags: impl IntoIterator<Item = T>,
 ) -> impl Iterator<Item = (usize, u16, u16, T)> {
     let (mut x, mut y) = (0, 0);
-    tags.into_iter().enumerate().map(move |(i, item)| {
-        let tag_width = item.width();
+    tags.into_iter().enumerate().map(move |(i, tag)| {
+        let tag_width = tag.width();
         if x + tag_width > max_width {
             x = 0;
             if i > 0 {
@@ -334,8 +334,8 @@ fn iter_items_in_col_row<T: TagItem>(
 
         let (col, row) = (x, y);
 
-        x += tag_width + item_gap;
+        x += tag_width + gap;
 
-        (i, col, row, item)
+        (i, col, row, tag)
     })
 }
