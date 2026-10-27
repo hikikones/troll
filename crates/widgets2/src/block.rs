@@ -1,12 +1,7 @@
 use terminal::*;
 
 #[derive(Debug, Clone, Copy)]
-pub struct Block {
-    shape: Shape,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum Shape {
+pub enum Block {
     /// ```text
     /// ─────
     /// ```
@@ -52,31 +47,27 @@ pub enum Shape {
 }
 
 impl Block {
-    pub const fn new(shape: Shape) -> Self {
-        Self { shape }
-    }
-
     pub const fn rectangle() -> Self {
-        Self::new(Shape::Rectangle)
+        Self::Rectangle
     }
 
     pub fn render(self, area: Rect, frame: &mut Framebuffer) {
-        match self.shape {
-            Shape::LineHorizontal => {
+        match self {
+            Self::LineHorizontal => {
                 if area.is_empty() {
                     return;
                 }
 
                 draw_line_horizontal(area.pos, area.size.cols, frame);
             }
-            Shape::LineVertical => {
+            Self::LineVertical => {
                 if area.is_empty() {
                     return;
                 }
 
                 draw_line_vertical(area.pos, area.size.rows, frame);
             }
-            Shape::Horizontals => {
+            Self::Horizontals => {
                 if area.size.cols == 0 {
                     return;
                 }
@@ -91,7 +82,7 @@ impl Block {
                     }
                 }
             }
-            Shape::Verticals => {
+            Self::Verticals => {
                 if area.size.rows == 0 {
                     return;
                 }
@@ -106,14 +97,14 @@ impl Block {
                     }
                 }
             }
-            Shape::Rectangle => {
+            Self::Rectangle => {
                 if area.size.is_either_less(2) {
                     return;
                 }
 
                 draw_rectangle(area, frame);
             }
-            Shape::Corners => {
+            Self::Corners => {
                 if area.size.is_either_less(2) {
                     return;
                 }
