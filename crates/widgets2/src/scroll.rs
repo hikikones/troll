@@ -2,7 +2,15 @@ use terminal::*;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Scrollbar {
+    data: ScrollbarData,
     colors: ScrollbarColors,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollbarData {
+    pub current_scroll: usize,
+    pub total_items: usize,
+    pub viewport_height: u16,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -28,22 +36,12 @@ impl Default for ScrollbarColors {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ScrollbarData {
-    pub current_scroll: usize,
-    pub total_items: usize,
-    pub viewport_height: u16,
-}
-
 impl Scrollbar {
-    pub const fn new() -> Self {
+    pub const fn new(data: ScrollbarData) -> Self {
         Self {
+            data,
             colors: ScrollbarColors::DEFAULT,
         }
-    }
-
-    pub const fn colors(colors: ScrollbarColors) -> Self {
-        Self { colors }
     }
 
     pub const fn with_colors(mut self, colors: ScrollbarColors) -> Self {
@@ -51,8 +49,8 @@ impl Scrollbar {
         self
     }
 
-    pub fn render(self, area: Rect, frame: &mut Framebuffer, data: ScrollbarData) {
-        if data.total_items == 0 || area.is_empty() {
+    pub fn render(self, area: Rect, frame: &mut Framebuffer) {
+        if self.data.total_items == 0 || area.is_empty() {
             return;
         }
 
@@ -60,7 +58,7 @@ impl Scrollbar {
             viewport_height,
             current_scroll,
             total_items,
-        } = data;
+        } = self.data;
 
         let visible = viewport_height as f32 / total_items as f32;
         let size = ((visible * area.size.rows as f32).floor() as u16).max(1);
@@ -112,12 +110,6 @@ impl Scrollbar {
                 frame.print_fmt(Sgr::Fg(Color::Default));
             }
         }
-    }
-}
-
-impl Default for Scrollbar {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

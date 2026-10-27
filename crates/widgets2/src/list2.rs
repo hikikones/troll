@@ -337,14 +337,12 @@ impl List {
         let scroll_area = area.with_col(area.right_col()).with_cols(1);
         inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
 
-        Scrollbar::colors(self.colors.scrollbar).render(
-            scroll_area,
-            frame,
-            ScrollbarData {
-                current_scroll: self.scroll,
-                total_items: self.len,
-                viewport_height: self.list_height,
-            },
-        );
+        Scrollbar::new(ScrollbarData {
+            current_scroll: self.scroll,
+            total_items: self.len,
+            viewport_height: self.list_height,
+        })
+        .with_colors(self.colors.scrollbar)
+        .render(scroll_area, frame);
     }
 }

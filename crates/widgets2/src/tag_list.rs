@@ -267,15 +267,13 @@ impl TagList {
 
         // Render scrollbar
         if let Some(scroll_area) = scroll_area {
-            Scrollbar::colors(self.colors.scrollbar).render(
-                scroll_area,
-                frame,
-                ScrollbarData {
-                    viewport_height: inner.size.rows,
-                    current_scroll: self.scroll as usize,
-                    total_items: self.total_lines as usize,
-                },
-            );
+            Scrollbar::new(ScrollbarData {
+                viewport_height: inner.size.rows,
+                current_scroll: self.scroll as usize,
+                total_items: self.total_lines as usize,
+            })
+            .with_colors(self.colors.scrollbar)
+            .render(scroll_area, frame);
         }
     }
 

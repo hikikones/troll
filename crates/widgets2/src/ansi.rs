@@ -277,14 +277,12 @@ impl AnsiViewer {
             return;
         };
 
-        Scrollbar::colors(self.colors.scrollbar).render(
-            scroll_area,
-            frame,
-            ScrollbarData {
-                viewport_height: self.view.rows,
-                current_scroll: self.scroll as usize,
-                total_items: self.lines as usize,
-            },
-        );
+        Scrollbar::new(ScrollbarData {
+            viewport_height: self.view.rows,
+            current_scroll: self.scroll as usize,
+            total_items: self.lines as usize,
+        })
+        .with_colors(self.colors.scrollbar)
+        .render(scroll_area, frame);
     }
 }

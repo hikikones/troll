@@ -520,14 +520,12 @@ impl List {
     }
 
     fn render_scrollbar(&self, area: Rect, frame: &mut Framebuffer) {
-        Scrollbar::colors(self.colors.scrollbar).render(
-            area,
-            frame,
-            ScrollbarData {
-                current_scroll: self.scroll,
-                total_items: self.len,
-                viewport_height: self.list_height,
-            },
-        );
+        Scrollbar::new(ScrollbarData {
+            current_scroll: self.scroll,
+            total_items: self.len,
+            viewport_height: self.list_height,
+        })
+        .with_colors(self.colors.scrollbar)
+        .render(area, frame);
     }
 }
