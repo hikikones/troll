@@ -510,9 +510,12 @@ impl Database {
                 // TODO: Add dir metadata.
                 true
             }
-            VERSION => false,
-            _ => {
+            VERSION => {
                 // TODO: Compare dir metadata -> either keep or rescan.
+                false
+            }
+            _ => {
+                // TODO: Either delete or purge current db. Rescan.
                 true
             }
         };
