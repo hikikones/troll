@@ -177,7 +177,7 @@ impl AudioExt {
             } else {
                 #[cfg(feature = "opus")]
                 if ext.eq_ignore_ascii_case("opus") {
-                    Some(Self::Opus)
+                    return Some(Self::Opus);
                 }
                 None
             }
