@@ -1,0 +1,31 @@
+[package]
+name = "bevystov_sqlite"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bevy_derive = { workspace = true }
+bevy_ecs = { workspace = true }
+bevy_state = { workspace = true }
+clap = { workspace = true }
+clap-cargo = { workspace = true }
+directories = { workspace = true }
+ecs = { workspace = true }
+fastrand = { workspace = true }
+lofty = { workspace = true }
+rodio = { workspace = true }
+serde = { workspace = true }
+serde_repr = { workspace = true }
+shared = { workspace = true }
+terminal = { workspace = true, features = ["bevy"] }
+toml = { workspace = true }
+utils = { workspace = true }
+walkdir = { workspace = true }
+widgets2 = { workspace = true }
+zbus = { workspace = true }
+
+[features]
+default = []
+opus = ["rodio/symphonia-libopus"]

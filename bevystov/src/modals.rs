@@ -24,6 +24,7 @@ pub enum Modal {
     None,
     Search,
     Logs,
+    Custom,
 }
 
 impl Modal {

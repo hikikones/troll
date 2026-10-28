@@ -1,191 +1,625 @@
-use std::{fs::File, path::Path, time::Duration};
+use std::{
+    borrow::Cow,
+    fs::File,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use lofty::{
     config::{ParseOptions, WriteOptions},
-    file::AudioFile as LoftyAudioFile,
+    file::{AudioFile as LoftyAudioFile, TaggedFile, TaggedFileExt},
     flac::FlacFile,
-    ogg::{OggPictureStorage, OpusFile, VorbisFile, tag::VorbisComments},
+    id3::v2::{Frame, FrameId, Id3v2Tag, PopularimeterFrame},
+    mpeg::MpegFile,
+    ogg::{OpusFile, VorbisFile, tag::VorbisComments},
     picture::PictureType,
+    tag::Accessor,
 };
 
-pub type AudioResult<T> = Result<T, AudioFileError>;
+pub struct AudioFile {
+    format: AudioFileFormat,
+    path: PathBuf,
+}
 
-pub struct AudioFile(AudioFormat);
-
-enum AudioFormat {
+enum AudioFileFormat {
     Flac(FlacFile),
     Opus(OpusFile),
     Vorbis(VorbisFile),
+    Mpeg(MpegFile),
 }
 
 impl AudioFile {
-    pub fn read_all(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
-        Self::read(path, ext, ParseOptions::new())
-    }
-
-    pub fn read_metadata(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
-        Self::read(
-            path,
-            ext,
-            ParseOptions::new()
-                .read_tags(true)
-                .read_properties(true)
-                .read_cover_art(false),
-        )
-    }
-
-    pub fn read_cover(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
-        Self::read(
-            path,
-            ext,
-            ParseOptions::new()
-                .read_cover_art(true)
-                .read_tags(ext != AudioExt::Flac)
-                .read_properties(false),
-        )
-    }
-
-    fn read(path: impl AsRef<Path>, ext: AudioExt, options: ParseOptions) -> AudioResult<Self> {
-        let mut file = File::open(path.as_ref())?;
-
-        let audio_format = match ext {
-            AudioExt::Flac => {
-                let flac = FlacFile::read_from(&mut file, options)?;
-                AudioFormat::Flac(flac)
+    pub fn read_from(
+        path: impl AsRef<Path>,
+        extension: AudioFileExtension,
+    ) -> Result<Self, AudioFileReport> {
+        let path = path.as_ref();
+        let mut file = File::open(path).map_err(|err| {
+            AudioFileReport(format!(
+                "Failed to open \"{}\" due to {}",
+                path.display(),
+                err
+            ))
+        })?;
+        let audio_format = match extension {
+            AudioFileExtension::Flac => {
+                let flac =
+                    FlacFile::read_from(&mut file, ParseOptions::new().read_cover_art(false))
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to read \"{}\" due to {}",
+                                path.display(),
+                                err
+                            ))
+                        })?;
+                AudioFileFormat::Flac(flac)
             }
-            AudioExt::Opus => {
-                let opus = OpusFile::read_from(&mut file, options)?;
-                AudioFormat::Opus(opus)
+            AudioFileExtension::Opus => {
+                let opus =
+                    OpusFile::read_from(&mut file, ParseOptions::new().read_cover_art(false))
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to read \"{}\" due to {}",
+                                path.display(),
+                                err
+                            ))
+                        })?;
+                AudioFileFormat::Opus(opus)
             }
-            AudioExt::Ogg => {
-                let ogg_vorbis = VorbisFile::read_from(&mut file, options)?;
-                AudioFormat::Vorbis(ogg_vorbis)
+            AudioFileExtension::Ogg => {
+                let ogg_vorbis =
+                    VorbisFile::read_from(&mut file, ParseOptions::new().read_cover_art(false))
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to read \"{}\" due to {}",
+                                path.display(),
+                                err
+                            ))
+                        })?;
+                AudioFileFormat::Vorbis(ogg_vorbis)
+            }
+            AudioFileExtension::Mp3 => {
+                let mpeg =
+                    MpegFile::read_from(&mut file, ParseOptions::new().read_cover_art(false))
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to read \"{}\" due to {}",
+                                path.display(),
+                                err
+                            ))
+                        })?;
+                AudioFileFormat::Mpeg(mpeg)
+            }
+            _ => {
+                return Err(format!(
+                    "Unable to read unsupported audio format: \"{}\"",
+                    path.display()
+                ))?;
             }
         };
 
-        Ok(Self(audio_format))
+        Ok(Self {
+            format: audio_format,
+            path: path.to_path_buf(),
+        })
     }
 
-    pub fn vorbis_comments(&self) -> AudioResult<&VorbisComments> {
-        match &self.0 {
-            AudioFormat::Flac(flac) => flac
-                .vorbis_comments()
-                .ok_or(AudioFileError::MissingVorbisComments),
-            AudioFormat::Opus(opus) => Ok(opus.vorbis_comments()),
-            AudioFormat::Vorbis(vorbis) => Ok(vorbis.vorbis_comments()),
-        }
-    }
-
-    pub fn vorbis_comments_mut(&mut self) -> AudioResult<&mut VorbisComments> {
-        match &mut self.0 {
-            AudioFormat::Flac(flac) => flac
-                .vorbis_comments_mut()
-                .ok_or(AudioFileError::MissingVorbisComments),
-            AudioFormat::Opus(opus) => Ok(opus.vorbis_comments_mut()),
-            AudioFormat::Vorbis(vorbis) => Ok(vorbis.vorbis_comments_mut()),
+    pub fn metadata(&self) -> Result<AudioMetadata, AudioFileReport> {
+        match &self.format {
+            AudioFileFormat::Flac(flac) => match flac.vorbis_comments() {
+                Some(vorbis_comments) => Ok(AudioMetadata::from_vorbis_comments(vorbis_comments)),
+                None => Err(AudioFileReport(format!(
+                    "Unable to extract metadata from \"{}\" due to missing Vorbis Comments container",
+                    self.path.display()
+                ))),
+            },
+            AudioFileFormat::Opus(opus) => {
+                let vorbis_comments = opus.vorbis_comments();
+                Ok(AudioMetadata::from_vorbis_comments(vorbis_comments))
+            }
+            AudioFileFormat::Vorbis(vorbis) => {
+                let vorbis_comments = vorbis.vorbis_comments();
+                Ok(AudioMetadata::from_vorbis_comments(vorbis_comments))
+            }
+            AudioFileFormat::Mpeg(mpeg) => match mpeg.id3v2() {
+                Some(id3v2) => Ok(AudioMetadata::from_id3v2(id3v2)),
+                None => Err(AudioFileReport(format!(
+                    "Unable to extract metadata from \"{}\" due to missing ID3v2 tag",
+                    self.path.display()
+                ))),
+            },
         }
     }
 
     pub fn properties(&self) -> AudioProperties {
-        match &self.0 {
-            AudioFormat::Flac(flac) => {
-                let p = flac.properties();
-                AudioProperties {
-                    duration: p.duration(),
-                    bit_rate_kbps: p.audio_bitrate(),
-                    bit_depth: Some(p.bit_depth()),
-                    sample_rate: Some(p.sample_rate()),
+        AudioProperties::from_audio_file(self)
+    }
+
+    pub fn write_rating(&mut self, rating: AudioRating) -> Result<(), AudioFileReport> {
+        match &mut self.format {
+            AudioFileFormat::Flac(flac) => match flac.vorbis_comments_mut() {
+                Some(vorbis_comments) => {
+                    AudioMetadata::set_vorbis_rating(vorbis_comments, rating);
+                    Ok(flac
+                        .save_to_path(&self.path, WriteOptions::new())
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to save \"{}\" due to {}",
+                                self.path.display(),
+                                err
+                            ))
+                        })?)
                 }
+                None => Err(AudioFileReport(format!(
+                    "Unable to write rating for \"{}\" due to missing Vorbis Comments container",
+                    self.path.display()
+                ))),
+            },
+            AudioFileFormat::Opus(opus) => {
+                AudioMetadata::set_vorbis_rating(opus.vorbis_comments_mut(), rating);
+                Ok(opus
+                    .save_to_path(&self.path, WriteOptions::new())
+                    .map_err(|err| {
+                        AudioFileReport(format!(
+                            "Failed to save \"{}\" due to {}",
+                            self.path.display(),
+                            err
+                        ))
+                    })?)
             }
-            AudioFormat::Opus(opus) => {
-                let p = opus.properties();
-                AudioProperties {
-                    duration: p.duration(),
-                    bit_rate_kbps: p.audio_bitrate(),
-                    bit_depth: None,
-                    sample_rate: None,
-                }
+            AudioFileFormat::Vorbis(vorbis) => {
+                AudioMetadata::set_vorbis_rating(vorbis.vorbis_comments_mut(), rating);
+                Ok(vorbis
+                    .save_to_path(&self.path, WriteOptions::new())
+                    .map_err(|err| {
+                        AudioFileReport(format!(
+                            "Failed to save \"{}\" due to {}",
+                            self.path.display(),
+                            err
+                        ))
+                    })?)
             }
-            AudioFormat::Vorbis(vorbis) => {
-                let p = vorbis.properties();
-                AudioProperties {
-                    duration: p.duration(),
-                    bit_rate_kbps: p.audio_bitrate(),
-                    bit_depth: None,
-                    sample_rate: Some(p.sample_rate()),
+            AudioFileFormat::Mpeg(mpeg) => match mpeg.id3v2_mut() {
+                Some(id3v2) => {
+                    AudioMetadata::set_id3v2_rating(id3v2, rating);
+                    Ok(mpeg
+                        .save_to_path(&self.path, WriteOptions::new())
+                        .map_err(|err| {
+                            AudioFileReport(format!(
+                                "Failed to save \"{}\" due to {}",
+                                self.path.display(),
+                                err
+                            ))
+                        })?)
                 }
+                None => Err(AudioFileReport(format!(
+                    "Unable to write rating for \"{}\" due to missing ID3v2 tag",
+                    self.path.display()
+                ))),
+            },
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        self.path.as_path()
+    }
+}
+
+#[derive(Debug)]
+pub struct AudioMetadata {
+    data: String,
+    title: (usize, usize),
+    artist: (usize, usize),
+    album: (usize, usize),
+    rating: AudioRating,
+}
+
+impl AudioMetadata {
+    const POPM_FRAME_ID: FrameId<'static> = FrameId::Valid(Cow::Borrowed("POPM"));
+
+    pub fn title(&self) -> &str {
+        let range = self.title.0..self.title.1;
+        &self.data[range]
+    }
+
+    pub fn artist(&self) -> &str {
+        let range = self.artist.0..self.artist.1;
+        &self.data[range]
+    }
+
+    pub fn album(&self) -> &str {
+        let range = self.album.0..self.album.1;
+        &self.data[range]
+    }
+
+    pub const fn rating(&self) -> AudioRating {
+        self.rating
+    }
+
+    pub const fn set_rating(&mut self, rating: AudioRating) {
+        self.rating = rating;
+    }
+
+    fn from_vorbis_comments(vorbis_comments: &VorbisComments) -> Self {
+        let mut data = String::new();
+        let mut start = 0;
+
+        if let Some(title) = vorbis_comments.get("TITLE") {
+            data.push_str(title);
+        }
+        let title_range = (start, data.len());
+
+        start = data.len();
+
+        if let Some(artist) = vorbis_comments.get("ARTIST") {
+            data.push_str(artist);
+        }
+        let artist_range = (start, data.len());
+
+        start = data.len();
+
+        if let Some(album) = vorbis_comments.get("ALBUM") {
+            data.push_str(album);
+        }
+        let album_range = (start, data.len());
+
+        Self {
+            data,
+            title: title_range,
+            artist: artist_range,
+            album: album_range,
+            rating: vorbis_comments
+                .get("RATING")
+                .map(AudioRating::from_vorbis_comments)
+                .unwrap_or_default(),
+        }
+    }
+
+    fn from_id3v2(id3v2: &Id3v2Tag) -> Self {
+        let mut data = String::new();
+        let mut start = 0;
+
+        if let Some(title) = id3v2.title().as_deref() {
+            data.push_str(title);
+        }
+        let title_range = (start, data.len());
+
+        start = data.len();
+
+        if let Some(artist) = id3v2.artist().as_deref() {
+            data.push_str(artist);
+        }
+        let artist_range = (start, data.len());
+
+        start = data.len();
+
+        if let Some(album) = id3v2.album().as_deref() {
+            data.push_str(album);
+        }
+        let album_range = (start, data.len());
+
+        Self {
+            data,
+            title: title_range,
+            artist: artist_range,
+            album: album_range,
+            rating: id3v2
+                .get(&Self::POPM_FRAME_ID)
+                .map(|frame| match frame {
+                    Frame::Popularimeter(popularimeter_frame) => {
+                        AudioRating::from_id3v2(popularimeter_frame.rating)
+                    }
+                    _ => AudioRating::None,
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    fn set_vorbis_rating(vorbis_comments: &mut VorbisComments, rating: AudioRating) {
+        match rating {
+            AudioRating::None => {
+                let _ = vorbis_comments.remove("RATING");
+            }
+            _ => {
+                vorbis_comments.insert(
+                    "RATING".to_string(),
+                    rating.into_vorbis_comments().to_string(),
+                );
             }
         }
     }
 
-    pub fn front_cover(&self) -> Option<&[u8]> {
-        let pictures = match &self.0 {
-            AudioFormat::Flac(flac) => flac.pictures(),
-            AudioFormat::Opus(opus) => opus.vorbis_comments().pictures(),
-            AudioFormat::Vorbis(vorbis) => vorbis.vorbis_comments().pictures(),
-        };
-
-        pictures
-            .iter()
-            .find(|(picture, _)| picture.pic_type() == PictureType::CoverFront)
-            .or_else(|| pictures.first())
-            .map(|(picture, _)| picture.data())
-    }
-
-    pub fn save(&self, path: impl AsRef<Path>) -> AudioResult<()> {
-        let options = WriteOptions::new();
-
-        match &self.0 {
-            AudioFormat::Flac(flac) => {
-                flac.save_to_path(path, options)?;
+    fn set_id3v2_rating(id3v2: &mut Id3v2Tag, rating: AudioRating) {
+        match rating {
+            AudioRating::None => {
+                let _ = id3v2.remove(&Self::POPM_FRAME_ID);
             }
-            AudioFormat::Opus(opus) => {
-                opus.save_to_path(path, options)?;
-            }
-            AudioFormat::Vorbis(vorbis) => {
-                vorbis.save_to_path(path, options)?;
+            _ => {
+                id3v2.insert(Frame::Popularimeter(PopularimeterFrame::new(
+                    String::new(),
+                    rating.into_id3v2(),
+                    0,
+                )));
             }
         }
+    }
+}
 
-        Ok(())
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum AudioRating {
+    #[default]
+    None = 0,
+    Awful = 1,
+    Bad = 2,
+    Ok = 3,
+    Good = 4,
+    Amazing = 5,
+}
+
+impl AudioRating {
+    fn from_vorbis_comments(value: &str) -> Self {
+        value
+            .parse::<u8>()
+            .map(|num| match num {
+                0 => Self::None,
+                ..=20 => Self::Awful,
+                ..=40 => Self::Bad,
+                ..=60 => Self::Ok,
+                ..=80 => Self::Good,
+                ..=255 => Self::Amazing,
+            })
+            .unwrap_or_default()
+    }
+
+    const fn into_vorbis_comments(&self) -> &str {
+        match self {
+            Self::None => "0",
+            Self::Awful => "20",
+            Self::Bad => "40",
+            Self::Ok => "60",
+            Self::Good => "80",
+            Self::Amazing => "100",
+        }
+    }
+
+    const fn from_id3v2(rating: u8) -> Self {
+        match rating {
+            0 => Self::None,
+            ..=51 => Self::Awful,
+            ..=102 => Self::Bad,
+            ..=153 => Self::Ok,
+            ..=204 => Self::Good,
+            ..=255 => Self::Amazing,
+        }
+    }
+
+    const fn into_id3v2(&self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Awful => 51,
+            Self::Bad => 102,
+            Self::Ok => 153,
+            Self::Good => 204,
+            Self::Amazing => 255,
+        }
+    }
+
+    pub const fn from_char(c: char) -> Option<Self> {
+        match c {
+            '0' => Some(Self::None),
+            '1' => Some(Self::Awful),
+            '2' => Some(Self::Bad),
+            '3' => Some(Self::Ok),
+            '4' => Some(Self::Good),
+            '5' => Some(Self::Amazing),
+            _ => None,
+        }
+    }
+
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub const fn stars(self) -> &'static str {
+        use shared::symbols::{STAR, repeat};
+        match self {
+            Self::None => "",
+            Self::Awful => STAR,
+            Self::Bad => repeat!(STAR, 2),
+            Self::Ok => repeat!(STAR, 3),
+            Self::Good => repeat!(STAR, 4),
+            Self::Amazing => repeat!(STAR, 5),
+        }
+    }
+
+    pub const fn stars_split(self) -> (&'static str, &'static str) {
+        use shared::symbols::{STAR_BIG, repeat};
+        match self {
+            Self::None => (repeat!(STAR_BIG, 0), repeat!(STAR_BIG, 5)),
+            Self::Awful => (repeat!(STAR_BIG, 1), repeat!(STAR_BIG, 4)),
+            Self::Bad => (repeat!(STAR_BIG, 2), repeat!(STAR_BIG, 3)),
+            Self::Ok => (repeat!(STAR_BIG, 3), repeat!(STAR_BIG, 2)),
+            Self::Good => (repeat!(STAR_BIG, 4), repeat!(STAR_BIG, 1)),
+            Self::Amazing => (repeat!(STAR_BIG, 5), repeat!(STAR_BIG, 0)),
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct AudioProperties {
-    pub duration: Duration,
-    pub bit_rate_kbps: u32,
-    pub bit_depth: Option<u8>,
-    pub sample_rate: Option<u32>,
+    duration: Duration,
+    bit_rate_kbps: u32,
+    bit_depth: Option<u8>,
+    sample_rate_khz: Option<u32>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum AudioExt {
-    #[default]
+impl AudioProperties {
+    pub const fn duration(&self) -> Duration {
+        self.duration
+    }
+
+    pub const fn bit_rate_kbps(&self) -> u32 {
+        self.bit_rate_kbps
+    }
+
+    pub const fn bit_depth(&self) -> Option<u8> {
+        self.bit_depth
+    }
+
+    pub const fn sample_rate_khz(&self) -> Option<u32> {
+        self.sample_rate_khz
+    }
+
+    fn from_audio_file(file: &AudioFile) -> Self {
+        let (duration, bit_rate, bit_depth, sample_rate) = match &file.format {
+            AudioFileFormat::Flac(flac) => {
+                let p = flac.properties();
+                (
+                    p.duration(),
+                    p.audio_bitrate(),
+                    Some(p.bit_depth()),
+                    Some(p.sample_rate()),
+                )
+            }
+            AudioFileFormat::Opus(opus) => {
+                let p = opus.properties();
+                (p.duration(), p.audio_bitrate(), None, None)
+            }
+            AudioFileFormat::Vorbis(vorbis) => {
+                let p = vorbis.properties();
+                (p.duration(), p.audio_bitrate(), None, Some(p.sample_rate()))
+            }
+            AudioFileFormat::Mpeg(mpeg) => {
+                let p = mpeg.properties();
+                (p.duration(), p.audio_bitrate(), None, Some(p.sample_rate()))
+            }
+        };
+
+        Self {
+            duration,
+            bit_rate_kbps: bit_rate,
+            bit_depth,
+            sample_rate_khz: sample_rate.map(|sr| sr / 1000),
+        }
+    }
+}
+
+pub struct AudioFrontCover(TaggedFile);
+
+impl AudioFrontCover {
+    pub fn read(audio_file: impl AsRef<Path>) -> Result<Self, AudioFileReport> {
+        let path = audio_file.as_ref();
+        let tagged_file = lofty::read_from_path(path).map_err(|err| {
+            AudioFileReport(format!(
+                "Failed to read front cover from \"{}\" due to {}",
+                path.display(),
+                err
+            ))
+        })?;
+        Ok(Self(tagged_file))
+    }
+
+    pub fn bytes(&self) -> Option<&[u8]> {
+        self.0
+            .primary_tag()
+            .or_else(|| self.0.first_tag())
+            .and_then(|tag| tag.get_picture_type(PictureType::CoverFront))
+            .map(|pic| pic.data())
+    }
+
+    pub fn bytes_and_mime_type<'a>(&'a self) -> Option<(&'a [u8], Option<MimeType<'a>>)> {
+        self.0
+            .primary_tag()
+            .or_else(|| self.0.first_tag())
+            .and_then(|tag| tag.get_picture_type(PictureType::CoverFront))
+            .map(|pic| {
+                let mime_type = pic.mime_type().map(|mime| match mime {
+                    lofty::picture::MimeType::Jpeg => MimeType::Jpeg,
+                    lofty::picture::MimeType::Png => MimeType::Png,
+                    lofty::picture::MimeType::Tiff => MimeType::Tiff,
+                    lofty::picture::MimeType::Bmp => MimeType::Bmp,
+                    lofty::picture::MimeType::Gif => MimeType::Gif,
+                    lofty::picture::MimeType::Unknown(s) => MimeType::Unknown(s),
+                    _ => MimeType::Unknown("Unknown"),
+                });
+                (pic.data(), mime_type)
+            })
+    }
+}
+
+pub enum MimeType<'a> {
+    Jpeg,
+    Png,
+    Tiff,
+    Bmp,
+    Gif,
+    Unknown(&'a str),
+}
+
+impl<'a> MimeType<'a> {
+    pub const fn as_str(&self) -> &str {
+        match self {
+            MimeType::Jpeg => "image/jpeg",
+            MimeType::Png => "image/png",
+            MimeType::Tiff => "image/tiff",
+            MimeType::Bmp => "image/bmp",
+            MimeType::Gif => "image/gif",
+            MimeType::Unknown(s) => s,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AudioFileExtension {
     Flac,
     Opus,
     Ogg,
+    Mp3,
+    Aac,
+    Ape,
+    M4a,
+    Wav,
+    Wma,
 }
 
-impl AudioExt {
-    pub fn from_path(path: &Path) -> Option<Self> {
-        path.extension().and_then(|ext| {
+impl AudioFileExtension {
+    pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
+        path.as_ref().extension().and_then(|ext| {
             if ext.eq_ignore_ascii_case("flac") {
                 Some(Self::Flac)
+            } else if ext.eq_ignore_ascii_case("opus") {
+                Some(Self::Opus)
             } else if ext.eq_ignore_ascii_case("ogg") {
                 Some(Self::Ogg)
+            } else if ext.eq_ignore_ascii_case("mp3") {
+                Some(Self::Mp3)
+            } else if ext.eq_ignore_ascii_case("aac") {
+                Some(Self::Aac)
+            } else if ext.eq_ignore_ascii_case("ape") {
+                Some(Self::Ape)
+            } else if ext.eq_ignore_ascii_case("m4a") {
+                Some(Self::M4a)
+            } else if ext.eq_ignore_ascii_case("wav") {
+                Some(Self::Wav)
+            } else if ext.eq_ignore_ascii_case("wma") {
+                Some(Self::Wma)
             } else {
-                #[cfg(feature = "opus")]
-                if ext.eq_ignore_ascii_case("opus") {
-                    return Some(Self::Opus);
-                }
                 None
             }
         })
-    }
-
-    pub fn try_from_path(path: &Path) -> AudioResult<Self> {
-        Self::from_path(path).ok_or(AudioFileError::InvalidExtension)
     }
 
     pub const fn as_lower_case(self) -> &'static str {
@@ -193,6 +627,12 @@ impl AudioExt {
             Self::Flac => "flac",
             Self::Opus => "opus",
             Self::Ogg => "ogg",
+            Self::Mp3 => "mp3",
+            Self::Aac => "aac",
+            Self::Ape => "ape",
+            Self::M4a => "m4a",
+            Self::Wav => "wav",
+            Self::Wma => "wma",
         }
     }
 
@@ -201,49 +641,41 @@ impl AudioExt {
             Self::Flac => "FLAC",
             Self::Opus => "OPUS",
             Self::Ogg => "OGG",
+            Self::Mp3 => "MP3",
+            Self::Aac => "AAC",
+            Self::Ape => "APE",
+            Self::M4a => "M4A",
+            Self::Wav => "WAV",
+            Self::Wma => "WMA",
         }
     }
 }
 
 #[derive(Debug)]
-pub enum AudioFileError {
-    Io(std::io::Error),
-    Parse(lofty::error::FileParseError),
-    Encode(lofty::error::FileEncodingError),
-    MissingVorbisComments,
-    InvalidExtension,
+pub struct AudioFileReport(String);
+
+impl AudioFileReport {
+    pub fn new(s: impl Into<String>) -> Self {
+        Self(s.into())
+    }
 }
 
-impl std::fmt::Display for AudioFileError {
+impl std::fmt::Display for AudioFileReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AudioFileError::Io(err) => err.fmt(f),
-            AudioFileError::Parse(err) => err.fmt(f),
-            AudioFileError::Encode(err) => err.fmt(f),
-            AudioFileError::MissingVorbisComments => {
-                f.write_str("No VorbisComments metadata container found")
-            }
-            AudioFileError::InvalidExtension => f.write_str("No valid audio file extension found"),
-        }
+        f.write_str(self.0.as_str())
     }
 }
 
-impl std::error::Error for AudioFileError {}
+impl std::error::Error for AudioFileReport {}
 
-impl From<std::io::Error> for AudioFileError {
-    fn from(err: std::io::Error) -> Self {
-        Self::Io(err)
+impl From<String> for AudioFileReport {
+    fn from(value: String) -> Self {
+        Self(value)
     }
 }
 
-impl From<lofty::error::FileParseError> for AudioFileError {
-    fn from(err: lofty::error::FileParseError) -> Self {
-        Self::Parse(err)
-    }
-}
-
-impl From<lofty::error::FileEncodingError> for AudioFileError {
-    fn from(err: lofty::error::FileEncodingError) -> Self {
-        Self::Encode(err)
+impl From<AudioFileReport> for String {
+    fn from(value: AudioFileReport) -> Self {
+        value.0
     }
 }

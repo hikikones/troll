@@ -14,7 +14,9 @@ clap-cargo = { workspace = true }
 directories = { workspace = true }
 ecs = { workspace = true }
 fastrand = { workspace = true }
+indexmap = { workspace = true }
 lofty = { workspace = true }
+nucleo-matcher = { workspace = true }
 rodio = { workspace = true }
 serde = { workspace = true }
 serde_repr = { workspace = true }

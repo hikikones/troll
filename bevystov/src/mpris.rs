@@ -5,6 +5,8 @@ use zbus::{
     zvariant::{Array, ObjectPath, OwnedValue, Str},
 };
 
+use crate::database::{Track, TrackId};
+
 type MprisDict = std::collections::HashMap<String, OwnedValue>;
 type CommandsSender = std::sync::mpsc::Sender<MprisCommand>;
 type CommandsReceiver = std::sync::mpsc::Receiver<MprisCommand>;
@@ -167,12 +169,12 @@ pub struct MprisMetadata {
 }
 
 impl MprisMetadata {
-    pub fn new(track: crate::jukebox::CurrentTrack<'_>) -> Self {
+    pub fn new(id: TrackId, track: &Track) -> Self {
         Self {
-            id: format!("/org/mpris/MediaPlayer2/Track/{}", track.id().0),
-            title: track.title().into(),
-            artist: track.artists().into(),
-            album: track.album().into(),
+            id: format!("/org/mpris/MediaPlayer2/Track/{}", id.0),
+            title: String::from(track.title()),
+            artist: String::from(track.artist()),
+            album: String::from(track.album()),
         }
     }
 

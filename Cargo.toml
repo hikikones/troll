@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["bevystov", "crates/*", "trollink", "trollstov"]
+members = ["bevystov", "bevystov_sqlite", "crates/*", "trollink", "trollstov"]
 
 [workspace.package]
 version = "0.1.0"

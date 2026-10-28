@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use bevystov::{
     app::App,
     database::Database,
-    jukebox::Jukebox,
+    jukebox::{AudioPlayer, Jukebox},
     mpris::MediaControls,
     settings::{ConfigError, ConfigErrorSource, Settings},
 };
@@ -30,8 +30,8 @@ fn main() -> std::process::ExitCode {
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let terminal = Terminal::stdout();
 
-    let jukebox = Jukebox::new()?;
-    let database = Database::open(args.dir, None)?;
+    let jukebox = Jukebox::new(AudioPlayer::new()?);
+    let database = Database::new(args.dir);
 
     let mut settings = read_settings(args.settings)?;
     settings.colors_mut().background =
@@ -60,7 +60,7 @@ struct Args {
     /// Optional path for your settings file. By default,
     /// the location will be determined by the conventions of your operating system.
     #[arg(long, value_name = "FILE.toml", value_hint = clap::ValueHint::FilePath)]
-    settings: Option<std::path::PathBuf>,
+    settings: Option<PathBuf>,
 
     /// Add system media controls for player interaction
     /// with media keys and your operating system.

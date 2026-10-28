@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, List, Prompt};
+use widgets2::{Block, List, ListIndex, Prompt};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, RenderSet},
@@ -35,6 +35,7 @@ struct SearchModal {
     state: SearchState,
     prompt: Prompt,
     prompt_hash: u64,
+    include_path: bool,
     list: List,
 }
 
@@ -53,6 +54,7 @@ impl Default for SearchModal {
             state: SearchState::Prompt,
             prompt: Prompt::new().with_placeholder("Search..."),
             prompt_hash: 0,
+            include_path: false,
             list: List::new()
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
@@ -67,14 +69,14 @@ enum SearchState {
 }
 
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
-struct SearchResults(Vec<TrackId>);
+struct SearchResults(Vec<(TrackId, u16)>);
 
 fn exit_search(
     database: NonSend<Database>,
     mut modal: ResMut<SearchModal>,
     mut results: ResMut<SearchResults>,
 ) {
-    if database.is_tracks_empty() {
+    if database.is_empty() {
         return;
     }
 
@@ -94,7 +96,7 @@ fn input_search(
         return;
     };
 
-    if database.is_tracks_empty() {
+    if database.is_empty() {
         return;
     }
 
@@ -115,7 +117,7 @@ fn input_search(
         },
         SearchState::Browse => match key.code {
             KeyCode::Enter => {
-                if let Some(id) = results.get(modal.list.index()).copied() {
+                if let Some((id, _)) = results.get(modal.list.index()).copied() {
                     jukebox.play_id(id, &database);
                     actions.push(Action::Modal(Modal::None));
                 }
@@ -134,7 +136,7 @@ fn input_search(
                 let ids = modal
                     .list
                     .selection_inclusive()
-                    .filter_map(|i| results.get(i).map(|id| *id));
+                    .filter_map(|i| results.get(i).map(|(id, _)| *id));
                 jukebox.extend(ids);
             }
             KeyCode::Char('n') => {
@@ -142,14 +144,14 @@ fn input_search(
                     .list
                     .selection_inclusive()
                     .rev()
-                    .filter_map(|i| results.get(i).map(|id| *id))
+                    .filter_map(|i| results.get(i).map(|(id, _)| *id))
                     .for_each(|id| {
-                        jukebox.add_next(id);
+                        jukebox.enqueue_next(id);
                     });
             }
             KeyCode::Char('g') => {
                 let index = modal.list.index();
-                let id = results.get(index).copied();
+                let id = results.get(index).map(|(id, _)| *id);
                 actions.push(Action::Route(Route::Tracks(id)));
             }
             KeyCode::Char('s') => {
@@ -170,7 +172,7 @@ fn render_search(
     settings: Res<Settings>,
     mut modal: ResMut<SearchModal>,
     results: Res<SearchResults>,
-    mut database: NonSendMut<Database>,
+    database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
     let area = frame.area().scale_and_center(0.7);
@@ -183,8 +185,8 @@ fn render_search(
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
 
-    let (prompt_area, results_area, shortcuts_area) = area.split_ends(1, 1);
-    let no_tracks = database.is_tracks_empty();
+    let (prompt_area, results_area, shortcuts_area) =
+        area.inner(Margin::horizontal(1)).split_ends(1, 1);
 
     // Prompt
     let prompt_area = prompt_area.scale_cols_and_center(0.5);
@@ -193,10 +195,10 @@ fn render_search(
     modal
         .prompt
         .set_colors(colors.prompt())
-        .set_disabled(state == SearchState::Browse || no_tracks)
+        .set_disabled(state == SearchState::Browse || database.is_empty())
         .render(prompt_area.inner(Margin::horizontal(1)), &mut frame);
 
-    if no_tracks {
+    if database.is_empty() {
         frame.print_fmt(Sgr::Fg(colors.neutral));
         frame.push_str("No tracks to search for");
         frame.render(
@@ -207,68 +209,45 @@ fn render_search(
         return;
     }
 
-    let Some((list_area, lines)) = modal
-        .list
-        .set_len(results.len())
-        .set_colors(colors.list())
-        .render(results_area.inner(Margin::horizontal(1)), &mut frame)
-    else {
-        return;
-    };
+    // Results
+    modal.list.set_colors(colors.list()).render(
+        results_area,
+        &mut frame,
+        results.iter().copied(),
+        |line, frame, (id, _), index| {
+            let Some(track) = database.get(id) else {
+                return;
+            };
 
-    let mut line = list_area.with_rows(1);
-    let selected = modal.list.index();
-    let selection = modal.list.selection_inclusive();
-    let input = modal.prompt.as_str_trim();
+            let mut style = match state {
+                SearchState::Prompt => Style::fg(colors.neutral).with_bg(bg),
+                SearchState::Browse => match index {
+                    ListIndex::Selected => {
+                        frame.fill(line, colors.primary, true);
+                        Style::fg(colors.primary).with_reverse()
+                    }
+                    ListIndex::Selection => {
+                        frame.fill(line, colors.neutral, true);
+                        Style::fg(colors.neutral).with_reverse()
+                    }
+                    ListIndex::Normal => Style::fg(colors.normal).with_bg(bg),
+                },
+            };
 
-    for (index, id) in lines.zip(results.iter().copied().skip(modal.list.scroll())) {
-        let (mut style, highlight) = match state {
-            SearchState::Prompt => (
-                Style::fg(colors.neutral).with_bg(bg),
-                Some((Sgr::Reverse, Sgr::NotReverse)),
-            ),
-            SearchState::Browse => {
-                if index == selected {
-                    frame.fill(line, colors.primary, true);
-                    (Style::fg(colors.primary).with_reverse(), None)
-                } else if selection.contains(&index) {
-                    frame.fill(line, colors.neutral, true);
-                    (Style::fg(colors.neutral).with_reverse(), None)
-                } else {
-                    (
-                        Style::fg(colors.normal).with_bg(bg),
-                        Some((Sgr::Reverse, Sgr::NotReverse)),
-                    )
-                }
+            if jukebox.is_faulty(id) {
+                style.insert(Attributes::CROSSED_OUT);
             }
-        };
 
-        if jukebox.is_faulty(id) {
-            style.insert(Attributes::CROSSED_OUT);
-        }
-
-        frame.push_fmt(style);
-
-        match highlight {
-            Some((start, end)) => {
-                let _ = database.search_highlight(id, input, start, end, |s| frame.push_str(s));
-            }
-            None => {
-                database.track_text(id, |track| {
-                    frame.push_str(track.title);
-                    frame.push_ch(' ');
-                    frame.push_str(track.artists);
-                    frame.push_ch(' ');
-                    frame.push_str(track.album);
-                });
-            }
-        }
-
-        frame.push_fmt(Sgr::Reset);
-        frame.render(line, TextOptions::span());
-
-        line.add_row(1);
-    }
+            frame.push_fmt(style);
+            frame.push_str(track.title());
+            frame.push_ch(' ');
+            frame.push_str(track.artist());
+            frame.push_ch(' ');
+            frame.push_str(track.album());
+            frame.push_fmt(Sgr::Reset);
+            frame.render(line, TextOptions::span());
+        },
+    );
 
     if !results.is_empty() {
         frame.print_fmt(Sgr::Bg(bg));
@@ -322,7 +301,6 @@ fn update_search(
     mut results: ResMut<SearchResults>,
     mut database: NonSendMut<Database>,
     mut actions: ResMut<Actions>,
-    settings: Res<Settings>,
 ) {
     let hash = modal.prompt.hash_trim();
 
@@ -333,16 +311,13 @@ fn update_search(
     results.clear();
     modal.prompt_hash = hash;
 
-    let input = modal.prompt.as_str_trim();
-
-    if input.is_empty() {
+    if modal.prompt.is_empty_trim() {
         actions.push(Action::Render);
         return;
     }
 
-    if let Err(_err) = database.search(input, settings.search_by_path(), |id| results.push(id)) {
-        // TODO
-    }
+    results.extend(database.search(modal.prompt.as_str_trim(), modal.include_path));
+    results.sort_by_key(|(_, score)| std::cmp::Reverse(*score));
 
     modal.list.reset();
 

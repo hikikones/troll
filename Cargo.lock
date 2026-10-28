@@ -732,6 +732,33 @@ dependencies = [
  "directories",
  "ecs",
  "fastrand 2.5.0",
+ "indexmap",
+ "lofty",
+ "nucleo-matcher",
+ "rodio",
+ "serde",
+ "serde_repr",
+ "shared",
+ "terminal",
+ "toml",
+ "utils",
+ "walkdir",
+ "widgets2",
+ "zbus 5.19.0",
+]
+
+[[package]]
+name = "bevystov_sqlite"
+version = "0.1.0"
+dependencies = [
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_state",
+ "clap",
+ "clap-cargo",
+ "directories",
+ "ecs",
+ "fastrand 2.5.0",
  "lofty",
  "rodio",
  "serde",
