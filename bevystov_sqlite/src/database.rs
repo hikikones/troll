@@ -45,16 +45,20 @@ impl Database {
         }
     }
 
-    pub fn open(music_dir: PathBuf, database_file: Option<&Path>) -> DatabaseResult<Self> {
-        let sqlite = match database_file {
-            Some(path) => Sqlite::open(&path).map_err(|err| DatabaseError {
-                message: format!("Failed to open database at '{}'", path.display()),
-                source: Some(DatabaseErrorSource::Sqlite(err)),
-            }),
-            None => Sqlite::open_in_memory().map_err(|err| DatabaseError {
+    pub fn open(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
+        let sqlite = if in_memory {
+            Sqlite::open_in_memory().map_err(|err| DatabaseError {
                 message: String::from("Failed to open database in-memory"),
                 source: Some(DatabaseErrorSource::Sqlite(err)),
-            }),
+            })
+        } else {
+            let path =
+                std::env::temp_dir().join(shared::symbols::concat!(crate::APP_NAME, ".db.tmp"));
+            let _ = std::fs::File::create(&path);
+            Sqlite::open(&path).map_err(|err| DatabaseError {
+                message: format!("Failed to open database at '{}'", path.display()),
+                source: Some(DatabaseErrorSource::Sqlite(err)),
+            })
         }?;
 
         let mut db = Self::new(sqlite);
