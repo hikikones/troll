@@ -96,10 +96,18 @@ struct Data {
 
 impl ScannedTrack {
     // TODO: Remove
-    pub fn test() -> Self {
-        let mut t = Self::default();
+    pub fn test() -> Vec<ScannedTrack> {
+        let mut v = vec![];
+
+        let t = v.push_mut(Self::default());
         t.artists.push(Range::default());
-        t
+
+        let t = v.push_mut(Self::default());
+        t.artists.push(t.text.push_str_get_range("a1"));
+        t.artists.push(t.text.push_str_get_range("a2"));
+        t.artists.push(t.text.push_str_get_range("a3"));
+
+        v
     }
 
     pub const fn number(&self) -> u8 {

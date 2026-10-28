@@ -371,9 +371,7 @@ impl Database {
         while let Some(event) = scanner.recv() {
             match event {
                 ScanEvent::Track(track) => {
-                    self.sqlite
-                        .transaction(|tx| Self::add_track(tx, track))
-                        .unwrap();
+                    let _ = self.sqlite.transaction(|tx| Ok(Self::add_track(tx, track)));
                 }
                 ScanEvent::Error(path, err) => {
                     on_event(DatabaseEvent::Error(DatabaseError {
@@ -383,9 +381,12 @@ impl Database {
                 }
                 ScanEvent::Done => {
                     // TODO: remove
-                    self.sqlite
-                        .transaction(|tx| Self::add_track(tx, ScannedTrack::test()))
-                        .unwrap();
+                    let _ = self.sqlite.transaction(|tx| {
+                        for track in ScannedTrack::test() {
+                            Self::add_track(tx, track);
+                        }
+                        Ok(())
+                    });
 
                     self.scanner = None;
                     on_event(DatabaseEvent::FinishedLoading);
@@ -424,7 +425,7 @@ impl Database {
             .unwrap();
     }
 
-    fn add_track(tx: &Transaction, track: ScannedTrack) -> SqliteResult<()> {
+    fn add_track(tx: &Transaction, track: ScannedTrack) {
         // Album
         let album_id = utils::hasher_fast(|hasher| {
             hasher.write(track.album().as_bytes());
@@ -495,8 +496,6 @@ impl Database {
             [track_id],
         )
         .unwrap();
-
-        Ok(())
     }
 
     fn migrate(&mut self, music_dir: PathBuf) -> DatabaseResult<()> {
@@ -593,7 +592,7 @@ impl std::fmt::Display for SortedTracksQuery {
                 ROW_NUMBER() OVER (ORDER BY {sort_by}) - 1 AS row_num,
                 t.id,
                 t.title,
-                GROUP_CONCAT(ar.name, ', ') AS artists,
+                GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name {case} {order}) AS artists,
                 al.name AS album,
                 t.duration,
                 t.rating,
