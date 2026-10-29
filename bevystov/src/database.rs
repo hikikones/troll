@@ -21,16 +21,34 @@ pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub type TextRange = std::range::Range<usize>;
 
-#[derive(Debug, Clone)]
-pub struct Track {
-    pub title: TextRange,
+pub struct Track<'a> {
+    pub title: &'a str,
     pub duration: TrackDuration,
     pub rating: TrackRating,
     pub bit_rate_kbps: u32,
     pub bit_depth: Option<u8>,
     pub sample_rate: Option<u32>,
-    pub path: TextRange,
-    pub album_id: AlbumId,
+    pub album: &'a str,
+    pub path: &'a str,
+}
+
+pub struct TrackTable<'a> {
+    pub title: &'a str,
+    // pub artists: &'a str, TODO
+    pub album: &'a str,
+    pub duration: TrackDuration,
+    pub rating: TrackRating,
+}
+
+struct TrackData {
+    title: TextRange,
+    duration: TrackDuration,
+    rating: TrackRating,
+    bit_rate_kbps: u32,
+    bit_depth: Option<u8>,
+    sample_rate: Option<u32>,
+    path: TextRange,
+    album_id: AlbumId,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -58,7 +76,7 @@ pub struct Album {
 
 pub struct Database {
     text: String,
-    tracks: Vec<Track>,
+    tracks: Vec<TrackData>,
     tracks_sorted: Vec<TrackId>,
     artists: HashMap<ArtistId, Artist>,
     albums: HashMap<AlbumId, Album>,
@@ -117,7 +135,7 @@ impl Database {
         });
 
         if self.reverse_sort {
-            self.tracks.reverse();
+            self.tracks_sorted.reverse();
         }
     }
 
@@ -130,8 +148,33 @@ impl Database {
         &self.text[range]
     }
 
-    pub fn track(&self, id: TrackId) -> &Track {
-        &self.tracks[id.idx()]
+    pub fn track(&self, id: TrackId) -> Track<'_> {
+        let data = &self.tracks[id.idx()];
+        Track {
+            title: self.slice(data.title),
+            duration: data.duration,
+            rating: data.rating,
+            bit_rate_kbps: data.bit_rate_kbps,
+            bit_depth: data.bit_depth,
+            sample_rate: data.sample_rate,
+            album: self.slice(self.albums[&data.album_id].name),
+            path: self.slice(data.path),
+        }
+    }
+
+    pub fn track_title(&self, id: TrackId) -> &str {
+        let data = &self.tracks[id.idx()];
+        self.slice(data.title)
+    }
+
+    pub fn track_table(&self, id: TrackId) -> TrackTable<'_> {
+        let data = &self.tracks[id.idx()];
+        TrackTable {
+            title: self.slice(data.title),
+            album: self.slice(self.albums[&data.album_id].name),
+            duration: data.duration,
+            rating: data.rating,
+        }
     }
 
     pub fn track_id(&self, index: usize) -> TrackId {
@@ -153,14 +196,15 @@ impl Database {
     }
 
     pub fn track_path(&self, id: TrackId) -> &Path {
-        Path::new(self.slice(self.track(id).path))
+        let data = &self.tracks[id.idx()];
+        Path::new(self.slice(data.path))
     }
 
-    pub fn tracks_iter2(&self) -> impl Iterator<Item = &Track> {
+    pub fn tracks_iter2(&self) -> impl Iterator<Item = &TrackData> {
         self.tracks_sorted.iter().map(|i| &self.tracks[i.idx()])
     }
 
-    pub fn tracks_range2(&self, range: TextRange) -> impl Iterator<Item = &Track> {
+    pub fn tracks_range2(&self, range: TextRange) -> impl Iterator<Item = &TrackData> {
         self.tracks_sorted[range]
             .iter()
             .map(|i| &self.tracks[i.idx()])
@@ -175,7 +219,7 @@ impl Database {
     }
 
     pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) -> bool {
-        let track = self.track(id);
+        let track = &self.tracks[id.idx()];
 
         if track.rating == rating {
             return false;
@@ -281,7 +325,7 @@ impl Database {
         }
 
         let track_id = TrackId::from_idx(self.tracks.len());
-        self.tracks.push(Track {
+        self.tracks.push(TrackData {
             title: self.text.push_str_get_range_new(track.title()),
             duration: track.duration(),
             rating: track.rating(),

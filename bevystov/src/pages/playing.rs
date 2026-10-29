@@ -416,11 +416,7 @@ fn render_queue(
             frame.push_fmt(Sgr::CrossedOut);
         }
 
-        // TODO?
-        frame.push_str(database.slice(database.track(id).title));
-        // database.track_title(id, |title| {
-        //     frame.push_str(title);
-        // });
+        frame.push_str(database.track_title(id));
 
         frame.push_fmt(Sgr::Reset);
         frame.render(line.with_row(row), TextOptions::span());
