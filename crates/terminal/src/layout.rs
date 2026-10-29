@@ -136,6 +136,11 @@ impl Rect {
         self.size.sub_rows(v);
     }
 
+    pub const fn shrink_right(&mut self, cols: u16) {
+        self.pos.col += cols;
+        self.size.cols = self.size.cols.saturating_sub(cols);
+    }
+
     pub const fn shrink_down(&mut self, rows: u16) {
         self.pos.row += rows;
         self.size.rows = self.size.rows.saturating_sub(rows);
@@ -474,6 +479,10 @@ impl Pos {
         Self { col, row }
     }
 
+    pub const fn all(v: u16) -> Self {
+        Self { col: v, row: v }
+    }
+
     pub const fn with_col(mut self, col: u16) -> Self {
         self.col = col;
         self
@@ -551,6 +560,10 @@ impl Size {
 
     pub const fn new(cols: u16, rows: u16) -> Self {
         Self { cols, rows }
+    }
+
+    pub const fn all(v: u16) -> Self {
+        Self { cols: v, rows: v }
     }
 
     pub const fn with_cols(mut self, cols: u16) -> Self {

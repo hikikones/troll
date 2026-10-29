@@ -55,7 +55,9 @@ impl Default for SearchModal {
             prompt: Prompt::new().with_placeholder("Search..."),
             prompt_hash: 0,
             include_path: false,
-            list: List::new().with_scrollbar(0).with_padding(Margin::all(1)),
+            list: List::new()
+                .with_scrollbar(0)
+                .with_padding(Margin::horizontal(1)),
         }
     }
 }
@@ -90,13 +92,13 @@ fn input_search(
     results: Res<SearchResults>,
     database: NonSend<Database>,
 ) {
-    if database.is_empty() {
-        return;
-    }
-
     let Some(key) = input.get() else {
         return;
     };
+
+    if database.is_empty() {
+        return;
+    }
 
     match modal.state {
         SearchState::Prompt => match key.code {
@@ -183,7 +185,8 @@ fn render_search(
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
 
-    let (prompt_area, results_area, shortcuts_area) = area.split_ends(1, 1);
+    let (prompt_area, results_area, shortcuts_area) =
+        area.inner(Margin::horizontal(1)).split_ends(1, 1);
 
     // Prompt
     let prompt_area = prompt_area.scale_cols_and_center(0.5);
@@ -208,7 +211,7 @@ fn render_search(
 
     // Results
     modal.list.set_colors(colors.list()).render(
-        results_area.inner(Margin::horizontal(1)),
+        results_area,
         &mut frame,
         results.iter().copied(),
         |line, frame, (id, _), index| {

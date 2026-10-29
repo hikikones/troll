@@ -425,8 +425,7 @@ impl List {
     }
 
     const fn prepare_scrollbar(&self, area: &mut Rect, inner: &mut Rect) -> Option<Rect> {
-        let is_scrollable =
-            self.options.scrollbar && Scroll::is_scrollable(self.len, inner.size, 10);
+        let is_scrollable = self.options.scrollbar && Scroll::is_scrollable(self.len, inner.size);
 
         if !is_scrollable {
             return None;
@@ -454,14 +453,12 @@ impl List {
     }
 
     fn render_scrollbar(&self, area: Rect, frame: &mut Framebuffer) {
-        Scrollbar::colors(self.colors.scrollbar).render(
-            area,
-            frame,
-            ScrollbarData {
-                current_scroll: self.scroll,
-                total_items: self.len,
-                viewport_height: self.list_height,
-            },
-        );
+        Scrollbar::new(ScrollbarData {
+            current_scroll: self.scroll,
+            total_items: self.len,
+            viewport_height: self.list_height,
+        })
+        .with_colors(self.colors.scrollbar)
+        .render(area, frame);
     }
 }

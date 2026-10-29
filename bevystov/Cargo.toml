@@ -25,7 +25,7 @@ terminal = { workspace = true, features = ["bevy"] }
 toml = { workspace = true }
 utils = { workspace = true }
 walkdir = { workspace = true }
-widgets2 = { workspace = true, features = ["bevy"] }
+widgets2 = { workspace = true }
 zbus = { workspace = true }
 
 [features]

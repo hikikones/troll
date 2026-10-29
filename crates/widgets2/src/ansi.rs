@@ -269,7 +269,7 @@ impl AnsiViewer {
     }
 
     const fn is_scrollable(&self, list_view: Size) -> bool {
-        self.options.scrollbar && Scroll::is_scrollable(self.lines as usize, list_view, 10)
+        self.options.scrollbar && Scroll::is_scrollable(self.lines as usize, list_view)
     }
 
     fn render_scrollbar(&self, frame: &mut Framebuffer) {
@@ -277,14 +277,12 @@ impl AnsiViewer {
             return;
         };
 
-        Scrollbar::colors(self.colors.scrollbar).render(
-            scroll_area,
-            frame,
-            ScrollbarData {
-                viewport_height: self.view.rows,
-                current_scroll: self.scroll as usize,
-                total_items: self.lines as usize,
-            },
-        );
+        Scrollbar::new(ScrollbarData {
+            viewport_height: self.view.rows,
+            current_scroll: self.scroll as usize,
+            total_items: self.lines as usize,
+        })
+        .with_colors(self.colors.scrollbar)
+        .render(scroll_area, frame);
     }
 }

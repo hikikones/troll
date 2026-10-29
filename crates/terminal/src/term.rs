@@ -262,6 +262,13 @@ impl Dims {
         Self { width, height }
     }
 
+    pub const fn all(value: u16) -> Self {
+        Self {
+            width: value,
+            height: value,
+        }
+    }
+
     pub const fn with_width(mut self, width: u16) -> Self {
         self.width = width;
         self

@@ -78,7 +78,7 @@ impl UnixTime {
 }
 
 impl ToSql for UnixTime {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(self.0 as i64)))
     }
 }

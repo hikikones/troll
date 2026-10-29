@@ -44,7 +44,7 @@ impl Database {
 
     pub fn is_cards_empty(&self) -> bool {
         self.sqlite
-            .query_single("SELECT NOT EXISTS (SELECT 1 FROM cards)", (), |row| {
+            .single("SELECT NOT EXISTS (SELECT 1 FROM cards)", (), |row| {
                 row.get(0)
             })
             .unwrap()
@@ -62,7 +62,7 @@ impl Database {
 
     pub fn get_cards(&self, mut f: impl FnMut(CardId)) {
         self.sqlite
-            .query(
+            .for_each(
                 "SELECT id FROM cards ORDER BY create_time DESC",
                 (),
                 |row| Ok(f(row.get(0)?)),
@@ -116,13 +116,13 @@ impl Database {
         self.s.push_str(" ORDER BY c.create_time DESC");
 
         self.sqlite
-            .query(self.s.as_str(), (), |row| Ok(f(row.get(0)?)))
+            .for_each(self.s.as_str(), (), |row| Ok(f(row.get(0)?)))
             .unwrap();
     }
 
     pub fn get_cards_without_tags(&self, mut f: impl FnMut(CardId)) {
         self.sqlite
-            .query(
+            .for_each(
                 "SELECT c.id FROM cards c WHERE NOT EXISTS (
                     SELECT 1 FROM card_tags ct \
                     WHERE ct.card_id = c.id \
@@ -135,7 +135,7 @@ impl Database {
 
     pub fn get_card_content(&self, id: CardId, f: impl FnOnce(&str)) {
         self.sqlite
-            .query_single("SELECT id, content FROM cards WHERE id = ?", [id], |row| {
+            .single("SELECT id, content FROM cards WHERE id = ?", [id], |row| {
                 Ok(f(row.get_ref(1)?.as_str()?))
             })
             .unwrap();
@@ -143,7 +143,7 @@ impl Database {
 
     pub fn get_due_count(&self) -> u32 {
         self.sqlite
-            .query_single(
+            .single(
                 "SELECT COUNT(id) FROM cards \
                 WHERE due_time <= (unixepoch('now')) AND kind = ?",
                 [CardKind::Flashcard],
@@ -154,7 +154,7 @@ impl Database {
 
     pub fn get_due_cards(&self, mut f: impl FnMut(CardId)) {
         self.sqlite
-            .query(
+            .for_each(
                 "SELECT id FROM cards \
                 WHERE due_time <= (unixepoch('now')) AND kind = ?",
                 [CardKind::Flashcard],
@@ -169,7 +169,7 @@ impl Database {
 
     pub fn get_due_card_random_except(&self, id: CardId) -> Option<CardId> {
         self.sqlite
-            .query_first(
+            .first(
                 "
             SELECT id FROM cards \
             WHERE due_time <= (unixepoch('now')) AND id != ?1 AND kind = ?2 \
@@ -183,7 +183,7 @@ impl Database {
     }
 
     pub fn search(&self, input: &str, mut f: impl FnMut(CardId)) -> Result<(), SqliteError> {
-        self.sqlite.query(
+        self.sqlite.for_each(
             "
             SELECT rowid FROM cards_fts \
             WHERE cards_fts MATCH ? \
@@ -202,7 +202,7 @@ impl Database {
         const ANSI_REVERSE: &str = "\x1b[7m";
         const ANSI_NOT_REVERSE: &str = "\x1b[27m";
 
-        self.sqlite.query_single(
+        self.sqlite.single(
             shared::symbols::concat!(
                 "SELECT rowid, highlight(cards_fts, 0, '",
                 ANSI_REVERSE,
@@ -228,7 +228,7 @@ impl Database {
     pub fn review_card(&self, id: CardId, success: bool, desired_retention: f32) -> ReviewId {
         let (create_time, stability, difficulty) = self
             .sqlite
-            .query_single(
+            .single(
                 "SELECT create_time, stability, difficulty FROM cards \
                 WHERE id = ?1 AND kind = ?2",
                 (id, CardKind::Flashcard),
@@ -237,7 +237,7 @@ impl Database {
             .unwrap();
         let last_review_time = self
             .sqlite
-            .query_first(
+            .first(
                 "SELECT time FROM reviews \
                 WHERE card_id = ? \
                 ORDER BY time DESC \
@@ -286,7 +286,7 @@ impl Database {
 
     pub fn is_tags_empty(&self) -> bool {
         self.sqlite
-            .query_single("SELECT NOT EXISTS (SELECT 1 FROM tags)", (), |row| {
+            .single("SELECT NOT EXISTS (SELECT 1 FROM tags)", (), |row| {
                 row.get(0)
             })
             .unwrap()
@@ -295,7 +295,7 @@ impl Database {
     pub fn add_tag(&self, name: &str) -> Option<TagId> {
         if self
             .sqlite
-            .query_first("SELECT id FROM tags WHERE name = ?", [name], |row| {
+            .first("SELECT id FROM tags WHERE name = ?", [name], |row| {
                 row.get::<_, TagId>(0)
             })
             .unwrap()
@@ -312,7 +312,7 @@ impl Database {
 
     pub fn get_tags(&self, mut f: impl FnMut(TagId)) {
         self.sqlite
-            .query("SELECT id FROM tags ORDER BY name", (), |row| {
+            .for_each("SELECT id FROM tags ORDER BY name", (), |row| {
                 Ok(f(row.get(0)?))
             })
             .unwrap();
@@ -320,7 +320,7 @@ impl Database {
 
     pub fn get_tags_and_name(&self, mut f: impl FnMut(TagId, &str)) {
         self.sqlite
-            .query("SELECT id, name FROM tags", (), |row| {
+            .for_each("SELECT id, name FROM tags", (), |row| {
                 Ok(f(row.get(0)?, row.get_ref(1)?.as_str()?))
             })
             .unwrap();
@@ -328,7 +328,7 @@ impl Database {
 
     pub fn get_tags_and_cards_count(&self, mut f: impl FnMut(TagId, &str, u32)) {
         self.sqlite
-            .query(
+            .for_each(
                 "SELECT t.id, t.name, COUNT(ct.card_id) FROM tags t \
                     LEFT JOIN card_tags ct ON ct.tag_id = t.id \
                     GROUP BY t.id, t.name \
@@ -341,7 +341,7 @@ impl Database {
 
     pub fn get_tag_name(&self, id: TagId, f: impl FnOnce(&str)) {
         self.sqlite
-            .query_single("SELECT id, name FROM tags WHERE id = ?", [id], |row| {
+            .single("SELECT id, name FROM tags WHERE id = ?", [id], |row| {
                 Ok(f(row.get_ref(1)?.as_str()?))
             })
             .unwrap();
@@ -350,7 +350,7 @@ impl Database {
     pub fn update_tag(&self, id: TagId, name: &str) -> bool {
         if self
             .sqlite
-            .query_first("SELECT id FROM tags WHERE name = ?", [name], |row| {
+            .first("SELECT id FROM tags WHERE name = ?", [name], |row| {
                 row.get::<_, TagId>(0)
             })
             .unwrap()
@@ -382,7 +382,7 @@ impl Database {
 
     pub fn get_tags_for_card(&self, id: CardId, mut f: impl FnMut(TagId)) {
         self.sqlite
-            .query(
+            .for_each(
                 "SELECT tag_id FROM card_tags WHERE card_id = ?",
                 [id],
                 |row| Ok(f(row.get(0)?)),
@@ -392,7 +392,7 @@ impl Database {
 
     pub fn get_cards_count_for_tag(&self, id: TagId) -> u32 {
         self.sqlite
-            .query_single(
+            .single(
                 "SELECT COUNT(*) FROM card_tags WHERE tag_id = ?",
                 [id],
                 |row| row.get(0),
@@ -402,7 +402,7 @@ impl Database {
 
     pub fn get_name_and_cards_count_for_tag(&self, id: TagId, f: impl FnOnce(&str, u32)) {
         self.sqlite
-            .query_single(
+            .single(
                 "SELECT t.name, COUNT(ct.card_id) FROM tags t \
                     LEFT JOIN card_tags ct ON ct.tag_id = t.id \
                     WHERE t.id = ? \
@@ -447,7 +447,7 @@ impl Database {
                 add_dev_data(self);
             }
             VERSION => {}
-            _ => return DatabaseResult::Err(DatabaseError::Version(version)),
+            _ => return Err(DatabaseError::Version(version)),
         }
 
         Ok(())
@@ -462,7 +462,7 @@ impl CardId {
 }
 
 impl ToSql for CardId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
     }
 }
@@ -494,7 +494,7 @@ impl CardKind {
 }
 
 impl ToSql for CardKind {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(*self as i64)))
     }
 }
@@ -516,7 +516,7 @@ impl FromSql for CardKind {
 pub struct ReviewId(SqliteId);
 
 impl ToSql for ReviewId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
     }
 }
@@ -531,7 +531,7 @@ impl FromSql for ReviewId {
 pub struct TagId(SqliteId);
 
 impl ToSql for TagId {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
     }
 }
@@ -552,7 +552,7 @@ impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DatabaseError::Sqlite(err) => err.fmt(f),
-            &DatabaseError::Version(v) => f.write_fmt(format_args!("unknown version: {v}")),
+            DatabaseError::Version(v) => f.write_fmt(format_args!("unknown version: {v}")),
         }
     }
 }

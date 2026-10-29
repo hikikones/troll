@@ -2,7 +2,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension};
 
-pub use rusqlite::{Params, Row, types::*};
+pub use rusqlite::{Params, Row, Transaction, types::*};
 
 pub type SqliteId = i64;
 pub type SqliteError = rusqlite::Error;
@@ -41,11 +41,39 @@ impl Sqlite {
         self.0.execute_batch(sql)
     }
 
-    pub fn query<T>(
+    pub fn transaction(
+        &mut self,
+        f: impl FnOnce(&Transaction) -> SqliteResult<()>,
+    ) -> SqliteResult<()> {
+        let transaction = self.0.transaction()?;
+        f(&transaction)?;
+        transaction.commit()
+    }
+
+    pub fn iter<'a, T, F>(
+        &'a self,
+        sql: &str,
+        args: impl Params,
+        f: F,
+    ) -> SqliteResult<impl Iterator<Item = SqliteResult<T>> + 'a>
+    where
+        F: for<'row> FnMut(&Row<'row>) -> SqliteResult<T> + 'a,
+    {
+        let statement = self.0.prepare(sql)?;
+        let iter = SqliteIterTryBuilder {
+            statement,
+            iter_builder: |statement| statement.query_map(args, f),
+        }
+        .try_build()?;
+
+        Ok(iter)
+    }
+
+    pub fn for_each(
         &self,
         sql: &str,
         args: impl Params,
-        mut f: impl FnMut(&Row) -> SqliteResult<T>,
+        mut f: impl FnMut(&Row) -> SqliteResult<()>,
     ) -> SqliteResult<()> {
         let mut statement = self.0.prepare(sql)?;
         let mut rows = statement.query(args)?;
@@ -57,7 +85,7 @@ impl Sqlite {
         Ok(())
     }
 
-    pub fn query_first<T>(
+    pub fn first<T>(
         &self,
         sql: &str,
         args: impl Params,
@@ -66,7 +94,7 @@ impl Sqlite {
         self.0.query_row(sql, args, f).optional()
     }
 
-    pub fn query_single<T>(
+    pub fn single<T>(
         &self,
         sql: &str,
         args: impl Params,
@@ -77,5 +105,28 @@ impl Sqlite {
 
     pub fn last_insert_rowid(&self) -> SqliteId {
         self.0.last_insert_rowid()
+    }
+}
+
+#[ouroboros::self_referencing]
+pub struct SqliteIter<'conn, F>
+where
+    F: 'conn,
+{
+    statement: rusqlite::Statement<'conn>,
+
+    #[borrows(mut statement)]
+    #[covariant]
+    iter: rusqlite::MappedRows<'this, F>,
+}
+
+impl<'conn, T, F> Iterator for SqliteIter<'conn, F>
+where
+    F: for<'row> FnMut(&Row<'row>) -> SqliteResult<T> + 'conn,
+{
+    type Item = SqliteResult<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.with_iter_mut(|iter| iter.next())
     }
 }
