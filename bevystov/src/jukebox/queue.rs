@@ -1,15 +1,13 @@
 use crate::database::TrackId;
 
-// TODO: Max length? Drain from history.
-
-pub(crate) struct PlayQueue {
+pub(super) struct PlayQueue {
     list: Vec<TrackId>,
     index: Option<usize>,
-    rng: fastrand::Rng, // TODO: Wrap in shared so we can pass around.
+    rng: fastrand::Rng,
 }
 
 impl PlayQueue {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             list: Vec::new(),
             index: None,
@@ -17,37 +15,37 @@ impl PlayQueue {
         }
     }
 
-    pub(crate) const fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.list.len()
     }
 
-    pub(crate) const fn queue_len(&self) -> usize {
+    pub const fn queue_len(&self) -> usize {
         match self.index {
             Some(index) => (self.list.len() - index).saturating_sub(1),
             None => self.list.len(),
         }
     }
 
-    pub(crate) const fn history_len(&self) -> usize {
+    pub const fn history_len(&self) -> usize {
         match self.index {
             Some(index) => index,
             None => 0,
         }
     }
 
-    pub(crate) const fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
 
-    pub(crate) fn get(&self, index: usize) -> Option<TrackId> {
+    pub fn get(&self, index: usize) -> Option<TrackId> {
         self.list.get(index).copied()
     }
 
-    pub(crate) const fn index(&self) -> Option<usize> {
+    pub const fn index(&self) -> Option<usize> {
         self.index
     }
 
-    pub(crate) fn set_index(&mut self, index: usize) -> Option<TrackId> {
+    pub fn set_index(&mut self, index: usize) -> Option<TrackId> {
         match self.list.get(index).copied() {
             Some(id) => {
                 self.index = Some(index);
@@ -57,36 +55,36 @@ impl PlayQueue {
         }
     }
 
-    pub(crate) fn current(&self) -> Option<(TrackId, usize)> {
+    pub fn current(&self) -> Option<(TrackId, usize)> {
         self.index
             .and_then(|i| self.list.get(i).copied().map(|id| (id, i)))
     }
 
-    pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = (TrackId, usize)> {
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (TrackId, usize)> {
         self.list.iter().enumerate().map(|(i, id)| (*id, i))
     }
 
-    pub(crate) fn enqueue(&mut self, id: TrackId) -> &mut Self {
+    pub fn add(&mut self, id: TrackId) -> &mut Self {
         self.list.push(id);
         self
     }
 
-    pub(crate) fn enqueue_next(&mut self, id: TrackId) -> &mut Self {
+    pub fn add_next(&mut self, id: TrackId) -> &mut Self {
         let insert_index = self.index.map(|i| i + 1).unwrap_or_default();
         self.list.insert(insert_index, id);
         self
     }
 
-    pub(crate) fn extend(&mut self, ids: impl IntoIterator<Item = TrackId>) -> &mut Self {
+    pub fn extend(&mut self, ids: impl IntoIterator<Item = TrackId>) -> &mut Self {
         self.list.extend(ids);
         self
     }
 
-    pub(crate) fn current_or_next(&mut self) -> Option<(TrackId, usize)> {
+    pub fn current_or_next(&mut self) -> Option<(TrackId, usize)> {
         self.current().or_else(|| self.next())
     }
 
-    pub(crate) fn next(&mut self) -> Option<(TrackId, usize)> {
+    pub fn next(&mut self) -> Option<(TrackId, usize)> {
         match self.index {
             Some(cur_idx) => {
                 let max_idx = self.len().saturating_sub(1);
@@ -109,7 +107,7 @@ impl PlayQueue {
         }
     }
 
-    pub(crate) fn previous(&mut self) -> Option<(TrackId, usize)> {
+    pub fn previous(&mut self) -> Option<(TrackId, usize)> {
         match self.index {
             Some(cur_idx) => {
                 let new_idx = cur_idx.saturating_sub(1);
@@ -124,7 +122,7 @@ impl PlayQueue {
         }
     }
 
-    pub(crate) fn shuffle(&mut self, start: usize) -> bool {
+    pub fn shuffle(&mut self, start: usize) -> bool {
         let end = self.list.len();
         if start >= end.saturating_sub(1) {
             return false;
@@ -137,7 +135,7 @@ impl PlayQueue {
         true
     }
 
-    pub(crate) fn move_up(&mut self, i: usize) -> bool {
+    pub fn move_up(&mut self, i: usize) -> bool {
         if i == 0 || self.list.len() <= 1 {
             return false;
         }
@@ -155,7 +153,7 @@ impl PlayQueue {
         true
     }
 
-    pub(crate) fn move_up_range(&mut self, start: usize, end: usize) -> bool {
+    pub fn move_up_range(&mut self, start: usize, end: usize) -> bool {
         if start == 0 || self.list.len() <= 1 {
             return false;
         }
@@ -176,7 +174,7 @@ impl PlayQueue {
         true
     }
 
-    pub(crate) fn move_down(&mut self, i: usize) -> bool {
+    pub fn move_down(&mut self, i: usize) -> bool {
         let len = self.list.len();
         if len <= 1 || i + 1 >= len {
             return false;
@@ -195,7 +193,7 @@ impl PlayQueue {
         true
     }
 
-    pub(crate) fn move_down_range(&mut self, start: usize, end: usize) -> bool {
+    pub fn move_down_range(&mut self, start: usize, end: usize) -> bool {
         let len = self.list.len();
         if len <= 1 || end + 1 >= len {
             return false;
@@ -217,7 +215,7 @@ impl PlayQueue {
         true
     }
 
-    pub(crate) fn remove(&mut self, index: usize, keep_current: bool) -> Option<TrackId> {
+    pub fn remove(&mut self, index: usize, keep_current: bool) -> Option<TrackId> {
         if index >= self.len() {
             return None;
         }
@@ -243,7 +241,7 @@ impl PlayQueue {
         Some(id)
     }
 
-    pub(crate) fn remove_range(&mut self, start: usize, end: usize, keep_current: bool) -> bool {
+    pub fn remove_range(&mut self, start: usize, end: usize, keep_current: bool) -> bool {
         let end = end.min(self.list.len().saturating_sub(1));
 
         if start > end {
@@ -292,11 +290,11 @@ impl PlayQueue {
         true
     }
 
-    pub(crate) const fn reset(&mut self) {
+    pub const fn reset(&mut self) {
         self.index = None;
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.list.clear();
         self.index = None;
     }
@@ -312,7 +310,7 @@ mod tests {
         let mut queue = PlayQueue::new();
 
         for i in 0..TRACKS_LEN {
-            queue.enqueue(TrackId(i as u64));
+            queue.add(TrackId(i as i64));
         }
 
         assert_eq!(queue.current(), None);

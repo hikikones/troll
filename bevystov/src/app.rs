@@ -436,6 +436,7 @@ fn input_app(
     logs: Res<Logs>,
     mut jukebox: NonSendMut<Jukebox>,
     database: NonSend<Database>,
+    settings: Res<Settings>,
 ) {
     let key = input.take();
 
@@ -455,13 +456,9 @@ fn input_app(
         }
         KeyCode::Left => {
             if key.ctrl() {
-                jukebox.play_previous(&database);
+                jukebox.play_previous(&database, settings.skip_rating());
             } else if key.alt() {
-                if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
-                    let pos = jukebox.current_track_pos();
-                    let min = Duration::from_secs(2);
-                    let secs = track.duration().mul_f32(0.10).max(min);
-                    jukebox.seek(pos.saturating_sub(secs));
+                if jukebox.seek_backwards() {
                     actions.push(Action::Render);
                 }
             } else {
@@ -470,13 +467,9 @@ fn input_app(
         }
         KeyCode::Right => {
             if key.ctrl() {
-                jukebox.play_next(&database);
+                jukebox.play_next(&database, settings.skip_rating());
             } else if key.alt() {
-                if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
-                    let pos = jukebox.current_track_pos();
-                    let min = Duration::from_secs(1);
-                    let secs = track.duration().mul_f32(0.10).max(min);
-                    jukebox.seek(pos + secs);
+                if jukebox.seek_forwards() {
                     actions.push(Action::Render);
                 }
             } else {
@@ -542,7 +535,6 @@ fn render_app(
     current_page: Res<State<Page>>,
     logs: Res<Logs>,
     jukebox: NonSend<Jukebox>,
-    database: NonSend<Database>,
 ) {
     let area = frame.area();
     let colors = settings.colors();
@@ -578,14 +570,7 @@ fn render_app(
                 app_shortcuts_area,
             ] = bottom.split_lines();
 
-            render_playback(
-                title_area,
-                status_area,
-                &mut frame,
-                colors,
-                &jukebox,
-                &database,
-            );
+            render_playback(title_area, status_area, &mut frame, colors, &jukebox);
 
             render_shortcuts(
                 play_shortcuts_area,
@@ -621,13 +606,12 @@ fn render_playback(
     frame: &mut Framebuffer,
     colors: &Colors,
     jukebox: &Jukebox,
-    database: &Database,
 ) {
     let status_width = status_area.cols().saturating_sub(12) * 80 / 100;
     let progress_ch = '─';
     let highlight_ch = '━';
 
-    let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) else {
+    let Some(track) = jukebox.track() else {
         // Neutral playback status
         frame.push_fmt(Sgr::Fg(colors.neutral));
         frame.push_str("00:00 ");
@@ -646,31 +630,36 @@ fn render_playback(
 
     // Stats
     frame.push_fmt(Sgr::Fg(normal));
-    frame.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
+    frame.push_fmt(format_args!("[{}", track.ext().as_upper_case()));
 
     if let Some(bit_depth) = track.bit_depth()
         && let Some(sample_rate) = track.sample_rate()
     {
-        frame.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
+        frame.push_fmt(format_args!(" {bit_depth}bit/{}kHz", sample_rate / 1000));
     }
 
-    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
+    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate_kbps()));
 
     // Title
-    frame.push_str(track.artist());
-    if !(track.artist().is_empty() || track.title().is_empty()) {
+    let title = track.title();
+    let artists = track.artists();
+
+    frame.push_str(artists);
+    if !(artists.is_empty() || title.is_empty()) {
         frame.push_str(" - ");
     }
-    frame.push_str(track.title());
+    frame.push_str(title);
     frame.render(title_area, TextOptions::span_center_top());
 
     // Playback status
-    let track_pos = jukebox.current_track_pos();
-    frame.push_iter(utils::format_duration_on_stack(track_pos));
+    let track_pos = jukebox.track_pos();
+    let track_dur = track.duration();
+
+    frame.push_fmt(track_pos);
     frame.push_ch(' ');
 
-    let progress = track_pos.as_secs_f32() / track.duration().as_secs_f32();
-    let highlights = (status_width as f32 * progress).ceil() as u16;
+    let progress = track_pos.progress(track_dur);
+    let highlights = (status_width as f32 * progress) as u16;
     let remaining = status_width.saturating_sub(highlights);
     frame.push_fmt(Sgr::Fg(primary));
     frame.push_ch_repeat(highlight_ch, highlights);
@@ -678,7 +667,7 @@ fn render_playback(
     frame.push_ch_repeat(progress_ch, remaining);
 
     frame.push_ch(' ');
-    frame.push_iter(utils::format_duration_on_stack(track.duration()));
+    frame.push_fmt(track_dur);
 
     frame.push_fmt(Sgr::reset_fg());
     frame.render(status_area, TextOptions::span_center_top());
@@ -751,19 +740,15 @@ fn update_app(
     media_controls: Option<NonSend<MediaControls>>,
     mut logs: ResMut<Logs>,
     mut actions: ResMut<Actions>,
+    settings: Res<Settings>,
 ) {
     let mut render = false;
 
-    database.update(|event| {
+    database.update(jukebox.track_id(), |event| {
         render = true;
 
         match event {
-            DatabaseEvent::FinishedLoading => {
-                // TODO?
-            }
-            DatabaseEvent::Rating(_id) => {
-                // TODO?
-            }
+            DatabaseEvent::FinishedLoading => {}
             DatabaseEvent::Error(err) => {
                 logs.push_err(err);
             }
@@ -776,26 +761,24 @@ fn update_app(
             MprisCommand::Pause => jukebox.pause(),
             MprisCommand::PlayPause => jukebox.pause_or_play(),
             MprisCommand::Stop => jukebox.stop(),
-            MprisCommand::Next => jukebox.play_next(&database),
-            MprisCommand::Previous => jukebox.play_previous(&database),
+            MprisCommand::Next => jukebox.play_next(&database, settings.skip_rating()),
+            MprisCommand::Previous => jukebox.play_previous(&database, settings.skip_rating()),
         }
     }
 
-    jukebox.update(&database, |event| {
+    jukebox.update(&database, settings.skip_rating(), |jb, event| {
         render = true;
 
         match event {
             JukeboxEvent::Play(id) => {
                 if let Some(mc) = media_controls.as_ref() {
-                    match id.and_then(|id| database.get(id).map(|t| (id, t))) {
-                        Some((id, track)) => {
-                            let metadata = MprisMetadata::new(id, track);
-                            mc.send(MprisEvent::Both(MprisStatus::Playing, Some(metadata)));
-                        }
-                        None => {
-                            mc.send(MprisEvent::Status(MprisStatus::Playing));
-                        }
-                    }
+                    let mpris_event = id
+                        .and_then(|_| jb.track())
+                        .map(|track| {
+                            MprisEvent::Both(MprisStatus::Playing, Some(MprisMetadata::new(track)))
+                        })
+                        .unwrap_or(MprisEvent::Status(MprisStatus::Playing));
+                    mc.send(mpris_event);
                 }
             }
             JukeboxEvent::Pause => {
@@ -809,7 +792,7 @@ fn update_app(
                 }
             }
             JukeboxEvent::Error(err) => {
-                logs.push_str(err);
+                logs.push_err(err);
             }
         }
     });

@@ -6,9 +6,9 @@ use std::{
 use ecs::Resource;
 use serde::{Deserialize, Serialize};
 use terminal::Color;
-use widgets2::{ListColors, PromptColors, ScrollbarColors};
+use widgets2::{PromptColors, ScrollbarColors, list2::ListColors};
 
-use crate::database::AudioRating;
+use crate::database::TrackRating;
 
 // TODO: Add show_scrollbars to config.
 
@@ -42,9 +42,8 @@ impl Settings {
     }
 
     pub const fn set_config(&mut self, config: &Config) {
-        self.config.general.skip_tracks_with_rating = config.general.skip_tracks_with_rating;
-        self.config.general.keep_selected_track_on_sort =
-            config.general.keep_selected_track_on_sort;
+        self.config.general.skip_rating = config.general.skip_rating;
+        self.config.general.keep_selected = config.general.keep_selected;
         self.config.general.search_by_path = config.general.search_by_path;
         self.config.colors.primary = config.colors.primary;
         self.config.colors.secondary = config.colors.secondary;
@@ -57,6 +56,18 @@ impl Settings {
 
     pub const fn general_mut(&mut self) -> &mut General {
         &mut self.config.general
+    }
+
+    pub const fn skip_rating(&self) -> TrackRating {
+        self.config.general.skip_rating
+    }
+
+    pub const fn keep_selected(&self) -> bool {
+        self.config.general.keep_selected
+    }
+
+    pub const fn search_by_path(&self) -> bool {
+        self.config.general.search_by_path
     }
 
     pub const fn colors(&self) -> &Colors {
@@ -126,8 +137,8 @@ impl Config {
 
     pub fn hash(&self) -> u64 {
         utils::hasher_fast(|hasher| {
-            hasher.write_u8(self.general.skip_tracks_with_rating as u8);
-            hasher.write_u8(self.general.keep_selected_track_on_sort as u8);
+            hasher.write_u8(self.general.skip_rating as u8);
+            hasher.write_u8(self.general.keep_selected as u8);
             hasher.write_u8(self.general.search_by_path as u8);
             self.colors.primary.hash(hasher);
             self.colors.secondary.hash(hasher);
@@ -138,16 +149,19 @@ impl Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
-    pub skip_tracks_with_rating: AudioRating,
-    pub keep_selected_track_on_sort: bool,
+    #[serde(rename = "skip_tracks_with_rating")]
+    pub skip_rating: TrackRating,
+    #[serde(rename = "keep_selected_track_on_sort")]
+    pub keep_selected: bool,
+    #[serde(rename = "search_by_path")]
     pub search_by_path: bool,
 }
 
 impl Default for General {
     fn default() -> Self {
         Self {
-            skip_tracks_with_rating: AudioRating::None,
-            keep_selected_track_on_sort: false,
+            skip_rating: TrackRating::None,
+            keep_selected: false,
             search_by_path: false,
         }
     }
