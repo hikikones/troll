@@ -19,7 +19,33 @@ use writer::*;
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
+pub type TextRange = std::range::Range<usize>;
+
+#[derive(Debug, Clone)]
+pub struct Track2 {
+    pub title: TextRange,
+    pub duration: TrackDuration,
+    pub rating: TrackRating,
+    pub bit_rate_kbps: u32,
+    pub bit_depth: Option<u8>,
+    pub sample_rate: Option<u32>,
+    pub path: TextRange,
+    pub album_id: AlbumId,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TrackId2(u32);
+
+impl TrackId2 {
+    const fn idx(self) -> usize {
+        self.0 as usize
+    }
+}
+
 pub struct Database {
+    text: String,
+    tracks: Vec<Track2>,
+    tracks_sorted: Vec<TrackId2>,
     sqlite: Sqlite,
     sql: String,
     sort: TrackSort,
@@ -36,6 +62,9 @@ pub enum DatabaseEvent {
 impl Database {
     fn new(sqlite: Sqlite) -> Self {
         Self {
+            text: String::new(),
+            tracks: Vec::new(),
+            tracks_sorted: Vec::new(),
             sqlite,
             sql: String::new(),
             sort: TrackSort::default(),
@@ -89,12 +118,42 @@ impl Database {
         self.reverse_sort
     }
 
-    pub const fn next_sort(&mut self) {
+    pub fn next_sort(&mut self) {
         self.sort = self.sort.next();
+
+        self.tracks_sorted.sort_unstable_by_key(|id| {
+            (
+                {
+                    let track = &self.tracks[id.idx()];
+                    let title = &self.text[track.title];
+                    title
+                },
+                id.0,
+            )
+        });
+
+        if self.reverse_sort {
+            self.tracks.reverse();
+        }
     }
 
-    pub const fn toggle_reverse_sort(&mut self) {
+    pub fn toggle_reverse_sort(&mut self) {
         self.reverse_sort = !self.reverse_sort;
+        self.tracks_sorted.reverse();
+    }
+
+    pub fn slice(&self, range: TextRange) -> &str {
+        &self.text[range]
+    }
+
+    pub fn tracks_iter2(&self) -> impl Iterator<Item = &Track2> {
+        self.tracks_sorted.iter().map(|i| &self.tracks[i.idx()])
+    }
+
+    pub fn tracks_range2(&self, range: TextRange) -> impl Iterator<Item = &Track2> {
+        self.tracks_sorted[range]
+            .iter()
+            .map(|i| &self.tracks[i.idx()])
     }
 
     pub fn is_tracks_empty(&self) -> bool {
