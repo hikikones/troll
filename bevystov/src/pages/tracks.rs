@@ -4,7 +4,7 @@ use widgets2::{Block, list2::List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::{Database, TrackId, TrackRating, TrackSort, TrackTable},
+    database::{Database, TrackId, TrackRating, TrackSort},
     jukebox::Jukebox,
     pages::Page,
     settings::{Colors, Settings},
@@ -281,17 +281,7 @@ fn render_table(
     let current_track = jukebox.track_id();
     let mut row = table_area.pos.row;
 
-    database.tracks_table(lines, |track| {
-        let TrackTable {
-            index,
-            id,
-            title,
-            artists,
-            album,
-            rating,
-            duration,
-        } = track;
-
+    for (index, track) in lines.zip(database.tracks_iter2().skip(list.scroll())) {
         let mut style = if index == selected {
             frame.fill(line.with_row(row), colors.primary, true);
             Style::fg(colors.primary).with_reverse()
@@ -302,27 +292,28 @@ fn render_table(
             Style::fg(colors.normal)
         };
 
-        if current_track == Some(id) {
-            style.insert(Attributes::BOLD);
-        }
+        // TODO
+        // if current_track == Some(id) {
+        //     style.insert(Attributes::BOLD);
+        // }
 
-        if jukebox.is_faulty(id) {
-            style.insert(Attributes::CROSSED_OUT);
-        }
+        // if jukebox.is_faulty(id) {
+        //     style.insert(Attributes::CROSSED_OUT);
+        // }
 
         areas.set_row(row);
         frame.print_fmt(style);
 
-        frame.print_span(areas.title(), title);
-        frame.print_span(areas.artist(), artists);
-        frame.print_span(areas.album(), album);
-        frame.push_fmt(duration);
+        frame.print_span(areas.title(), database.slice(track.title));
+        // frame.print_span(areas.artist(), artists);
+        // frame.print_span(areas.album(), album);
+        frame.push_fmt(track.duration);
         frame.render(areas.time(), TextOptions::span());
-        frame.print_span(areas.rating(), rating.stars());
+        frame.print_span(areas.rating(), track.rating.stars());
 
         frame.print_fmt(Sgr::Reset);
         row += 1;
-    });
+    }
 }
 
 fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {

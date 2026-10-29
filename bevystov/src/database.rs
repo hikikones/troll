@@ -1,6 +1,6 @@
 use std::{
+    collections::HashMap,
     hash::Hasher,
-    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -22,7 +22,7 @@ pub type DatabaseResult<T> = Result<T, DatabaseError>;
 pub type TextRange = std::range::Range<usize>;
 
 #[derive(Debug, Clone)]
-pub struct Track2 {
+pub struct Track {
     pub title: TextRange,
     pub duration: TrackDuration,
     pub rating: TrackRating,
@@ -33,21 +33,35 @@ pub struct Track2 {
     pub album_id: AlbumId,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TrackId2(u32);
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TrackId(pub u32);
 
-impl TrackId2 {
+impl TrackId {
+    const fn from_idx(i: usize) -> Self {
+        Self(i as u32)
+    }
+
     const fn idx(self) -> usize {
         self.0 as usize
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Artist {
+    pub name: TextRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct Album {
+    pub name: TextRange,
+}
+
 pub struct Database {
     text: String,
-    tracks: Vec<Track2>,
-    tracks_sorted: Vec<TrackId2>,
-    sqlite: Sqlite,
-    sql: String,
+    tracks: Vec<Track>,
+    tracks_sorted: Vec<TrackId>,
+    artists: HashMap<ArtistId, Artist>,
+    albums: HashMap<AlbumId, Album>,
     sort: TrackSort,
     reverse_sort: bool,
     scanner: Option<Scanner>,
@@ -60,54 +74,24 @@ pub enum DatabaseEvent {
 }
 
 impl Database {
-    fn new(sqlite: Sqlite) -> Self {
+    pub fn new(music_dir: PathBuf) -> Self {
         Self {
             text: String::new(),
             tracks: Vec::new(),
             tracks_sorted: Vec::new(),
-            sqlite,
-            sql: String::new(),
-            sort: TrackSort::default(),
+            artists: HashMap::new(),
+            albums: HashMap::new(),
+            sort: TrackSort::Title, // TODO
             reverse_sort: false,
-            scanner: None,
+            scanner: Some(Scanner::new(music_dir)),
             writer: RatingsWriter::new(),
         }
-    }
-
-    pub fn open(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
-        let sqlite = if in_memory {
-            Sqlite::open_in_memory().map_err(|err| DatabaseError {
-                message: String::from("Failed to open database in-memory"),
-                source: Some(DatabaseErrorSource::Sqlite(err)),
-            })
-        } else {
-            let path =
-                std::env::temp_dir().join(shared::symbols::concat!(crate::APP_NAME, ".db.tmp"));
-            let _ = std::fs::File::create(&path);
-            Sqlite::open(&path).map_err(|err| DatabaseError {
-                message: format!("Failed to open database at '{}'", path.display()),
-                source: Some(DatabaseErrorSource::Sqlite(err)),
-            })
-        }?;
-
-        let mut db = Self::new(sqlite);
-        db.migrate(music_dir)?;
-
-        Ok(db)
     }
 
     pub fn load(&mut self) {
         if let Some(scanner) = self.scanner.as_mut() {
             scanner.start();
         }
-    }
-
-    pub fn path(&self) -> Option<&Path> {
-        self.sqlite.path().map(Path::new)
-    }
-
-    pub const fn has_finished_loading(&self) -> bool {
-        self.scanner.is_none()
     }
 
     pub const fn get_sort(&self) -> TrackSort {
@@ -119,7 +103,7 @@ impl Database {
     }
 
     pub fn next_sort(&mut self) {
-        self.sort = self.sort.next();
+        // self.sort = self.sort.next();
 
         self.tracks_sorted.sort_unstable_by_key(|id| {
             (
@@ -146,269 +130,67 @@ impl Database {
         &self.text[range]
     }
 
-    pub fn tracks_iter2(&self) -> impl Iterator<Item = &Track2> {
+    pub fn track(&self, id: TrackId) -> &Track {
+        &self.tracks[id.idx()]
+    }
+
+    pub fn track_id(&self, index: usize) -> TrackId {
+        self.tracks_sorted[index]
+    }
+
+    pub fn track_index(&self, id: TrackId) -> usize {
+        self.tracks_sorted
+            .iter()
+            .enumerate()
+            .find(|(_, tid)| id == **tid)
+            .map(|(i, _)| i)
+            .unwrap()
+    }
+
+    pub fn random_track_id(&self) -> TrackId {
+        // TODO
+        TrackId(fastrand::u32(0..self.tracks.len() as u32))
+    }
+
+    pub fn track_path(&self, id: TrackId) -> &Path {
+        Path::new(self.slice(self.track(id).path))
+    }
+
+    pub fn tracks_iter2(&self) -> impl Iterator<Item = &Track> {
         self.tracks_sorted.iter().map(|i| &self.tracks[i.idx()])
     }
 
-    pub fn tracks_range2(&self, range: TextRange) -> impl Iterator<Item = &Track2> {
+    pub fn tracks_range2(&self, range: TextRange) -> impl Iterator<Item = &Track> {
         self.tracks_sorted[range]
             .iter()
             .map(|i| &self.tracks[i.idx()])
     }
 
-    pub fn is_tracks_empty(&self) -> bool {
-        self.sqlite
-            .single("SELECT NOT EXISTS (SELECT 1 FROM tracks)", (), |row| {
-                row.get(0)
-            })
-            .unwrap()
+    pub const fn is_tracks_empty(&self) -> bool {
+        self.tracks.is_empty()
     }
 
-    pub fn tracks_len(&self) -> usize {
-        self.sqlite
-            .single::<SqliteId>("SELECT COUNT(*) FROM tracks", (), |row| row.get(0))
-            .map(|len| len as usize)
-            .unwrap()
-    }
-
-    pub fn track_id(&mut self, index: usize) -> TrackId {
-        let query = self.sorted_tracks_query();
-        self.sql
-            .write(format_args!("{query} LIMIT 1 OFFSET {index}"));
-
-        let id = self
-            .sqlite
-            .single(&self.sql, (), |row| query.id(row))
-            .unwrap();
-        self.sql.clear();
-        id
-    }
-
-    pub fn track_index(&mut self, id: TrackId) -> usize {
-        let query = self.sorted_tracks_query();
-        self.sql.write(format_args!(
-            "SELECT row_num FROM ({query}) WHERE id = {}",
-            id.0
-        ));
-
-        let index = self
-            .sqlite
-            .single(&self.sql, (), |row| query.index(row))
-            .unwrap();
-        self.sql.clear();
-        index
-    }
-
-    pub fn track_title(&self, id: TrackId, mut f: impl FnMut(&str)) {
-        self.sqlite
-            .single("SELECT title FROM tracks WHERE id = ?", [id], |row| {
-                Ok(f(row.get_ref(0)?.as_str()?))
-            })
-            .unwrap();
-    }
-
-    pub fn track_rating(&self, id: TrackId) -> TrackRating {
-        self.sqlite
-            .single("SELECT rating FROM tracks WHERE id = ?", [id], |row| {
-                row.get(0)
-            })
-            .unwrap()
-    }
-
-    pub fn track_path(&self, id: TrackId) -> PathBuf {
-        self.sqlite
-            .single("SELECT path FROM tracks WHERE id = ?", [id], |row| {
-                Ok(PathBuf::from(row.get_ref(0)?.as_str()?))
-            })
-            .unwrap()
-    }
-
-    pub fn track_info(&self, id: TrackId, mut f: impl FnMut(TrackInfo)) {
-        self.sqlite
-            .single(
-                "SELECT \
-            title, rating, duration, bit_rate_kbps, bit_depth, sample_rate, path, album_id \
-            FROM tracks WHERE id = ?",
-                [id],
-                |row| {
-                    Ok(f(TrackInfo {
-                        title: row.get_ref(0)?.as_str()?,
-                        rating: row.get(1)?,
-                        duration: row.get(2)?,
-                        bit_rate_kbps: row.get(3)?,
-                        bit_depth: row.get(4)?,
-                        sample_rate: row.get(5)?,
-                        path: Path::new(row.get_ref(6)?.as_str()?),
-                        album_id: row.get(7)?,
-                    }))
-                },
-            )
-            .unwrap();
-    }
-
-    pub fn track_text(&self, id: TrackId, mut f: impl FnMut(TrackText)) {
-        self.sqlite
-            .single(
-                "SELECT t.title, GROUP_CONCAT(ar.name, ', '), al.name \
-                FROM tracks t \
-                JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
-                JOIN artists ar ON ar.id = ar_t.artist_id \
-                JOIN albums al ON al.id = t.album_id \
-                WHERE t.id = ? \
-                GROUP BY t.id",
-                [id],
-                |row| {
-                    Ok(f(TrackText {
-                        title: row.get_ref(0)?.as_str()?,
-                        artists: row.get_ref(1)?.as_str()?,
-                        album: row.get_ref(2)?.as_str()?,
-                    }))
-                },
-            )
-            .unwrap();
-    }
-
-    pub fn track_artists(&self, id: TrackId, mut f: impl FnMut(&str)) {
-        self.sqlite
-            .for_each(
-                "SELECT ar.name FROM artists ar \
-                JOIN artist_tracks ar_t ON ar_t.artist_id = ar.id \
-                WHERE ar_t.track_id = ?",
-                [id],
-                |row| Ok(f(row.get_ref(0)?.as_str()?)),
-            )
-            .unwrap();
-    }
-
-    pub fn tracks_range(&self, range: Range<usize>) -> impl Iterator<Item = TrackId> {
-        let (start, end) = (range.start as SqliteId, range.end as SqliteId);
-        self.sqlite
-            .iter(
-                "SELECT id FROM tracks LIMIT ?1 OFFSET ?2",
-                [end - start, start],
-                |row| row.get(0),
-            )
-            .unwrap()
-            .map(Result::unwrap)
-    }
-
-    pub fn tracks_table(&mut self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
-        let offset = range.start;
-        let limit = range.end - offset;
-        let query = self.sorted_tracks_query();
-
-        self.sql
-            .write(format_args!("{query} LIMIT {limit} OFFSET {offset}"));
-        self.sqlite
-            .for_each(&self.sql, (), |row| Ok(f(query.table(row)?)))
-            .unwrap();
-
-        self.sql.clear();
-    }
-
-    pub fn album_name(&self, id: AlbumId, mut f: impl FnMut(&str)) {
-        self.sqlite
-            .single("SELECT name FROM albums WHERE id = ?", [id], |row| {
-                Ok(f(row.get_ref(0)?.as_str()?))
-            })
-            .unwrap();
-    }
-
-    pub fn album_tracks(&self, id: AlbumId) -> impl Iterator<Item = TrackId> {
-        self.sqlite
-            .iter("SELECT id FROM tracks WHERE album_id = ?", [id], |row| {
-                row.get(0)
-            })
-            .unwrap()
-            .map(Result::unwrap)
-    }
-
-    pub fn search(
-        &mut self,
-        input: &str,
-        include_path: bool,
-        mut f: impl FnMut(TrackId),
-    ) -> SqliteResult<()> {
-        let param = if !include_path {
-            self.sql.extend(["-path:", input]);
-            self.sql.as_str()
-        } else {
-            input
-        };
-
-        let res = self.sqlite.for_each(
-            "SELECT rowid FROM track_fts \
-                WHERE track_fts MATCH ? \
-                ORDER BY rank",
-            [param],
-            |row| Ok(f(row.get(0)?)),
-        );
-        self.sql.clear();
-        res
-    }
-
-    pub fn search_highlight(
-        &mut self,
-        id: TrackId,
-        input: &str,
-        markup_start: impl std::fmt::Display,
-        markup_end: impl std::fmt::Display,
-        f: impl FnOnce(&str),
-    ) -> SqliteResult<()> {
-        self.sql.write(format_args!(
-            "SELECT
-                rowid, \
-                highlight(track_fts, 0, '{markup_start}', '{markup_end}') || ' ' || \
-                highlight(track_fts, 1, '{markup_start}', '{markup_end}') || ' ' || \
-                highlight(track_fts, 2, '{markup_start}', '{markup_end}') \
-            FROM track_fts \
-            WHERE rowid = ?1 AND track_fts MATCH ?2",
-        ));
-
-        let res = self.sqlite.single(&self.sql, (id, input), |row| {
-            Ok(f(row.get_ref(1)?.as_str()?))
-        });
-        self.sql.clear();
-        res
-    }
-
-    pub fn random_track_id(&self) -> TrackId {
-        self.sqlite
-            .single(
-                "SELECT id FROM tracks ORDER BY RANDOM() LIMIT 1",
-                (),
-                |row| row.get(0),
-            )
-            .unwrap()
-    }
-
-    pub fn random_track_id_except(&self, id: TrackId) -> Option<TrackId> {
-        self.sqlite
-            .first(
-                "SELECT id FROM tracks WHERE id != ? ORDER BY RANDOM() LIMIT 1",
-                [id],
-                |row| row.get(0),
-            )
-            .unwrap()
+    pub const fn tracks_len(&self) -> usize {
+        self.tracks.len()
     }
 
     pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) -> bool {
-        let current_rating = self.track_rating(id);
+        let track = self.track(id);
 
-        if current_rating == rating {
+        if track.rating == rating {
             return false;
         }
 
-        let path = self.track_path(id);
         self.writer.push(WriteRequest {
             id,
-            old_rating: current_rating,
+            old_rating: track.rating,
             new_rating: rating,
-            path,
+            path: PathBuf::from(&self.text[track.path]),
         });
 
         // Update new rating immediately
-        self.set_track_rating(id, rating);
+        // TODO
+        // self.set_track_rating(id, rating);
 
         true
     }
@@ -423,14 +205,16 @@ impl Database {
     }
 
     fn receive_files(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
-        let Some(scanner) = self.scanner.as_ref() else {
+        let Some(scanner) = self.scanner.take() else {
             return;
         };
+
+        let mut is_done = false;
 
         while let Some(event) = scanner.recv() {
             match event {
                 ScanEvent::Track(track) => {
-                    let _ = self.sqlite.transaction(|tx| Ok(Self::add_track(tx, track)));
+                    self.add_track(track);
                 }
                 ScanEvent::Error(path, err) => {
                     on_event(DatabaseEvent::Error(DatabaseError {
@@ -440,18 +224,19 @@ impl Database {
                 }
                 ScanEvent::Done => {
                     // TODO: remove
-                    let _ = self.sqlite.transaction(|tx| {
-                        for track in ScannedTrack::test() {
-                            Self::add_track(tx, track);
-                        }
-                        Ok(())
-                    });
+                    for track in ScannedTrack::test() {
+                        self.add_track(track);
+                    }
 
-                    self.scanner = None;
                     on_event(DatabaseEvent::FinishedLoading);
+                    is_done = true;
                     break;
                 }
             }
+        }
+
+        if !is_done {
+            self.scanner = Some(scanner);
         }
     }
 
@@ -468,7 +253,8 @@ impl Database {
         })) = self.writer.poll(current_track_id)
         {
             // Restore old rating
-            self.set_track_rating(id, old_rating);
+            // TODO
+            // self.set_track_rating(id, old_rating);
 
             // Notify
             on_event(DatabaseEvent::Error(DatabaseError {
@@ -478,231 +264,58 @@ impl Database {
         }
     }
 
-    fn set_track_rating(&self, id: TrackId, rating: TrackRating) {
-        self.sqlite
-            .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
-            .unwrap();
-    }
-
-    fn add_track(tx: &Transaction, track: ScannedTrack) {
+    fn add_track(&mut self, track: ScannedTrack) {
         // Album
-        let album_id = utils::hasher_fast(|hasher| {
-            hasher.write(track.album().as_bytes());
-            hasher.write(track.album_artist().as_bytes());
-            hasher.write(track.date().as_bytes());
-        }) as SqliteId;
-        tx.execute(
-            "INSERT INTO albums (id, name) VALUES (?1, ?2) ON CONFLICT(id) DO NOTHING",
-            (album_id, track.album()),
-        )
-        .unwrap();
+        let album_id = {
+            let id = utils::hasher_fast(|hasher| {
+                hasher.write(track.album().as_bytes());
+                hasher.write(track.album_artist().as_bytes());
+                hasher.write(track.date().as_bytes());
+            });
+            AlbumId(id)
+        };
 
-        // Track
-        tx.execute(
-            "INSERT INTO tracks \
-            (title, number, rating, duration, bit_rate_kbps, bit_depth, sample_rate, path, album_id) \
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            (
-                track.title(),
-                track.number(),
-                track.rating(),
-                track.duration(),
-                track.bit_rate_kbps(),
-                track.bit_depth(),
-                track.sample_rate(),
-                track.path(),
-                album_id,
-            ),
-        )
-        .unwrap();
-        let track_id = tx.last_insert_rowid();
+        if !self.albums.contains_key(&album_id) {
+            let range = self.text.push_str_get_range_new(track.album());
+            self.albums.insert(album_id, Album { name: range });
+        }
+
+        let track_id = TrackId::from_idx(self.tracks.len());
+        self.tracks.push(Track {
+            title: self.text.push_str_get_range_new(track.title()),
+            duration: track.duration(),
+            rating: track.rating(),
+            bit_rate_kbps: track.bit_rate_kbps(),
+            bit_depth: track.bit_depth(),
+            sample_rate: track.sample_rate(),
+            path: self.text.push_str_get_range_new(track.path()),
+            album_id,
+        });
+        self.tracks_sorted.push(track_id);
 
         // Artists
         for artist in track.artists() {
-            let rows_changed = tx
-                .execute(
-                    "INSERT INTO artists (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
-                    [artist],
-                )
-                .unwrap();
-            let artist_id: SqliteId = if rows_changed > 0 {
-                tx.last_insert_rowid()
-            } else {
-                tx.query_row("SELECT id FROM artists WHERE name = ?1", [artist], |row| {
-                    row.get(0)
-                })
-                .unwrap()
-            };
-            tx.execute("INSERT INTO artist_tracks (artist_id, track_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (artist_id, track_id)).unwrap();
-        }
-
-        tx.execute(
-            "INSERT INTO track_fts (rowid, title, artist, album, path)
-        SELECT
-            t.id,
-            t.title,
-            COALESCE((
-                SELECT group_concat(ar.name, ' ')
-                FROM artist_tracks ar_t
-                JOIN artists ar ON ar.id = ar_t.artist_id
-                WHERE ar_t.track_id = t.id
-            ), ''),
-            al.name,
-            t.path
-        FROM tracks t
-        JOIN albums al ON al.id = t.album_id
-        WHERE t.id = ?1",
-            [track_id],
-        )
-        .unwrap();
-    }
-
-    fn migrate(&mut self, music_dir: PathBuf) -> DatabaseResult<()> {
-        const VERSION: SqliteId = 1;
-
-        let version = self.sqlite.version();
-        let rescan = match version {
-            0 => {
-                self.sqlite
-                    .execute_batch(include_str!("database/schema.sql"))
-                    .map_err(|err| DatabaseError {
-                        message: String::from("Failed to execute schema"),
-                        source: Some(DatabaseErrorSource::Sqlite(err)),
-                    })?;
-                // TODO: Add dir metadata.
-                true
+            let artist_id = ArtistId(utils::hash_fast(artist));
+            if !self.artists.contains_key(&artist_id) {
+                let range = self.text.push_str_get_range_new(artist);
+                self.artists.insert(artist_id, Artist { name: range });
             }
-            VERSION => {
-                // TODO: Compare dir metadata -> either keep or rescan.
-                false
-            }
-            _ => {
-                // TODO: Either delete or purge current db. Rescan.
-                true
-            }
-        };
-
-        if rescan {
-            self.scanner = Some(Scanner::new(music_dir));
-            self.sqlite.set_version(VERSION);
         }
-
-        Ok(())
-    }
-
-    const fn sorted_tracks_query(&self) -> SortedTracksQuery {
-        SortedTracksQuery {
-            sort: self.sort,
-            reverse_sort: self.reverse_sort,
-            case_sensitive: false,
-        }
-    }
-}
-
-struct SortedTracksQuery {
-    sort: TrackSort,
-    reverse_sort: bool,
-    case_sensitive: bool,
-}
-
-impl SortedTracksQuery {
-    fn index(self, row: &Row) -> SqliteResult<usize> {
-        Ok(row.get::<_, SqliteId>(0)? as usize)
-    }
-
-    fn id(self, row: &Row) -> SqliteResult<TrackId> {
-        row.get(1)
-    }
-
-    fn table<'a>(&self, row: &'a Row) -> SqliteResult<TrackTable<'a>> {
-        Ok(TrackTable {
-            index: row.get::<_, SqliteId>(0)? as usize,
-            id: row.get(1)?,
-            title: row.get_ref(2)?.as_str()?,
-            artists: row.get_ref(3)?.as_str()?,
-            album: row.get_ref(4)?.as_str()?,
-            duration: row.get(5)?,
-            rating: row.get(6)?,
-        })
-    }
-}
-
-impl std::fmt::Display for SortedTracksQuery {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let order = if self.reverse_sort { "DESC" } else { "ASC" };
-        let case = if self.case_sensitive {
-            ""
-        } else {
-            "COLLATE NOCASE"
-        };
-
-        let sort_by = match self.sort {
-            TrackSort::Title => format_args!("t.title {case} {order}, t.id {order}"),
-            TrackSort::Artist => format_args!("ar.name {case} {order}, t.id {order}"),
-            TrackSort::Album => format_args!(
-                "al.name {case} {order}, t.album_id {order}, t.number {order}, t.id {order}"
-            ),
-            TrackSort::Time => format_args!("t.duration {case} {order}, t.id {order}"),
-            TrackSort::Rating => format_args!("t.rating {case} {order}, t.id {order}"),
-        };
-
-        f.write_fmt(format_args!(
-            "SELECT
-                ROW_NUMBER() OVER (ORDER BY {sort_by}) - 1 AS row_num,
-                t.id,
-                t.title,
-                GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name {case} {order}) AS artists,
-                al.name AS album,
-                t.duration,
-                t.rating,
-                t.album_id,
-                t.number
-            FROM tracks t
-            JOIN artist_tracks ar_t ON ar_t.track_id = t.id
-            JOIN artists ar ON ar.id = ar_t.artist_id
-            JOIN albums al ON al.id = t.album_id
-            GROUP BY t.id
-            ORDER BY {sort_by}"
-        ))
     }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ArtistId(pub SqliteId);
+pub struct ArtistId(pub u64);
 
 impl ArtistId {
     pub const ZERO: Self = Self(0);
 }
 
-impl ToSql for ArtistId {
-    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
-    }
-}
-
-impl FromSql for ArtistId {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
-    }
-}
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AlbumId(pub SqliteId);
+pub struct AlbumId(pub u64);
 
 impl AlbumId {
     pub const ZERO: Self = Self(0);
-}
-
-impl ToSql for AlbumId {
-    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
-    }
-}
-
-impl FromSql for AlbumId {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
-    }
 }
 
 #[derive(Debug)]

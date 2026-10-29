@@ -31,7 +31,7 @@ fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let terminal = Terminal::stdout();
 
     let jukebox = Jukebox::new()?;
-    let database = Database::open(args.dir, args.in_memory)?;
+    let database = Database::new(args.dir);
 
     let mut settings = read_settings(args.settings)?;
     settings.colors_mut().background =
@@ -66,11 +66,6 @@ struct Args {
     /// with media keys and your operating system.
     #[clap(long, action)]
     media_controls: bool,
-
-    /// Store database in-memory. By default,
-    /// it will be stored in a temporary directory.
-    #[clap(long, action)]
-    in_memory: bool,
 }
 
 const CLAP_STYLING: clap::builder::styling::Styles = clap::builder::styling::Styles::styled()

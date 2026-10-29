@@ -48,28 +48,29 @@ impl Metadata {
         self.text.clear();
         self.path.clear();
 
-        db.track_info(id, |info| {
-            self.path.push(info.path);
-            self.ext = AudioExt::from_path(info.path).unwrap_or_default();
-            self.rating = info.rating;
-            self.duration = info.duration;
-            self.bit_rate_kbps = info.bit_rate_kbps;
-            self.bit_depth = info.bit_depth;
-            self.sample_rate = info.sample_rate;
-            self.title = self.text.push_str_get_range(info.title);
+        // TODO
+        // db.track_info(id, |info| {
+        //     self.path.push(info.path);
+        //     self.ext = AudioExt::from_path(info.path).unwrap_or_default();
+        //     self.rating = info.rating;
+        //     self.duration = info.duration;
+        //     self.bit_rate_kbps = info.bit_rate_kbps;
+        //     self.bit_depth = info.bit_depth;
+        //     self.sample_rate = info.sample_rate;
+        //     self.title = self.text.push_str_get_range(info.title);
 
-            db.album_name(info.album_id, |album| {
-                self.album = self.text.push_str_get_range(album)
-            });
-        });
+        //     db.album_name(info.album_id, |album| {
+        //         self.album = self.text.push_str_get_range(album)
+        //     });
+        // });
 
-        let start = self.text.len();
-        db.track_artists(id, |artist| {
-            self.text.push_str(artist);
-            self.text.push(' ');
-        });
-        self.text.pop();
-        self.artists = start..self.text.len();
+        // let start = self.text.len();
+        // db.track_artists(id, |artist| {
+        //     self.text.push_str(artist);
+        //     self.text.push(' ');
+        // });
+        // self.text.pop();
+        // self.artists = start..self.text.len();
     }
 }
 
@@ -401,34 +402,45 @@ impl Jukebox {
         let mut count = 0;
         let mut rand;
 
-        match self.track_id() {
-            Some(id) => {
-                loop {
-                    rand = match db.random_track_id_except(id) {
-                        Some(id) => id,
-                        None => {
-                            // Only one track in the entire db
-                            return;
-                        }
-                    };
-                    count += 1;
+        loop {
+            rand = db.random_track_id();
+            count += 1;
 
-                    let is_bad = self.is_faulty(rand) || self.should_skip(rand, db, skip);
-                    if !is_bad || count >= TRIES {
-                        break;
-                    }
-                }
+            let is_current = self.track_id() == Some(rand);
+            let is_bad = is_current || self.is_faulty(rand) || self.should_skip(rand, db, skip);
+            if !is_bad || count >= TRIES {
+                break;
             }
-            None => loop {
-                rand = db.random_track_id();
-                count += 1;
-
-                let is_bad = self.is_faulty(rand) || self.should_skip(rand, db, skip);
-                if !is_bad || count >= TRIES {
-                    break;
-                }
-            },
         }
+
+        // match self.track_id() {
+        //     Some(id) => {
+        //         loop {
+        //             rand = match db.random_track_id_except(id) {
+        //                 Some(id) => id,
+        //                 None => {
+        //                     // Only one track in the entire db
+        //                     return;
+        //                 }
+        //             };
+        //             count += 1;
+
+        //             let is_bad = self.is_faulty(rand) || self.should_skip(rand, db, skip);
+        //             if !is_bad || count >= TRIES {
+        //                 break;
+        //             }
+        //         }
+        //     }
+        //     None => loop {
+        //         rand = db.random_track_id();
+        //         count += 1;
+
+        //         let is_bad = self.is_faulty(rand) || self.should_skip(rand, db, skip);
+        //         if !is_bad || count >= TRIES {
+        //             break;
+        //         }
+        //     },
+        // }
 
         let (id, index) = self.queue.add(rand).next().unwrap();
         self.state = PlayState::Next;
@@ -475,7 +487,7 @@ impl Jukebox {
     }
 
     fn should_skip(&self, id: TrackId, db: &Database, skip: TrackRating) -> bool {
-        let rating = db.track_rating(id);
+        let rating = db.track(id).rating;
         match rating {
             TrackRating::None => false,
             _ => rating.as_u8() <= skip.as_u8(),
@@ -483,7 +495,7 @@ impl Jukebox {
     }
 
     fn start_decode(&mut self, id: TrackId, index: usize, db: &Database) {
-        let path = db.track_path(id);
+        let path = db.track_path(id).to_path_buf();
         self.decoder.start(DecodeRequest { id, index, path });
     }
 

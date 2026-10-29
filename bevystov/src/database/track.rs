@@ -7,54 +7,54 @@ use shared::sqlite::{
 
 use crate::database::AlbumId;
 
-#[derive(Debug)]
-pub struct TrackInfo<'a> {
-    pub title: &'a str,
-    pub duration: TrackDuration,
-    pub rating: TrackRating,
-    pub bit_rate_kbps: u32,
-    pub bit_depth: Option<u8>,
-    pub sample_rate: Option<u32>,
-    pub path: &'a Path,
-    pub album_id: AlbumId,
-}
+// #[derive(Debug)]
+// pub struct TrackInfo<'a> {
+//     pub title: &'a str,
+//     pub duration: TrackDuration,
+//     pub rating: TrackRating,
+//     pub bit_rate_kbps: u32,
+//     pub bit_depth: Option<u8>,
+//     pub sample_rate: Option<u32>,
+//     pub path: &'a Path,
+//     pub album_id: AlbumId,
+// }
 
-#[derive(Debug)]
-pub struct TrackTable<'a> {
-    pub index: usize,
-    pub id: TrackId,
-    pub title: &'a str,
-    pub artists: &'a str,
-    pub album: &'a str,
-    pub duration: TrackDuration,
-    pub rating: TrackRating,
-}
+// #[derive(Debug)]
+// pub struct TrackTable<'a> {
+//     pub index: usize,
+//     pub id: TrackId,
+//     pub title: &'a str,
+//     pub artists: &'a str,
+//     pub album: &'a str,
+//     pub duration: TrackDuration,
+//     pub rating: TrackRating,
+// }
 
-#[derive(Debug)]
-pub struct TrackText<'a> {
-    pub title: &'a str,
-    pub artists: &'a str,
-    pub album: &'a str,
-}
+// #[derive(Debug)]
+// pub struct TrackText<'a> {
+//     pub title: &'a str,
+//     pub artists: &'a str,
+//     pub album: &'a str,
+// }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TrackId(pub SqliteId);
+// #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// pub struct TrackId(pub SqliteId);
 
-impl TrackId {
-    pub const ZERO: Self = Self(0);
-}
+// impl TrackId {
+//     pub const ZERO: Self = Self(0);
+// }
 
-impl ToSql for TrackId {
-    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
-    }
-}
+// impl ToSql for TrackId {
+//     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+//         Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+//     }
+// }
 
-impl FromSql for TrackId {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
-    }
-}
+// impl FromSql for TrackId {
+//     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+//         value.as_i64().map(|n| Self(n))
+//     }
+// }
 
 #[derive(
     Debug,

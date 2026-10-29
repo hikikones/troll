@@ -3,6 +3,7 @@ use std::{fmt::Display, ops::Range};
 pub trait StringExt {
     fn slice(&self, range: Range<usize>) -> &str;
     fn push_str_get_range(&mut self, s: &str) -> Range<usize>;
+    fn push_str_get_range_new(&mut self, s: &str) -> std::range::Range<usize>;
     fn push_str_get_range2(&mut self, s1: &str, s2: &str) -> (Range<usize>, Range<usize>);
     fn extend_get_range<'a>(&mut self, iter: impl IntoIterator<Item = &'a str>) -> Range<usize>;
     fn write(&mut self, content: impl Display);
@@ -18,6 +19,15 @@ impl StringExt for String {
         let start = self.len();
         self.push_str(s);
         start..self.len()
+    }
+
+    fn push_str_get_range_new(&mut self, s: &str) -> std::range::Range<usize> {
+        let start = self.len();
+        self.push_str(s);
+        std::range::Range {
+            start,
+            end: self.len(),
+        }
     }
 
     fn push_str_get_range2(&mut self, s1: &str, s2: &str) -> (Range<usize>, Range<usize>) {

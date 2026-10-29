@@ -249,20 +249,21 @@ fn render_search(
 
         frame.push_fmt(style);
 
-        match highlight {
-            Some((start, end)) => {
-                let _ = database.search_highlight(id, input, start, end, |s| frame.push_str(s));
-            }
-            None => {
-                database.track_text(id, |track| {
-                    frame.push_str(track.title);
-                    frame.push_ch(' ');
-                    frame.push_str(track.artists);
-                    frame.push_ch(' ');
-                    frame.push_str(track.album);
-                });
-            }
-        }
+        // TODO
+        // match highlight {
+        //     Some((start, end)) => {
+        //         let _ = database.search_highlight(id, input, start, end, |s| frame.push_str(s));
+        //     }
+        //     None => {
+        //         database.track_text(id, |track| {
+        //             frame.push_str(track.title);
+        //             frame.push_ch(' ');
+        //             frame.push_str(track.artists);
+        //             frame.push_ch(' ');
+        //             frame.push_str(track.album);
+        //         });
+        //     }
+        // }
 
         frame.push_fmt(Sgr::Reset);
         frame.render(line, TextOptions::span());
@@ -340,9 +341,10 @@ fn update_search(
         return;
     }
 
-    if let Err(_err) = database.search(input, settings.search_by_path(), |id| results.push(id)) {
-        // TODO
-    }
+    // TODO
+    // if let Err(_err) = database.search(input, settings.search_by_path(), |id| results.push(id)) {
+    //     // TODO
+    // }
 
     modal.list.reset();
 

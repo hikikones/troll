@@ -315,7 +315,7 @@ fn render_cover(
     jukebox: &Jukebox,
     cover: &FrontCover,
 ) {
-    let Some(rating) = jukebox.track_id().map(|id| database.track_rating(id)) else {
+    let Some(rating) = jukebox.track_id().map(|id| database.track(id).rating) else {
         frame.push_str_fg("No track currently playing", colors.neutral);
         frame.render(
             area.inner(Margin::proportional(1)),
@@ -416,9 +416,11 @@ fn render_queue(
             frame.push_fmt(Sgr::CrossedOut);
         }
 
-        database.track_title(id, |title| {
-            frame.push_str(title);
-        });
+        // TODO?
+        frame.push_str(database.slice(database.track(id).title));
+        // database.track_title(id, |title| {
+        //     frame.push_str(title);
+        // });
 
         frame.push_fmt(Sgr::Reset);
         frame.render(line.with_row(row), TextOptions::span());
