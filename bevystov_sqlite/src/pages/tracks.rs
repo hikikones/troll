@@ -4,7 +4,7 @@ use widgets2::{Block, list2::List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::{Database, TrackId, TrackRating, TrackSort, TrackTable},
+    database::{Database, TrackId, TrackRating, TrackSort},
     jukebox::Jukebox,
     pages::Page,
     settings::{Colors, Settings},
@@ -15,6 +15,7 @@ pub struct TracksPagePlugin;
 impl TracksPagePlugin {
     pub fn build(app: &mut App) {
         app.insert_resource(TracksPage::default())
+            .insert_resource(SortedTracks::default())
             .add_input(InputSet::Page, input_tracks.run_if(in_state(Page::Tracks)))
             .add_enter(Page::Tracks, enter_tracks)
             .add_render(
@@ -44,6 +45,23 @@ impl Default for TracksPage {
                 .with_padding(Margin::horizontal(1).with_top(1)),
             params: Default::default(),
         }
+    }
+}
+
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
+pub struct SortedTracks(Vec<TrackId>);
+
+impl SortedTracks {
+    fn id(&self, index: usize) -> TrackId {
+        self[index]
+    }
+
+    fn index(&self, id: TrackId) -> usize {
+        self.iter()
+            .enumerate()
+            .find(|(_, tid)| id == **tid)
+            .map(|(i, _)| i)
+            .unwrap()
     }
 }
 
@@ -92,8 +110,18 @@ impl TableAreas {
     }
 }
 
+fn enter_tracks(mut page: ResMut<TracksPage>, tracks: Res<SortedTracks>) {
+    let Some(id) = page.params.take() else {
+        return;
+    };
+
+    let index = tracks.index(id);
+    page.list.set_index(index).set_selector(None);
+}
+
 fn input_tracks(
     input: Res<Input>,
+    mut tracks: ResMut<SortedTracks>,
     mut database: NonSendMut<Database>,
     mut jukebox: NonSendMut<Jukebox>,
     mut page: ResMut<TracksPage>,
@@ -106,7 +134,7 @@ fn input_tracks(
 
     match key.code {
         KeyCode::Enter => {
-            let id = database.track_id(page.list.index());
+            let id = tracks.id(page.list.index());
             jukebox.play_id(id, &database);
         }
         KeyCode::Char(c) => match c {
@@ -114,7 +142,7 @@ fn input_tracks(
                 let rating = TrackRating::from_char(c).unwrap();
                 let mut render = false;
                 for i in page.list.selection_inclusive() {
-                    let id = database.track_id(i);
+                    let id = tracks.id(i);
                     if database.write_rating(id, rating) {
                         render = true;
                     }
@@ -125,35 +153,39 @@ fn input_tracks(
                 }
             }
             'q' => {
-                jukebox.extend(
-                    page.list
-                        .selection_inclusive()
-                        .map(|i| database.track_id(i)),
-                );
+                jukebox.extend(page.list.selection_inclusive().map(|i| tracks.id(i)));
             }
             'n' => {
                 for i in page.list.selection_inclusive().rev() {
-                    let id = database.track_id(i);
+                    let id = tracks.id(i);
                     jukebox.add_next(id);
                 }
             }
             's' => {
                 if settings.keep_selected() {
-                    let id = database.track_id(page.list.index());
+                    let id = tracks.id(page.list.index());
                     database.next_sort();
-                    page.list.set_index(database.track_index(id));
+                    tracks.clear();
+                    tracks.extend(database.tracks_sort());
+                    page.list.set_index(tracks.index(id));
                 } else {
                     database.next_sort();
+                    tracks.clear();
+                    tracks.extend(database.tracks_sort());
                 }
                 actions.push(Action::Render);
             }
             'S' => {
                 if settings.keep_selected() {
-                    let id = database.track_id(page.list.index());
+                    let id = tracks.id(page.list.index());
                     database.toggle_reverse_sort();
-                    page.list.set_index(database.track_index(id));
+                    tracks.clear();
+                    tracks.extend(database.tracks_sort());
+                    page.list.set_index(tracks.index(id));
                 } else {
                     database.toggle_reverse_sort();
+                    tracks.clear();
+                    tracks.extend(database.tracks_sort());
                 }
                 actions.push(Action::Render);
             }
@@ -171,29 +203,20 @@ fn input_tracks(
     }
 }
 
-fn enter_tracks(mut page: ResMut<TracksPage>, mut database: NonSendMut<Database>) {
-    let Some(id) = page.params.take() else {
-        return;
-    };
-
-    let index = database.track_index(id);
-    page.list.set_index(index).set_selector(None);
-}
-
 fn render_tracks(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Framebuffer>,
     settings: Res<Settings>,
     mut page: ResMut<TracksPage>,
+    tracks: Res<SortedTracks>,
     mut database: NonSendMut<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
     let area = **area;
     let colors = settings.colors();
-    let tracks_len = database.tracks_len();
 
-    if tracks_len == 0 {
+    if tracks.is_empty() {
         frame.print_fmt(Sgr::Fg(colors.neutral));
         frame.print_span_with(area, "No tracks to be found", SpanOptions::center());
         frame.print_fmt(Sgr::reset_fg());
@@ -203,7 +226,10 @@ fn render_tracks(
     // Block
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
-    frame.push_fmt_fg(format_args!(" All Tracks ({}) ", tracks_len), colors.normal);
+    frame.push_fmt_fg(
+        format_args!(" All Tracks ({}) ", tracks.len()),
+        colors.normal,
+    );
     frame.render(area, TextOptions::span_center_top());
     frame.print_fmt(Sgr::reset_fg());
 
@@ -212,9 +238,9 @@ fn render_tracks(
         &mut frame,
         colors,
         &mut page.list,
+        &tracks,
         &mut database,
         &jukebox,
-        tracks_len,
     );
 
     render_shortcuts(**shortcuts_area, &mut frame, &colors);
@@ -225,12 +251,12 @@ fn render_table(
     frame: &mut Framebuffer,
     colors: &Colors,
     list: &mut List,
+    tracks: &SortedTracks,
     database: &mut Database,
     jukebox: &Jukebox,
-    tracks_len: usize,
 ) {
     let Some((table_area, lines)) = list
-        .set_len(tracks_len)
+        .set_len(tracks.len())
         .set_colors(colors.list())
         .render(area, frame)
     else {
@@ -281,17 +307,7 @@ fn render_table(
     let current_track = jukebox.track_id();
     let mut row = table_area.pos.row;
 
-    database.tracks_table(lines, |track| {
-        let TrackTable {
-            index,
-            id,
-            title,
-            artists,
-            album,
-            rating,
-            duration,
-        } = track;
-
+    for (index, id) in lines.zip(tracks.iter().copied().skip(list.scroll())) {
         let mut style = if index == selected {
             frame.fill(line.with_row(row), colors.primary, true);
             Style::fg(colors.primary).with_reverse()
@@ -313,16 +329,61 @@ fn render_table(
         areas.set_row(row);
         frame.print_fmt(style);
 
-        frame.print_span(areas.title(), title);
-        frame.print_span(areas.artist(), artists);
-        frame.print_span(areas.album(), album);
-        frame.push_fmt(duration);
-        frame.render(areas.time(), TextOptions::span());
-        frame.print_span(areas.rating(), rating.stars());
+        database.track_table2(id, |track| {
+            frame.print_span(areas.title(), track.title);
+            frame.print_span(areas.artist(), track.artists);
+            frame.print_span(areas.album(), track.album);
+            frame.push_fmt(track.duration);
+            frame.render(areas.time(), TextOptions::span());
+            frame.print_span(areas.rating(), track.rating.stars());
+        });
 
         frame.print_fmt(Sgr::Reset);
         row += 1;
-    });
+    }
+
+    // database.tracks_table(lines, |track| {
+    //     let TrackTable {
+    //         index,
+    //         id,
+    //         title,
+    //         artists,
+    //         album,
+    //         rating,
+    //         duration,
+    //     } = track;
+
+    //     let mut style = if index == selected {
+    //         frame.fill(line.with_row(row), colors.primary, true);
+    //         Style::fg(colors.primary).with_reverse()
+    //     } else if selection.contains(&index) {
+    //         frame.fill(line.with_row(row), colors.neutral, true);
+    //         Style::fg(colors.neutral).with_reverse()
+    //     } else {
+    //         Style::fg(colors.normal)
+    //     };
+
+    //     if current_track == Some(id) {
+    //         style.insert(Attributes::BOLD);
+    //     }
+
+    //     if jukebox.is_faulty(id) {
+    //         style.insert(Attributes::CROSSED_OUT);
+    //     }
+
+    //     areas.set_row(row);
+    //     frame.print_fmt(style);
+
+    //     frame.print_span(areas.title(), title);
+    //     frame.print_span(areas.artist(), artists);
+    //     frame.print_span(areas.album(), album);
+    //     frame.push_fmt(duration);
+    //     frame.render(areas.time(), TextOptions::span());
+    //     frame.print_span(areas.rating(), rating.stars());
+
+    //     frame.print_fmt(Sgr::Reset);
+    //     row += 1;
+    // });
 }
 
 fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {

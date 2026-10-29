@@ -31,6 +31,15 @@ pub struct TrackTable<'a> {
 }
 
 #[derive(Debug)]
+pub struct TrackTable2<'a> {
+    pub title: &'a str,
+    pub artists: &'a str,
+    pub album: &'a str,
+    pub duration: TrackDuration,
+    pub rating: TrackRating,
+}
+
+#[derive(Debug)]
 pub struct TrackText<'a> {
     pub title: &'a str,
     pub artists: &'a str,

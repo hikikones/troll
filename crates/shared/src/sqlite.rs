@@ -41,13 +41,14 @@ impl Sqlite {
         self.0.execute_batch(sql)
     }
 
-    pub fn transaction(
+    pub fn transaction<T>(
         &mut self,
-        f: impl FnOnce(&Transaction) -> SqliteResult<()>,
-    ) -> SqliteResult<()> {
+        f: impl FnOnce(&Transaction) -> SqliteResult<T>,
+    ) -> SqliteResult<T> {
         let transaction = self.0.transaction()?;
-        f(&transaction)?;
-        transaction.commit()
+        let res = f(&transaction);
+        transaction.commit()?;
+        res
     }
 
     pub fn iter<'a, T, F>(
