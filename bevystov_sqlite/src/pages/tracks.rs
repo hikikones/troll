@@ -329,7 +329,7 @@ fn render_table(
         areas.set_row(row);
         frame.print_fmt(style);
 
-        database.track_table2(id, |track| {
+        database.track_table(id, |track| {
             frame.print_span(areas.title(), track.title);
             frame.print_span(areas.artist(), track.artists);
             frame.print_span(areas.album(), track.album);
@@ -341,49 +341,6 @@ fn render_table(
         frame.print_fmt(Sgr::Reset);
         row += 1;
     }
-
-    // database.tracks_table(lines, |track| {
-    //     let TrackTable {
-    //         index,
-    //         id,
-    //         title,
-    //         artists,
-    //         album,
-    //         rating,
-    //         duration,
-    //     } = track;
-
-    //     let mut style = if index == selected {
-    //         frame.fill(line.with_row(row), colors.primary, true);
-    //         Style::fg(colors.primary).with_reverse()
-    //     } else if selection.contains(&index) {
-    //         frame.fill(line.with_row(row), colors.neutral, true);
-    //         Style::fg(colors.neutral).with_reverse()
-    //     } else {
-    //         Style::fg(colors.normal)
-    //     };
-
-    //     if current_track == Some(id) {
-    //         style.insert(Attributes::BOLD);
-    //     }
-
-    //     if jukebox.is_faulty(id) {
-    //         style.insert(Attributes::CROSSED_OUT);
-    //     }
-
-    //     areas.set_row(row);
-    //     frame.print_fmt(style);
-
-    //     frame.print_span(areas.title(), title);
-    //     frame.print_span(areas.artist(), artists);
-    //     frame.print_span(areas.album(), album);
-    //     frame.push_fmt(duration);
-    //     frame.render(areas.time(), TextOptions::span());
-    //     frame.print_span(areas.rating(), rating.stars());
-
-    //     frame.print_fmt(Sgr::Reset);
-    //     row += 1;
-    // });
 }
 
 fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {

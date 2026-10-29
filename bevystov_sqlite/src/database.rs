@@ -1,6 +1,5 @@
 use std::{
     hash::Hasher,
-    ops::Range,
     path::{Path, PathBuf},
 };
 
@@ -113,34 +112,6 @@ impl Database {
             .unwrap()
     }
 
-    // pub fn track_id(&mut self, index: usize) -> TrackId {
-    //     let query = self.sorted_tracks_query();
-    //     self.sql
-    //         .write(format_args!("{query} LIMIT 1 OFFSET {index}"));
-
-    //     let id = self
-    //         .sqlite
-    //         .single(&self.sql, (), |row| query.id(row))
-    //         .unwrap();
-    //     self.sql.clear();
-    //     id
-    // }
-
-    // pub fn track_index(&mut self, id: TrackId) -> usize {
-    //     let query = self.sorted_tracks_query();
-    //     self.sql.write(format_args!(
-    //         "SELECT row_num FROM ({query}) WHERE id = {}",
-    //         id.0
-    //     ));
-
-    //     let index = self
-    //         .sqlite
-    //         .single(&self.sql, (), |row| query.index(row))
-    //         .unwrap();
-    //     self.sql.clear();
-    //     index
-    // }
-
     pub fn track_title(&self, id: TrackId, mut f: impl FnMut(&str)) {
         self.sqlite
             .single("SELECT title FROM tracks WHERE id = ?", [id], |row| {
@@ -222,42 +193,14 @@ impl Database {
             .unwrap();
     }
 
-    pub fn tracks_range(&self, range: Range<usize>) -> impl Iterator<Item = TrackId> {
-        let (start, end) = (range.start as SqliteId, range.end as SqliteId);
-        self.sqlite
-            .iter(
-                "SELECT id FROM tracks LIMIT ?1 OFFSET ?2",
-                [end - start, start],
-                |row| row.get(0),
-            )
-            .unwrap()
-            .map(Result::unwrap)
-    }
-
-    // pub fn tracks_table(&mut self, range: Range<usize>, mut f: impl FnMut(TrackTable)) {
-    //     let offset = range.start;
-    //     let limit = range.end - offset;
-    //     let query = self.sorted_tracks_query();
-
-    //     self.sql
-    //         .write(format_args!("{query} LIMIT {limit} OFFSET {offset}"));
-    //     self.sqlite
-    //         .for_each(&self.sql, (), |row| Ok(f(query.table(row)?)))
-    //         .unwrap();
-
-    //     self.sql.clear();
-    // }
-
-    pub fn track_table2(&mut self, id: TrackId, mut f: impl FnMut(TrackTable2)) {
-        let order = if self.reverse_sort { "DESC" } else { "ASC" };
-        let case_sensitive = false;
-        let case = if case_sensitive { "" } else { "COLLATE NOCASE" };
-
+    pub fn track_table(&mut self, id: TrackId, mut f: impl FnMut(TrackTable)) {
         self.sql.clear();
+
+        let order = if self.reverse_sort { "DESC" } else { "ASC" };
         self.sql.write(format_args!(
             "SELECT \
                 t.title, \
-                GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name {case} {order}), \
+                GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE {order}), \
                 al.name, \
                 t.duration, \
                 t.rating \
@@ -270,7 +213,7 @@ impl Database {
         ));
         self.sqlite
             .single(&self.sql, [id], |row| {
-                Ok(f(TrackTable2 {
+                Ok(f(TrackTable {
                     title: row.get_ref(0)?.as_str()?,
                     artists: row.get_ref(1)?.as_str()?,
                     album: row.get_ref(2)?.as_str()?,
@@ -282,34 +225,33 @@ impl Database {
     }
 
     pub fn tracks_sort(&mut self) -> impl Iterator<Item = TrackId> {
-        let order = if self.reverse_sort { "DESC" } else { "ASC" };
-        let case_sensitive = false;
-        let case = if case_sensitive { "" } else { "COLLATE NOCASE" };
+        self.sql.clear();
 
+        let order = if self.reverse_sort { "DESC" } else { "ASC" };
         let query = match self.sort {
             TrackSort::Title => {
                 format_args!(
                     "SELECT id, title FROM tracks \
-                    ORDER BY title {case} {order}, id {order}"
+                    ORDER BY title COLLATE NOCASE {order}, id {order}"
                 )
             }
             TrackSort::Artist => {
                 format_args!(
                     "SELECT \
                         t.id, \
-                        GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name {case} {order}) \
+                        GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE {order}) \
                     FROM tracks t \
                     JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
                     JOIN artists ar ON ar.id = ar_t.artist_id \
                     GROUP BY t.id \
-                    ORDER BY ar.name {case} {order}, t.id {order}"
+                    ORDER BY ar.name COLLATE NOCASE {order}, t.id {order}"
                 )
             }
             TrackSort::Album => {
                 format_args!(
                     "SELECT t.id, al.name FROM tracks t \
                     JOIN albums al ON al.id = t.album_id \
-                    ORDER BY al.name {case} {order}, t.album_id {order}, t.number {order}, t.id {order}"
+                    ORDER BY al.name COLLATE NOCASE {order}, t.album_id {order}, t.number {order}, t.id {order}"
                 )
             }
             TrackSort::Time => {
@@ -326,7 +268,6 @@ impl Database {
             }
         };
 
-        self.sql.clear();
         self.sql.write(query);
         self.sqlite
             .iter(&self.sql, (), |row| row.get(0))
@@ -358,6 +299,7 @@ impl Database {
         mut f: impl FnMut(TrackId),
     ) -> SqliteResult<()> {
         self.sql.clear();
+
         let param = if !include_path {
             self.sql.extend(["-path:", input]);
             self.sql.as_str()
@@ -383,6 +325,7 @@ impl Database {
         f: impl FnOnce(&str),
     ) -> SqliteResult<()> {
         self.sql.clear();
+
         self.sql.write(format_args!(
             "SELECT
                 rowid, \
@@ -621,82 +564,6 @@ impl Database {
         }
 
         Ok(())
-    }
-
-    const fn sorted_tracks_query(&self) -> SortedTracksQuery {
-        SortedTracksQuery {
-            sort: self.sort,
-            reverse_sort: self.reverse_sort,
-            case_sensitive: false,
-        }
-    }
-}
-
-struct SortedTracksQuery {
-    sort: TrackSort,
-    reverse_sort: bool,
-    case_sensitive: bool,
-}
-
-impl SortedTracksQuery {
-    fn index(self, row: &Row) -> SqliteResult<usize> {
-        Ok(row.get::<_, SqliteId>(0)? as usize)
-    }
-
-    fn id(self, row: &Row) -> SqliteResult<TrackId> {
-        row.get(1)
-    }
-
-    fn table<'a>(&self, row: &'a Row) -> SqliteResult<TrackTable<'a>> {
-        Ok(TrackTable {
-            index: row.get::<_, SqliteId>(0)? as usize,
-            id: row.get(1)?,
-            title: row.get_ref(2)?.as_str()?,
-            artists: row.get_ref(3)?.as_str()?,
-            album: row.get_ref(4)?.as_str()?,
-            duration: row.get(5)?,
-            rating: row.get(6)?,
-        })
-    }
-}
-
-impl std::fmt::Display for SortedTracksQuery {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let order = if self.reverse_sort { "DESC" } else { "ASC" };
-        let case = if self.case_sensitive {
-            ""
-        } else {
-            "COLLATE NOCASE"
-        };
-
-        let sort_by = match self.sort {
-            TrackSort::Title => format_args!("t.title {case} {order}, t.id {order}"),
-            TrackSort::Artist => format_args!("ar.name {case} {order}, t.id {order}"),
-            TrackSort::Album => format_args!(
-                "al.name {case} {order}, t.album_id {order}, t.number {order}, t.id {order}"
-            ),
-            TrackSort::Time => format_args!("t.duration {case} {order}, t.id {order}"),
-            TrackSort::Rating => format_args!("t.rating {case} {order}, t.id {order}"),
-        };
-
-        f.write_fmt(format_args!(
-            "SELECT
-                ROW_NUMBER() OVER (ORDER BY {sort_by}) - 1 AS row_num,
-                t.id,
-                t.title,
-                GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name {case} {order}) AS artists,
-                al.name AS album,
-                t.duration,
-                t.rating,
-                t.album_id,
-                t.number
-            FROM tracks t
-            JOIN artist_tracks ar_t ON ar_t.track_id = t.id
-            JOIN artists ar ON ar.id = ar_t.artist_id
-            JOIN albums al ON al.id = t.album_id
-            GROUP BY t.id
-            ORDER BY {sort_by}"
-        ))
     }
 }
 
