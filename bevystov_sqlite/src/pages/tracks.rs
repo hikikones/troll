@@ -14,8 +14,9 @@ pub struct TracksPagePlugin;
 
 impl TracksPagePlugin {
     pub fn build(app: &mut App) {
-        app.insert_resource(TracksPage::default())
-            .insert_resource(SortedTracks::default())
+        app.insert_resource(TracksParam::default())
+            .insert_resource(TracksList::default())
+            .insert_resource(TracksSorted::default())
             .add_input(InputSet::Page, input_tracks.run_if(in_state(Page::Tracks)))
             .add_enter(Page::Tracks, enter_tracks)
             .add_render(
@@ -25,33 +26,32 @@ impl TracksPagePlugin {
     }
 }
 
-#[derive(Debug, Resource)]
-pub struct TracksPage {
-    list: List,
-    params: Option<TrackId>,
-}
+#[derive(Debug, Default, Resource)]
+pub struct TracksParam(Option<TrackId>);
 
-impl TracksPage {
-    pub const fn set_params(&mut self, id: TrackId) {
-        self.params = Some(id);
+impl TracksParam {
+    pub const fn set(&mut self, id: TrackId) {
+        self.0 = Some(id);
     }
 }
 
-impl Default for TracksPage {
+#[derive(Debug, Resource, Deref, DerefMut)]
+struct TracksList(List);
+
+impl Default for TracksList {
     fn default() -> Self {
-        Self {
-            list: List::new()
+        Self(
+            List::new()
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1).with_top(1)),
-            params: Default::default(),
-        }
+        )
     }
 }
 
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
-pub struct SortedTracks(Vec<TrackId>);
+pub struct TracksSorted(Vec<TrackId>);
 
-impl SortedTracks {
+impl TracksSorted {
     fn id(&self, index: usize) -> TrackId {
         self[index]
     }
@@ -110,21 +110,25 @@ impl TableAreas {
     }
 }
 
-fn enter_tracks(mut page: ResMut<TracksPage>, tracks: Res<SortedTracks>) {
-    let Some(id) = page.params.take() else {
+fn enter_tracks(
+    mut param: ResMut<TracksParam>,
+    mut list: ResMut<TracksList>,
+    tracks: Res<TracksSorted>,
+) {
+    let Some(id) = param.0.take() else {
         return;
     };
 
     let index = tracks.index(id);
-    page.list.set_index(index).set_selector(None);
+    list.set_index(index).set_selector(None);
 }
 
 fn input_tracks(
     input: Res<Input>,
-    mut tracks: ResMut<SortedTracks>,
+    mut tracks: ResMut<TracksSorted>,
     mut database: NonSendMut<Database>,
     mut jukebox: NonSendMut<Jukebox>,
-    mut page: ResMut<TracksPage>,
+    mut list: ResMut<TracksList>,
     mut actions: ResMut<Actions>,
     settings: Res<Settings>,
 ) {
@@ -134,14 +138,14 @@ fn input_tracks(
 
     match key.code {
         KeyCode::Enter => {
-            let id = tracks.id(page.list.index());
+            let id = tracks.id(list.index());
             jukebox.play_id(id, &database);
         }
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
                 let rating = TrackRating::from_char(c).unwrap();
                 let mut render = false;
-                for i in page.list.selection_inclusive() {
+                for i in list.selection_inclusive() {
                     let id = tracks.id(i);
                     if database.write_rating(id, rating) {
                         render = true;
@@ -153,21 +157,21 @@ fn input_tracks(
                 }
             }
             'q' => {
-                jukebox.extend(page.list.selection_inclusive().map(|i| tracks.id(i)));
+                jukebox.extend(list.selection_inclusive().map(|i| tracks.id(i)));
             }
             'n' => {
-                for i in page.list.selection_inclusive().rev() {
+                for i in list.selection_inclusive().rev() {
                     let id = tracks.id(i);
                     jukebox.add_next(id);
                 }
             }
             's' => {
                 if settings.keep_selected() {
-                    let id = tracks.id(page.list.index());
+                    let id = tracks.id(list.index());
                     database.next_sort();
                     tracks.clear();
                     tracks.extend(database.tracks_sort());
-                    page.list.set_index(tracks.index(id));
+                    list.set_index(tracks.index(id));
                 } else {
                     database.next_sort();
                     tracks.clear();
@@ -177,11 +181,11 @@ fn input_tracks(
             }
             'S' => {
                 if settings.keep_selected() {
-                    let id = tracks.id(page.list.index());
+                    let id = tracks.id(list.index());
                     database.toggle_reverse_sort();
                     tracks.clear();
                     tracks.extend(database.tracks_sort());
-                    page.list.set_index(tracks.index(id));
+                    list.set_index(tracks.index(id));
                 } else {
                     database.toggle_reverse_sort();
                     tracks.clear();
@@ -190,13 +194,13 @@ fn input_tracks(
                 actions.push(Action::Render);
             }
             _ => {
-                if page.list.input(key) {
+                if list.input(key) {
                     actions.push(Action::Render);
                 }
             }
         },
         _ => {
-            if page.list.input(key) {
+            if list.input(key) {
                 actions.push(Action::Render);
             }
         }
@@ -208,8 +212,8 @@ fn render_tracks(
     shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Framebuffer>,
     settings: Res<Settings>,
-    mut page: ResMut<TracksPage>,
-    tracks: Res<SortedTracks>,
+    mut list: ResMut<TracksList>,
+    tracks: Res<TracksSorted>,
     mut database: NonSendMut<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
@@ -237,7 +241,7 @@ fn render_tracks(
         area.inner(Margin::all(1)),
         &mut frame,
         colors,
-        &mut page.list,
+        &mut list,
         &tracks,
         &mut database,
         &jukebox,
@@ -251,7 +255,7 @@ fn render_table(
     frame: &mut Framebuffer,
     colors: &Colors,
     list: &mut List,
-    tracks: &SortedTracks,
+    tracks: &TracksSorted,
     database: &mut Database,
     jukebox: &Jukebox,
 ) {
