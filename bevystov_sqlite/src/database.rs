@@ -385,13 +385,13 @@ impl Database {
     pub fn update(
         &mut self,
         current_track_id: Option<TrackId>,
-        mut on_event: impl FnMut(DatabaseEvent),
+        mut on_event: impl FnMut(&mut Self, DatabaseEvent),
     ) {
         self.receive_files(&mut on_event);
-        self.poll_writer(current_track_id, &mut on_event);
+        self.poll_writer(current_track_id, on_event);
     }
 
-    fn receive_files(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
+    fn receive_files(&mut self, mut on_event: impl FnMut(&mut Self, DatabaseEvent)) {
         let Some(scanner) = self.scanner.take() else {
             return;
         };
@@ -402,10 +402,10 @@ impl Database {
             match event {
                 ScanEvent::Track(track) => {
                     let id = self.add_track(track);
-                    on_event(DatabaseEvent::Track(id));
+                    on_event(self, DatabaseEvent::Track(id));
                 }
                 ScanEvent::Error(path, err) => {
-                    on_event(DatabaseEvent::Error(DatabaseError {
+                    on_event(self, DatabaseEvent::Error(DatabaseError {
                         message: format!("Failed to scan audio file '{}'", path.display()),
                         source: Some(DatabaseErrorSource::Audio(err)),
                     }));
@@ -425,16 +425,16 @@ impl Database {
         // TODO: remove
         for track in ScannedTrack::test() {
             let id = self.add_track(track);
-            on_event(DatabaseEvent::Track(id));
+            on_event(self, DatabaseEvent::Track(id));
         }
 
-        on_event(DatabaseEvent::FinishedLoading);
+        on_event(self, DatabaseEvent::FinishedLoading);
     }
 
     fn poll_writer(
         &mut self,
         current_track_id: Option<TrackId>,
-        mut on_event: impl FnMut(DatabaseEvent),
+        mut on_event: impl FnMut(&mut Self, DatabaseEvent),
     ) {
         if let Some(Err(WriteFailure {
             id,
@@ -447,7 +447,7 @@ impl Database {
             self.set_track_rating(id, old_rating);
 
             // Notify
-            on_event(DatabaseEvent::Error(DatabaseError {
+            on_event(self, DatabaseEvent::Error(DatabaseError {
                 message: format!("Failed to write audio rating to '{}'", path.display()),
                 source: Some(DatabaseErrorSource::Audio(error)),
             }));

@@ -744,9 +744,8 @@ fn update_app(
     settings: Res<Settings>,
 ) {
     let mut render = false;
-    let mut done = false;
 
-    database.update(jukebox.track_id(), |event| match event {
+    database.update(jukebox.track_id(), |db, event| match event {
         DatabaseEvent::Track(id) => {
             tracks.push(id);
         }
@@ -754,16 +753,10 @@ fn update_app(
             logs.push_err(err);
         }
         DatabaseEvent::FinishedLoading => {
-            done = true;
+            tracks.sort(db);
+            render = true;
         }
     });
-
-    // TODO
-    if done {
-        tracks.clear();
-        tracks.extend(database.tracks_sort());
-        render = true;
-    }
 
     if let Some(cmd) = media_controls.as_ref().and_then(|mc| mc.recv()) {
         match cmd {

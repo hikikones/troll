@@ -48,7 +48,7 @@ impl Default for TracksList {
     }
 }
 
-#[derive(Debug, Default, Resource, Deref, DerefMut)]
+#[derive(Debug, Default, Resource, Deref)]
 pub struct TracksSorted(Vec<TrackId>);
 
 impl TracksSorted {
@@ -62,6 +62,15 @@ impl TracksSorted {
             .find(|(_, tid)| id == **tid)
             .map(|(i, _)| i)
             .unwrap()
+    }
+
+    pub fn push(&mut self, id: TrackId) {
+        self.0.push(id);
+    }
+
+    pub fn sort(&mut self, database: &mut Database) {
+        self.0.clear();
+        self.0.extend(database.tracks_sort());
     }
 }
 
@@ -169,13 +178,11 @@ fn input_tracks(
                 if settings.keep_selected() {
                     let id = tracks.id(list.index());
                     database.next_sort();
-                    tracks.clear();
-                    tracks.extend(database.tracks_sort());
+                    tracks.sort(&mut database);
                     list.set_index(tracks.index(id));
                 } else {
                     database.next_sort();
-                    tracks.clear();
-                    tracks.extend(database.tracks_sort());
+                    tracks.sort(&mut database);
                 }
                 actions.push(Action::Render);
             }
@@ -183,13 +190,11 @@ fn input_tracks(
                 if settings.keep_selected() {
                     let id = tracks.id(list.index());
                     database.toggle_reverse_sort();
-                    tracks.clear();
-                    tracks.extend(database.tracks_sort());
+                    tracks.0.reverse();
                     list.set_index(tracks.index(id));
                 } else {
                     database.toggle_reverse_sort();
-                    tracks.clear();
-                    tracks.extend(database.tracks_sort());
+                    tracks.0.reverse();
                 }
                 actions.push(Action::Render);
             }
