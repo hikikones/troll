@@ -8,7 +8,7 @@ use crate::{
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
-    pages::{Page, PagesPlugin, Route, TracksPage},
+    pages::{Page, PagesPlugin, Route, TracksParam, TracksSorted},
     settings::{Colors, Settings},
 };
 
@@ -251,7 +251,7 @@ impl App {
 
                     match route {
                         Route::Tracks(Some(id)) => {
-                            self.world.resource_mut::<TracksPage>().set_params(id);
+                            self.world.resource_mut::<TracksParam>().set(id);
                         }
                         _ => {}
                     }
@@ -739,19 +739,22 @@ fn update_app(
     mut jukebox: NonSendMut<Jukebox>,
     media_controls: Option<NonSend<MediaControls>>,
     mut logs: ResMut<Logs>,
+    mut tracks: ResMut<TracksSorted>,
     mut actions: ResMut<Actions>,
     settings: Res<Settings>,
 ) {
     let mut render = false;
 
-    database.update(jukebox.track_id(), |event| {
-        render = true;
-
-        match event {
-            DatabaseEvent::FinishedLoading => {}
-            DatabaseEvent::Error(err) => {
-                logs.push_err(err);
-            }
+    database.update(jukebox.track_id(), |db, event| match event {
+        DatabaseEvent::Track(id) => {
+            tracks.push(id);
+        }
+        DatabaseEvent::Error(err) => {
+            logs.push_err(err);
+        }
+        DatabaseEvent::FinishedLoading => {
+            tracks.sort(db);
+            render = true;
         }
     });
 

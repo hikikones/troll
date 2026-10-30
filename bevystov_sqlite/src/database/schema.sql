@@ -39,10 +39,10 @@ CREATE VIRTUAL TABLE track_fts USING fts5(
 );
 
 -- Trigger for track deletions
-CREATE TRIGGER tracks_ad AFTER DELETE ON tracks
-BEGIN
-    DELETE FROM track_fts WHERE rowid = old.id;
-END;
+-- CREATE TRIGGER tracks_ad AFTER DELETE ON tracks
+-- BEGIN
+--     DELETE FROM track_fts WHERE rowid = old.id;
+-- END;
 
 -- Indexes
 CREATE INDEX idx_tracks_album_id ON tracks(album_id);
