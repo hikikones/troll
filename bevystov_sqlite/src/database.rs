@@ -196,15 +196,19 @@ impl Database {
     pub fn track_table(&mut self, id: TrackId, mut f: impl FnMut(TrackTable)) {
         self.sql.clear();
 
-        let order = if self.reverse_sort { "DESC" } else { "ASC" };
+        let artists = {
+            if self.sort == TrackSort::Artist {
+                if self.reverse_sort {
+                    "GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE DESC)"
+                } else {
+                    "GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE ASC)"
+                }
+            } else {
+                "GROUP_CONCAT(ar.name, ', ')"
+            }
+        };
         self.sql.write(format_args!(
-            "SELECT \
-                t.title, \
-                GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE {order}), \
-                al.name, \
-                t.duration, \
-                t.rating \
-            FROM tracks t \
+            "SELECT t.title, {artists}, al.name, t.duration, t.rating FROM tracks t \
             JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
             JOIN artists ar ON ar.id = ar_t.artist_id \
             JOIN albums al ON al.id = t.album_id \
