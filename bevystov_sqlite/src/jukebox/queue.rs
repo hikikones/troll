@@ -310,7 +310,7 @@ mod tests {
         let mut queue = PlayQueue::new();
 
         for i in 0..TRACKS_LEN {
-            queue.add(TrackId(i as i64));
+            queue.add(TrackId(i as u32));
         }
 
         assert_eq!(queue.current(), None);

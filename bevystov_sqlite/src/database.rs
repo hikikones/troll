@@ -492,7 +492,7 @@ impl Database {
                 ),
             )
             .unwrap();
-            let track_id = tx.last_insert_rowid();
+            let track_id = tx.last_insert_rowid() as u32;
     
             // Artists
             for artist in track.artists() {

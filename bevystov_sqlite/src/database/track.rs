@@ -36,7 +36,7 @@ pub struct TrackText<'a> {
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TrackId(pub SqliteId);
+pub struct TrackId(pub u32);
 
 impl TrackId {
     pub const ZERO: Self = Self(0);
@@ -44,13 +44,13 @@ impl TrackId {
 
 impl ToSql for TrackId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
     }
 }
 
 impl FromSql for TrackId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(|n| Self(n as u32))
     }
 }
 
