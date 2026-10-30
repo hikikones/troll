@@ -196,8 +196,7 @@ impl Database {
                 self.tmp.push_str(name);
                 self.tmp.push_str(", ");
             }
-            self.tmp.pop();
-            self.tmp.pop();
+            self.tmp.truncate(self.tmp.len() - 2);
         }
 
         let data = &self.tracks[id.idx()];

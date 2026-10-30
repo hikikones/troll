@@ -292,21 +292,20 @@ fn render_table(
             Style::fg(colors.normal)
         };
 
-        // TODO
-        // if current_track == Some(id) {
-        //     style.insert(Attributes::BOLD);
-        // }
+        let id = database.track_id(index);
 
-        // if jukebox.is_faulty(id) {
-        //     style.insert(Attributes::CROSSED_OUT);
-        // }
+        if current_track == Some(id) {
+            style.insert(Attributes::BOLD);
+        }
+
+        if jukebox.is_faulty(id) {
+            style.insert(Attributes::CROSSED_OUT);
+        }
 
         areas.set_row(row);
         frame.print_fmt(style);
 
-        let id = database.track_id(index);
         let track = database.track_table(id);
-
         frame.print_span(areas.title(), track.title);
         frame.print_span(areas.artist(), track.artists);
         frame.print_span(areas.album(), track.album);
