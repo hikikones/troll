@@ -135,27 +135,27 @@ impl ScannedTrack {
     }
 
     pub fn title(&self) -> &str {
-        self.slice(self.data.title.clone())
+        self.slice(self.data.title)
     }
 
     pub fn artists(&self) -> impl Iterator<Item = &str> {
-        self.artists.iter().map(|r| self.slice(r.clone()))
+        self.artists.iter().map(|r| self.slice(*r))
     }
 
     pub fn album(&self) -> &str {
-        self.slice(self.data.album.clone())
+        self.slice(self.data.album)
     }
 
     pub fn album_artist(&self) -> &str {
-        self.slice(self.data.album_artist.clone())
+        self.slice(self.data.album_artist)
     }
 
     pub fn date(&self) -> &str {
-        self.slice(self.data.date.clone())
+        self.slice(self.data.date)
     }
 
     pub fn path(&self) -> &str {
-        self.slice(self.data.path.clone())
+        self.slice(self.data.path)
     }
 
     fn slice(&self, range: Range<usize>) -> &str {
