@@ -316,7 +316,7 @@ fn render_table(
     let current_track = jukebox.track_id();
     let mut row = table_area.pos.row;
 
-    for (index, id) in lines.zip(tracks.iter().copied().skip(list.scroll())) {
+    for (index, id) in lines.map(|i| (i, tracks.id(i))) {
         let mut style = if index == selected {
             frame.fill(line.with_row(row), colors.primary, true);
             Style::fg(colors.primary).with_reverse()
