@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::range::Range;
 
 use terminal::*;
 use utils::StringExt;
@@ -329,7 +329,7 @@ impl Editor {
             .enumerate()
         {
             frame.cursor(Pos::new(area.pos.col, area.pos.row + i as u16));
-            for g in utils::graphemes(self.wrapped.slice(line.range())) {
+            for g in utils::graphemes(self.wrapped.slice(line.0)) {
                 frame.print_str(grapheme_render(g.0));
             }
         }
@@ -359,7 +359,7 @@ impl Editor {
 
             let mut index = line.start;
 
-            for g in utils::graphemes(self.wrapped.slice(line.range())) {
+            for g in utils::graphemes(self.wrapped.slice(line.0)) {
                 if index >= selector.start && !found_selector {
                     frame.print_fmt(Sgr::Reverse);
                     found_selector = true
@@ -424,7 +424,7 @@ impl Editor {
 
         for (i, g) in utils::grapheme_indices(self.wrapped.as_str()) {
             if g.contains('\n') {
-                self.lines.push(VisualLine::new(start..i + g.len()));
+                self.lines.push(VisualLine::new(start, i + g.len()));
 
                 start = i + g.len();
                 column = 0;
@@ -433,7 +433,7 @@ impl Editor {
 
             let width = grapheme_width(g.0);
             if column + width > max_width {
-                self.lines.push(VisualLine::new(start..i));
+                self.lines.push(VisualLine::new(start, i));
 
                 start = i;
                 column = width;
@@ -442,7 +442,7 @@ impl Editor {
             }
         }
 
-        self.lines.push(VisualLine::new(start..self.wrapped.len()));
+        self.lines.push(VisualLine::new(start, self.wrapped.len()));
         self.preferred_column = self.cursor_pos().col;
     }
 
@@ -505,8 +505,14 @@ impl Editor {
         use std::cmp::Ordering;
 
         match self.cursor.cmp(&selector) {
-            Ordering::Less => Some(self.cursor..selector),
-            Ordering::Greater => Some(selector..self.cursor),
+            Ordering::Less => Some(Range {
+                start: self.cursor,
+                end: selector,
+            }),
+            Ordering::Greater => Some(Range {
+                start: selector,
+                end: self.cursor,
+            }),
             Ordering::Equal => None,
         }
     }
@@ -546,7 +552,7 @@ impl Editor {
 
         let row = self.index_to_row(index);
         let line = &self.lines[row as usize];
-        let text = self.wrapped.slice(line.range());
+        let text = self.wrapped.slice(line.0);
         let col = text_width(&text[..index - line.start]);
         Pos { col, row }
     }
@@ -557,7 +563,7 @@ impl Editor {
         let mut column = 0;
         let mut index = line.start;
 
-        for (i, g) in utils::grapheme_indices(self.wrapped.slice(line.range())) {
+        for (i, g) in utils::grapheme_indices(self.wrapped.slice(line.0)) {
             if g.is_newline() {
                 break;
             }
@@ -584,21 +590,20 @@ enum CursorMove {
     End,
 }
 
-struct VisualLine {
-    start: usize,
-    end: usize,
-}
+#[derive(Debug, Clone, Copy)]
+struct VisualLine(Range<usize>);
 
 impl VisualLine {
-    fn new(range: Range<usize>) -> Self {
-        Self {
-            start: range.start,
-            end: range.end,
-        }
+    const fn new(start: usize, end: usize) -> Self {
+        Self(Range { start, end })
     }
+}
 
-    const fn range(&self) -> Range<usize> {
-        self.start..self.end
+impl std::ops::Deref for VisualLine {
+    type Target = Range<usize>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

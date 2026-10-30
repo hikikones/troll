@@ -1,6 +1,6 @@
 use std::{
-    ops::Range,
     path::{Path, PathBuf},
+    range::Range,
     sync::mpsc::TryRecvError,
 };
 

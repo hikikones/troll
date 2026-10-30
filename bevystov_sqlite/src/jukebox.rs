@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
-    ops::Range,
     path::{Path, PathBuf},
+    range::Range,
 };
 
 mod decoder;
@@ -69,7 +69,10 @@ impl Metadata {
             self.text.push(' ');
         });
         self.text.pop();
-        self.artists = start..self.text.len();
+        self.artists = Range {
+            start,
+            end: self.text.len(),
+        };
     }
 }
 
