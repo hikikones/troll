@@ -281,7 +281,7 @@ fn render_table(
     let current_track = jukebox.track_id();
     let mut row = table_area.pos.row;
 
-    for (index, id) in lines.map(|i| (i, database.track_id(i))) {
+    for index in lines {
         let mut style = if index == selected {
             frame.fill(line.with_row(row), colors.primary, true);
             Style::fg(colors.primary).with_reverse()
@@ -304,10 +304,11 @@ fn render_table(
         areas.set_row(row);
         frame.print_fmt(style);
 
+        let id = database.track_id(index);
         let track = database.track_table(id);
 
         frame.print_span(areas.title(), track.title);
-        // frame.print_span(areas.artist(), artists); TODO
+        frame.print_span(areas.artist(), track.artists);
         frame.print_span(areas.album(), track.album);
         frame.push_fmt(track.duration);
         frame.render(areas.time(), TextOptions::span());

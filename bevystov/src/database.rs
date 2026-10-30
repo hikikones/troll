@@ -34,7 +34,7 @@ pub struct Track<'a> {
 
 pub struct TrackTable<'a> {
     pub title: &'a str,
-    // pub artists: &'a str, TODO
+    pub artists: &'a str,
     pub album: &'a str,
     pub duration: TrackDuration,
     pub rating: TrackRating,
@@ -42,6 +42,7 @@ pub struct TrackTable<'a> {
 
 struct TrackData {
     title: TextRange,
+    number: u8,
     duration: TrackDuration,
     rating: TrackRating,
     bit_rate_kbps: u32,
@@ -76,10 +77,13 @@ pub struct Album {
 
 pub struct Database {
     text: String,
+    tmp: String,
     tracks: Vec<TrackData>,
     tracks_sorted: Vec<TrackId>,
     artists: HashMap<ArtistId, Artist>,
     albums: HashMap<AlbumId, Album>,
+    artist_tracks: Vec<(ArtistId, TrackId)>,
+    artists_sorted: Vec<ArtistId>,
     sort: TrackSort,
     reverse_sort: bool,
     scanner: Option<Scanner>,
@@ -95,10 +99,13 @@ impl Database {
     pub fn new(music_dir: PathBuf) -> Self {
         Self {
             text: String::new(),
+            tmp: String::new(),
             tracks: Vec::new(),
             tracks_sorted: Vec::new(),
+            artists_sorted: Vec::new(),
             artists: HashMap::new(),
             albums: HashMap::new(),
+            artist_tracks: Vec::new(),
             sort: TrackSort::Title, // TODO
             reverse_sort: false,
             scanner: Some(Scanner::new(music_dir)),
@@ -167,10 +174,36 @@ impl Database {
         self.slice(data.title)
     }
 
-    pub fn track_table(&self, id: TrackId) -> TrackTable<'_> {
+    pub fn track_table(&mut self, id: TrackId) -> TrackTable<'_> {
+        self.tmp.clear();
+        self.artists_sorted.clear();
+
+        self.artists_sorted.extend(
+            self.artist_tracks
+                .iter()
+                .filter(|(_, tid)| id == *tid)
+                .map(|(aid, _)| *aid),
+        );
+
+        if self.artists_sorted.len() == 1 {
+            let name = &self.text[self.artists[&self.artists_sorted[0]].name];
+            self.tmp.push_str(name);
+        } else if self.artists_sorted.len() > 1 {
+            self.artists_sorted
+                .sort_unstable_by_key(|aid| &self.text[self.artists[aid].name]);
+            for aid in self.artists_sorted.iter() {
+                let name = &self.text[self.artists[aid].name];
+                self.tmp.push_str(name);
+                self.tmp.push_str(", ");
+            }
+            self.tmp.pop();
+            self.tmp.pop();
+        }
+
         let data = &self.tracks[id.idx()];
         TrackTable {
             title: self.slice(data.title),
+            artists: &self.tmp,
             album: self.slice(self.albums[&data.album_id].name),
             duration: data.duration,
             rating: data.rating,
@@ -200,15 +233,15 @@ impl Database {
         Path::new(self.slice(data.path))
     }
 
-    pub fn tracks_iter2(&self) -> impl Iterator<Item = &TrackData> {
-        self.tracks_sorted.iter().map(|i| &self.tracks[i.idx()])
-    }
+    // pub fn tracks_iter2(&self) -> impl Iterator<Item = &TrackData> {
+    //     self.tracks_sorted.iter().map(|i| &self.tracks[i.idx()])
+    // }
 
-    pub fn tracks_range2(&self, range: TextRange) -> impl Iterator<Item = &TrackData> {
-        self.tracks_sorted[range]
-            .iter()
-            .map(|i| &self.tracks[i.idx()])
-    }
+    // pub fn tracks_range2(&self, range: TextRange) -> impl Iterator<Item = &TrackData> {
+    //     self.tracks_sorted[range]
+    //         .iter()
+    //         .map(|i| &self.tracks[i.idx()])
+    // }
 
     pub const fn is_tracks_empty(&self) -> bool {
         self.tracks.is_empty()
@@ -327,6 +360,7 @@ impl Database {
         let track_id = TrackId::from_idx(self.tracks.len());
         self.tracks.push(TrackData {
             title: self.text.push_str_get_range_new(track.title()),
+            number: track.number(),
             duration: track.duration(),
             rating: track.rating(),
             bit_rate_kbps: track.bit_rate_kbps(),
@@ -344,6 +378,7 @@ impl Database {
                 let range = self.text.push_str_get_range_new(artist);
                 self.artists.insert(artist_id, Artist { name: range });
             }
+            self.artist_tracks.push((artist_id, track_id));
         }
     }
 }
