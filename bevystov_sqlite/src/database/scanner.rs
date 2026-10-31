@@ -19,8 +19,8 @@ pub struct Scanner {
 }
 
 pub enum ScanEvent {
-    Files(usize),
-    Track(usize, ScannedTrack),
+    Files(u32),
+    Track(u32, ScannedTrack),
     Error(PathBuf, AudioFileError),
     Done,
 }
@@ -41,7 +41,7 @@ impl Scanner {
 
         std::thread::spawn(move || {
             let files = collect_files(dir, true);
-            let _ = sender.send(ScanEvent::Files(files.len()));
+            let _ = sender.send(ScanEvent::Files(files.len() as u32));
 
             let mut track = ScannedTrack::default();
             let mut i = 1;

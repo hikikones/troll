@@ -4,7 +4,7 @@ use ecs::*;
 use terminal::*;
 
 use crate::{
-    database::{Database, DatabaseEvent, DatabaseLoadEvent},
+    database::{Database, DatabaseLoadEvent},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
@@ -70,117 +70,10 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
-        // self.init(terminal)?;
-
         self.update_size()?;
 
-        // load loop
         self.run_load_loop(terminal)?;
-
-        // event loop
-        while self.is_running {
-            if self.timers.update.tick() {
-                self.run_update(terminal)?;
-            }
-
-            let screen_height = self.world.resource::<ScreenSize>().height();
-            if self.timers.render.tick() && screen_height == ScreenHeight::Tall {
-                self.run_render(terminal)?;
-            }
-
-            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
-                match event {
-                    TerminalEvent::Key(key) => {
-                        self.insert_resource(Input(Some(key)));
-                        self.run_input(terminal)?;
-                    }
-                    TerminalEvent::Resize => {
-                        self.update_size()?;
-                        self.run_render(terminal)?;
-                    }
-                }
-            };
-
-            self.world.clear_trackers();
-        }
-
-        Ok(())
-    }
-
-    fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
-        self.world.non_send_mut::<Database>().load();
-
-        fn load_stuff(
-            mut frame: ResMut<Framebuffer>,
-            mut database: NonSendMut<Database>,
-            mut logs: ResMut<Logs>,
-            settings: Res<Settings>,
-            mut len: Local<usize>,
-            mut progress: Local<usize>,
-        ) {
-            // Poll db
-            database.poll_receiver(|event| match event {
-                DatabaseLoadEvent::Start(total_files) => {
-                    *len = total_files;
-                }
-                DatabaseLoadEvent::Progress(i) => {
-                    *progress = i;
-                }
-                DatabaseLoadEvent::ScanError(err) => {
-                    logs.push_err(err);
-                }
-            });
-
-            let (len, progress) = (*len, *progress);
-
-            // Render
-            let area = frame.area();
-            let colors = settings.colors();
-
-            if len == 0 {
-                // Not started yet
-                frame.print_span_with(area, "LOADING", SpanOptions::center());
-                return;
-            }
-
-            frame.push_fmt(format_args!("{progress} / {len}"));
-            frame.render(area, TextOptions::span_center());
-        }
-
-        let sys_id = self.world.register_system(load_stuff);
-
-        while self.is_running {
-            if self.timers.update.tick() {
-                self.world.run_system(sys_id).unwrap();
-                self.world
-                    .resource_mut::<Framebuffer>()
-                    .flush(&mut terminal.lock())?;
-
-                if self.world.non_send::<Database>().has_finished_loaed() {
-                    // Init first run
-                    self.schedules.startup.run(&mut self.world);
-                    self.run_state_transitions();
-                    self.run_render(terminal)?;
-                    break;
-                }
-            }
-
-            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
-                match event {
-                    TerminalEvent::Key(key) => {
-                        if let KeyCode::Esc = key.code {
-                            self.is_running = false;
-                            break;
-                        }
-                    }
-                    TerminalEvent::Resize => {
-                        self.update_size()?;
-                    }
-                }
-            };
-        }
-
-        self.world.unregister_system(sys_id).unwrap();
+        self.run_event_loop(terminal)?;
 
         Ok(())
     }
@@ -256,6 +149,116 @@ impl App {
         self
     }
 
+    fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        // Start loading
+        self.world.non_send_mut::<Database>().load();
+
+        // Temporary system for loading
+        fn load_database_system(
+            mut frame: ResMut<Framebuffer>,
+            mut database: NonSendMut<Database>,
+            mut logs: ResMut<Logs>,
+            settings: Res<Settings>,
+            mut len: Local<u32>,
+            mut progress: Local<u32>,
+        ) {
+            // Poll database for scanning progress
+            database.poll_receiver(|event| match event {
+                DatabaseLoadEvent::Start(total_files) => {
+                    *len = total_files;
+                }
+                DatabaseLoadEvent::Progress(i) => {
+                    *progress = i;
+                }
+                DatabaseLoadEvent::ScanError(err) => {
+                    logs.push_err(err);
+                }
+            });
+
+            // Render progress
+            let (len, progress) = (*len, *progress);
+            let area = frame.area();
+            let colors = settings.colors();
+
+            if len == 0 {
+                // Not started yet
+                frame.print_span_with(area, "LOADING", SpanOptions::center());
+                return;
+            }
+
+            // In progress
+            frame.push_fmt(format_args!("{progress} / {len}"));
+            frame.render(area, TextOptions::span_center());
+        }
+
+        let load_db_sid = self.world.register_system(load_database_system);
+
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.world.run_system(load_db_sid).unwrap();
+                self.world
+                    .resource_mut::<Framebuffer>()
+                    .flush(&mut terminal.lock())?;
+
+                if self.world.non_send::<Database>().has_finished_loaed() {
+                    // Init first run
+                    self.schedules.startup.run(&mut self.world);
+                    self.run_state_transitions();
+                    self.run_render(terminal)?;
+                    break;
+                }
+            }
+
+            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+                match event {
+                    TerminalEvent::Key(key) => {
+                        if let KeyCode::Esc = key.code {
+                            self.is_running = false;
+                            break;
+                        }
+                    }
+                    TerminalEvent::Resize => {
+                        self.update_size()?;
+                    }
+                }
+            };
+        }
+
+        self.world.unregister_system(load_db_sid).unwrap();
+
+        Ok(())
+    }
+
+    fn run_event_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.run_update(terminal)?;
+            }
+
+            let screen_height = self.world.resource::<ScreenSize>().height();
+            if self.timers.render.tick() && screen_height == ScreenHeight::Tall {
+                self.run_render(terminal)?;
+            }
+
+            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+                match event {
+                    TerminalEvent::Key(key) => {
+                        self.insert_resource(Input(Some(key)));
+                        self.run_input(terminal)?;
+                    }
+                    TerminalEvent::Resize => {
+                        self.update_size()?;
+                        self.run_render(terminal)?;
+                    }
+                }
+            };
+
+            self.world.clear_trackers();
+        }
+
+        Ok(())
+    }
+
     fn run_input(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.schedules.input.run(&mut self.world);
 
@@ -301,18 +304,6 @@ impl App {
         *screen_size = ScreenSize::new(size, ScreenSizeThresholds::DEFAULT);
 
         Ok(())
-    }
-
-    fn init(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
-        // Start database load
-        self.world.non_send_mut::<Database>().load();
-
-        // Update size
-        self.update_size()?;
-
-        // First run
-        self.run_state_transitions();
-        self.run_render(terminal)
     }
 
     fn apply_actions(&mut self) -> bool {
@@ -831,25 +822,16 @@ fn render_shortcuts(
 fn update_app(
     mut database: NonSendMut<Database>,
     mut jukebox: NonSendMut<Jukebox>,
-    media_controls: Option<NonSend<MediaControls>>,
     mut logs: ResMut<Logs>,
-    // mut tracks: ResMut<TracksSorted>,
     mut actions: ResMut<Actions>,
+    media_controls: Option<NonSend<MediaControls>>,
     settings: Res<Settings>,
 ) {
     let mut render = false;
 
-    database.update(jukebox.track_id(), |db, event| match event {
-        DatabaseEvent::Track(id) => {
-            // tracks.push(id);
-        }
-        DatabaseEvent::Error(err) => {
-            logs.push_err(err);
-        }
-        DatabaseEvent::FinishedLoading => {
-            // tracks.sort(db);
-            render = true;
-        }
+    database.poll_writer(jukebox.track_id(), |err| {
+        logs.push_err(err);
+        render = true;
     });
 
     if let Some(cmd) = media_controls.as_ref().and_then(|mc| mc.recv()) {

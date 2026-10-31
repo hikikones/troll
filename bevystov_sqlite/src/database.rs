@@ -34,8 +34,8 @@ pub enum DatabaseEvent {
 }
 
 pub enum DatabaseLoadEvent {
-    Start(usize),
-    Progress(usize),
+    Start(u32),
+    Progress(u32),
     ScanError(DatabaseError),
 }
 
@@ -388,17 +388,7 @@ impl Database {
 
         // Update new rating immediately
         self.set_track_rating(id, rating);
-
         true
-    }
-
-    pub fn update(
-        &mut self,
-        current_track_id: Option<TrackId>,
-        on_event: impl FnMut(&mut Self, DatabaseEvent),
-    ) {
-        // self.receive_files(&mut on_event);
-        self.poll_writer(current_track_id, on_event);
     }
 
     pub fn poll_receiver(&mut self, mut on_event: impl FnMut(DatabaseLoadEvent)) {
@@ -442,50 +432,10 @@ impl Database {
         }
     }
 
-    // fn receive_files(&mut self, mut on_event: impl FnMut(&mut Self, DatabaseEvent)) {
-    //     let Some(scanner) = self.scanner.take() else {
-    //         return;
-    //     };
-
-    //     let mut is_done = false;
-
-    //     while let Some(event) = scanner.recv() {
-    //         match event {
-    //             ScanEvent::Track(track) => {
-    //                 let id = self.add_track(track);
-    //                 on_event(self, DatabaseEvent::Track(id));
-    //             }
-    //             ScanEvent::Error(path, err) => {
-    //                 on_event(self, DatabaseEvent::Error(DatabaseError {
-    //                     message: format!("Failed to scan audio file '{}'", path.display()),
-    //                     source: Some(DatabaseErrorSource::Audio(err)),
-    //                 }));
-    //             }
-    //             ScanEvent::Done => {
-    //                 is_done = true;
-    //                 break;
-    //             }
-    //         }
-    //     }
-
-    //     if !is_done {
-    //         self.scanner = Some(scanner);
-    //         return;
-    //     }
-
-    //     // TODO: remove
-    //     for track in ScannedTrack::test() {
-    //         let id = self.add_track(track);
-    //         on_event(self, DatabaseEvent::Track(id));
-    //     }
-
-    //     on_event(self, DatabaseEvent::FinishedLoading);
-    // }
-
-    fn poll_writer(
+    pub fn poll_writer(
         &mut self,
         current_track_id: Option<TrackId>,
-        mut on_event: impl FnMut(&mut Self, DatabaseEvent),
+        mut on_error: impl FnMut(DatabaseError),
     ) {
         if let Some(Err(WriteFailure {
             id,
@@ -498,13 +448,10 @@ impl Database {
             self.set_track_rating(id, old_rating);
 
             // Notify
-            on_event(
-                self,
-                DatabaseEvent::Error(DatabaseError {
-                    message: format!("Failed to write audio rating to '{}'", path.display()),
-                    source: Some(DatabaseErrorSource::Audio(error)),
-                }),
-            );
+            on_error(DatabaseError {
+                message: format!("Failed to write audio rating to '{}'", path.display()),
+                source: Some(DatabaseErrorSource::Audio(error)),
+            });
         }
     }
 
