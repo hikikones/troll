@@ -151,50 +151,78 @@ impl App {
 
     fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         // Start loading
-        self.world.non_send_mut::<Database>().load();
+        // self.world.non_send_mut::<Database>().load();
 
         // Temporary system for loading
         fn load_database_system(
-            mut frame: ResMut<Framebuffer>,
             mut database: NonSendMut<Database>,
+            mut frame: ResMut<Framebuffer>,
             mut logs: ResMut<Logs>,
             settings: Res<Settings>,
             mut len: Local<u32>,
             mut progress: Local<u32>,
         ) {
             // Poll database for scanning progress
-            database.poll_receiver(|event| match event {
-                DatabaseLoadEvent::Start(total_files) => {
-                    *len = total_files;
-                }
-                DatabaseLoadEvent::Progress(i) => {
-                    *progress = i;
-                }
-                DatabaseLoadEvent::ScanError(err) => {
-                    logs.push_err(err);
-                }
-            });
+            // database.poll_receiver(|event| match event {
+            //     DatabaseLoadEvent::Start(total_files) => {
+            //         *len = total_files;
+            //     }
+            //     DatabaseLoadEvent::Progress(i) => {
+            //         *progress = i;
+            //     }
+            //     DatabaseLoadEvent::ScanError(err) => {
+            //         logs.push_err(err);
+            //     }
+            // });
 
-            // Render progress
+            // Render
             let (len, progress) = (*len, *progress);
-            let (area, bottom) = frame.area().split_bottom(1, 0);
-            let colors = settings.colors();
+            let (len, progress) = (10000, 5000);
+
+            let area = frame.area();
 
             if len == 0 {
                 // Not started yet
-                frame.print_span_with(area, "Loading Database", SpanOptions::center());
+                let logo = Logo::from_size(area.size);
+                frame.push_str(logo.ascii());
+                frame.render(
+                    area.with_size(logo.size()).center(area),
+                    TextOptions::paragraph(),
+                );
                 return;
             }
 
+            // let (logo_area, progress_area, shortcut_area) = {
+            //     let (area, bottom) = frame.area().split_bottom(1, 0);
+            //     // let (top, middle) = area.split_bottom(area.rows() / 3, 0);
+            //     let (top, middle) = area.split_horizontally();
+            //     (top, middle, bottom)
+            // };
+
+            let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
+
+            let colors = settings.colors();
+            frame.print_fmt(Sgr::Fg(colors.neutral));
+
+            // Logo
+            let logo = Logo::from_size(logo_area.size);
+            frame.push_str(logo.ascii());
+            frame.render(
+                logo_area.with_size(logo.size()).center(logo_area),
+                TextOptions::paragraph(),
+            );
+
             // Progress
             frame.push_fmt(format_args!("{progress} / {len}"));
-            frame.render(area, TextOptions::span_center());
+            frame.render(progress_area, TextOptions::span_center_top());
+
+            frame.print_fmt(Sgr::reset_fg());
 
             // Shortcut
             frame.push_str_fg("Esc", colors.primary);
             frame.push_ch(' ');
             frame.push_str_fg("Quit", colors.normal);
-            frame.render(bottom, TextOptions::span_center_top());
+            frame.render(shortcut_area, TextOptions::span_center_top());
         }
 
         let load_db_sid = self.world.register_system(load_database_system);
@@ -885,5 +913,77 @@ fn update_app(
 
     if render {
         actions.push(Action::Render);
+    }
+}
+
+enum Logo {
+    Tiny,
+    Small,
+    Medium,
+    Large,
+}
+
+impl Logo {
+    const TINY_WIDTH: u16 = 9;
+    const TINY_HEIGHT: u16 = 1;
+    const TINY: &str = "TROLLSTOV";
+
+    const SMALL_WIDTH: u16 = 28;
+    const SMALL_HEIGHT: u16 = 5;
+    const SMALL: &str = r#"
+┌┬┐┬─┐┌─┐┬  ┬  ┌─┐┌┬┐┌─┐┬  ┬
+ │ ├┬┘│ ││  │  └─┐ │ │ │└┐┌┘
+ ┴ ┴└─└─┘┴─┘┴─┘└─┘ ┴ └─┘ └┘ 
+"#;
+
+    const MEDIUM_WIDTH: u16 = 66;
+    const MEDIUM_HEIGHT: u16 = 6;
+    const MEDIUM: &str = r#"
+888888 88""Yb  dP"Yb  88     88     .dP"Y8 888888  dP"Yb  Yb    dP
+  88   88__dP dP   Yb 88     88     `Ybo."   88   dP   Yb  Yb  dP 
+  88   88"Yb  Yb   dP 88  .o 88  .o o.`Y8b   88   Yb   dP   YbdP  
+  88   88  Yb  YbodP  88ood8 88ood8 8bodP'   88    YbodP     YP   
+"#;
+
+    const BIG_WIDTH: u16 = 98;
+    const BIG_HEIGHT: u16 = 9;
+    const BIG: &str = r#"
+::::::::::: :::::::::   ::::::::  :::        :::        :::::::: ::::::::::: ::::::::  :::     :::
+    :+:     :+:    :+: :+:    :+: :+:        :+:       :+:    :+:    :+:    :+:    :+: :+:     :+:
+    +:+     +:+    +:+ +:+    +:+ +:+        +:+       +:+           +:+    +:+    +:+ +:+     +:+
+    +#+     +#++:++#:  +#+    +:+ +#+        +#+       +#++:++#++    +#+    +#+    +:+ +#+     +:+
+    +#+     +#+    +#+ +#+    +#+ +#+        +#+              +#+    +#+    +#+    +#+  +#+   +#+ 
+    #+#     #+#    #+# #+#    #+# #+#        #+#       #+#    #+#    #+#    #+#    #+#   #+#+#+#  
+    ###     ###    ###  ########  ########## ########## ########     ###     ########      ###    
+"#;
+
+    const fn from_size(size: Size) -> Self {
+        if size.cols > Self::BIG_WIDTH + 8 && size.rows > Self::BIG_HEIGHT + 4 {
+            Self::Large
+        } else if size.cols > Self::MEDIUM_WIDTH + 4 && size.rows > Self::MEDIUM_HEIGHT + 2 {
+            Self::Medium
+        } else if size.cols > Self::SMALL_WIDTH + 2 && size.rows > Self::SMALL_HEIGHT + 1 {
+            Self::Small
+        } else {
+            Self::Tiny
+        }
+    }
+
+    const fn size(&self) -> Size {
+        match self {
+            Self::Tiny => Size::new(Self::TINY_WIDTH, Self::TINY_HEIGHT),
+            Self::Small => Size::new(Self::SMALL_WIDTH, Self::SMALL_HEIGHT),
+            Self::Medium => Size::new(Self::MEDIUM_WIDTH, Self::MEDIUM_HEIGHT),
+            Self::Large => Size::new(Self::BIG_WIDTH, Self::BIG_HEIGHT),
+        }
+    }
+
+    const fn ascii(&self) -> &'static str {
+        match self {
+            Self::Tiny => Self::TINY,
+            Self::Small => Self::SMALL,
+            Self::Medium => Self::MEDIUM,
+            Self::Large => Self::BIG,
+        }
     }
 }
