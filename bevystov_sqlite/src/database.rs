@@ -40,18 +40,7 @@ pub enum DatabaseLoadEvent {
 }
 
 impl Database {
-    fn new(sqlite: Sqlite) -> Self {
-        Self {
-            sqlite,
-            sql: String::new(),
-            sort: TrackSort::default(),
-            reverse_sort: false,
-            scanner: None,
-            writer: RatingsWriter::new(),
-        }
-    }
-
-    pub fn open(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
+    pub fn new(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
         let sqlite = if in_memory {
             Sqlite::open_in_memory().map_err(|err| DatabaseError {
                 message: String::from("Failed to open database in-memory"),
@@ -67,10 +56,21 @@ impl Database {
             })
         }?;
 
-        let mut db = Self::new(sqlite);
-        db.migrate(music_dir)?;
+        sqlite
+            .execute_batch(include_str!("database/schema.sql"))
+            .map_err(|err| DatabaseError {
+                message: String::from("Failed to execute schema"),
+                source: Some(DatabaseErrorSource::Sqlite(err)),
+            })?;
 
-        Ok(db)
+        Ok(Self {
+            sqlite,
+            sql: String::new(),
+            sort: TrackSort::default(),
+            reverse_sort: false,
+            scanner: Some(Scanner::new(music_dir)),
+            writer: RatingsWriter::new(),
+        })
     }
 
     pub fn load(&mut self) {
@@ -546,39 +546,6 @@ impl Database {
             [track_id],
         )
         .unwrap();
-    }
-
-    fn migrate(&mut self, music_dir: PathBuf) -> DatabaseResult<()> {
-        const VERSION: SqliteId = 1;
-
-        let version = self.sqlite.version();
-        let rescan = match version {
-            0 => {
-                self.sqlite
-                    .execute_batch(include_str!("database/schema.sql"))
-                    .map_err(|err| DatabaseError {
-                        message: String::from("Failed to execute schema"),
-                        source: Some(DatabaseErrorSource::Sqlite(err)),
-                    })?;
-                // TODO: Add dir metadata.
-                true
-            }
-            VERSION => {
-                // TODO: Compare dir metadata -> either keep or rescan.
-                false
-            }
-            _ => {
-                // TODO: Either delete or purge current db. Rescan.
-                true
-            }
-        };
-
-        if rescan {
-            self.scanner = Some(Scanner::new(music_dir));
-            self.sqlite.set_version(VERSION);
-        }
-
-        Ok(())
     }
 }
 
