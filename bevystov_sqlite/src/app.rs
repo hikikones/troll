@@ -151,7 +151,7 @@ impl App {
 
     fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         // Start loading
-        // self.world.non_send_mut::<Database>().load();
+        self.world.non_send_mut::<Database>().load();
 
         // Temporary system for loading
         fn load_database_system(
@@ -163,21 +163,20 @@ impl App {
             mut progress: Local<u32>,
         ) {
             // Poll database for scanning progress
-            // database.poll_receiver(|event| match event {
-            //     DatabaseLoadEvent::Start(total_files) => {
-            //         *len = total_files;
-            //     }
-            //     DatabaseLoadEvent::Progress(i) => {
-            //         *progress = i;
-            //     }
-            //     DatabaseLoadEvent::ScanError(err) => {
-            //         logs.push_err(err);
-            //     }
-            // });
+            database.poll_receiver(|event| match event {
+                DatabaseLoadEvent::Start(total_files) => {
+                    *len = total_files;
+                }
+                DatabaseLoadEvent::Progress(i) => {
+                    *progress = i;
+                }
+                DatabaseLoadEvent::ScanError(err) => {
+                    logs.push_err(err);
+                }
+            });
 
             // Render
             let (len, progress) = (*len, *progress);
-            let (len, progress) = (10000, 5000);
 
             let area = frame.area();
 
@@ -191,13 +190,6 @@ impl App {
                 );
                 return;
             }
-
-            // let (logo_area, progress_area, shortcut_area) = {
-            //     let (area, bottom) = frame.area().split_bottom(1, 0);
-            //     // let (top, middle) = area.split_bottom(area.rows() / 3, 0);
-            //     let (top, middle) = area.split_horizontally();
-            //     (top, middle, bottom)
-            // };
 
             let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
 
