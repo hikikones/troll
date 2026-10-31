@@ -178,11 +178,11 @@ impl App {
             // Render progress
             let (len, progress) = (*len, *progress);
             let area = frame.area();
-            let colors = settings.colors();
+            let _colors = settings.colors();
 
             if len == 0 {
                 // Not started yet
-                frame.print_span_with(area, "LOADING", SpanOptions::center());
+                frame.print_span_with(area, "Loading Database", SpanOptions::center());
                 return;
             }
 
@@ -205,6 +205,7 @@ impl App {
                     self.schedules.startup.run(&mut self.world);
                     self.run_state_transitions();
                     self.run_render(terminal)?;
+                    self.timers.render.reset();
                     break;
                 }
             }
