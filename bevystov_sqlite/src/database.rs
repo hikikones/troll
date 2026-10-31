@@ -25,6 +25,7 @@ pub struct Database {
     reverse_sort: bool,
     scanner: Option<Scanner>,
     writer: RatingsWriter,
+    tracks_len: u32,
 }
 
 pub enum DatabaseEvent {
@@ -70,6 +71,7 @@ impl Database {
             reverse_sort: false,
             scanner: Some(Scanner::new(music_dir)),
             writer: RatingsWriter::new(),
+            tracks_len: 0,
         })
     }
 
@@ -103,19 +105,12 @@ impl Database {
         self.reverse_sort = !self.reverse_sort;
     }
 
-    pub fn is_tracks_empty(&self) -> bool {
-        self.sqlite
-            .single("SELECT NOT EXISTS (SELECT 1 FROM tracks)", (), |row| {
-                row.get(0)
-            })
-            .unwrap()
+    pub const fn is_tracks_empty(&self) -> bool {
+        self.tracks_len == 0
     }
 
-    pub fn tracks_len(&self) -> usize {
-        self.sqlite
-            .single::<SqliteId>("SELECT COUNT(*) FROM tracks", (), |row| row.get(0))
-            .map(|len| len as usize)
-            .unwrap()
+    pub const fn tracks_len(&self) -> u32 {
+        self.tracks_len
     }
 
     pub fn track_title(&self, id: TrackId, mut f: impl FnMut(&str)) {
@@ -427,9 +422,12 @@ impl Database {
             on_event(DatabaseLoadEvent::Progress(progress));
         }
 
-        if !is_done {
-            self.scanner = Some(scanner);
+        if is_done {
+            self.set_tracks_len();
+            return;
         }
+
+        self.scanner = Some(scanner);
     }
 
     pub fn poll_writer(
@@ -453,6 +451,13 @@ impl Database {
                 source: Some(DatabaseErrorSource::Audio(error)),
             });
         }
+    }
+
+    fn set_tracks_len(&mut self) {
+        self.tracks_len = self
+            .sqlite
+            .single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0))
+            .unwrap();
     }
 
     fn set_track_rating(&self, id: TrackId, rating: TrackRating) {
