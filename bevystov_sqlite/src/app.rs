@@ -177,8 +177,8 @@ impl App {
 
             // Render progress
             let (len, progress) = (*len, *progress);
-            let area = frame.area();
-            let _colors = settings.colors();
+            let (area, bottom) = frame.area().split_bottom(1, 0);
+            let colors = settings.colors();
 
             if len == 0 {
                 // Not started yet
@@ -186,9 +186,15 @@ impl App {
                 return;
             }
 
-            // In progress
+            // Progress
             frame.push_fmt(format_args!("{progress} / {len}"));
             frame.render(area, TextOptions::span_center());
+
+            // Shortcut
+            frame.push_str_fg("Esc", colors.primary);
+            frame.push_ch(' ');
+            frame.push_str_fg("Quit", colors.normal);
+            frame.render(bottom, TextOptions::span_center_top());
         }
 
         let load_db_sid = self.world.register_system(load_database_system);
