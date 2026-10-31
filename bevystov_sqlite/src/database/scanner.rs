@@ -10,8 +10,8 @@ use crate::database::{
     AudioExt, AudioFile, AudioFileError, AudioResult, TrackDuration, TrackRating,
 };
 
-type Sender = std::sync::mpsc::Sender<ScanResult>;
-type Receiver = std::sync::mpsc::Receiver<ScanResult>;
+type Sender = std::sync::mpsc::Sender<ScanEvent>;
+type Receiver = std::sync::mpsc::Receiver<ScanEvent>;
 
 pub struct Scanner {
     sender: Option<(Sender, PathBuf)>,
@@ -19,14 +19,10 @@ pub struct Scanner {
 }
 
 pub enum ScanEvent {
-    Track(ScannedTrack),
+    Files(usize),
+    Track(usize, ScannedTrack),
     Error(PathBuf, AudioFileError),
     Done,
-}
-
-enum ScanResult {
-    Success(ScannedTrack),
-    Error(PathBuf, AudioFileError),
 }
 
 impl Scanner {
@@ -44,30 +40,36 @@ impl Scanner {
         };
 
         std::thread::spawn(move || {
+            let files = collect_files(dir, true);
+            let _ = sender.send(ScanEvent::Files(files.len()));
+
             let mut track = ScannedTrack::default();
+            let mut i = 1;
 
-            traverse_files(dir, true, |path, ext| {
-                let result = match process_file(path, ext, &mut track) {
-                    Ok(track) => ScanResult::Success(track),
-                    Err(err) => ScanResult::Error(path.to_path_buf(), err),
+            for (path, ext) in files {
+                let event = match process_file(&path, ext, &mut track) {
+                    Ok(track) => ScanEvent::Track(i, track),
+                    Err(err) => ScanEvent::Error(path, err),
                 };
-                let _ = sender.send(result);
+                let _ = sender.send(event);
 
+                i += 1;
                 track.clear();
-            });
+            }
+
+            // TODO: remove
+            for t in ScannedTrack::test() {
+                let _ = sender.send(ScanEvent::Track(i, t));
+                i += 1;
+            }
         });
     }
 
     pub fn recv(&self) -> Option<ScanEvent> {
         match self.receiver.try_recv() {
-            Ok(result) => match result {
-                ScanResult::Success(track) => Some(ScanEvent::Track(track)),
-                ScanResult::Error(path, err) => Some(ScanEvent::Error(path, err)),
-            },
-            Err(err) => match err {
-                TryRecvError::Empty => None,
-                TryRecvError::Disconnected => Some(ScanEvent::Done),
-            },
+            Ok(event) => Some(event),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => Some(ScanEvent::Done),
         }
     }
 }
@@ -96,7 +98,7 @@ struct Data {
 
 impl ScannedTrack {
     // TODO: Remove
-    pub fn test() -> Vec<ScannedTrack> {
+    fn test() -> Vec<ScannedTrack> {
         let mut v = vec![];
 
         let t = v.push_mut(Self::default());
@@ -210,16 +212,14 @@ fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioRe
     Ok(track.clone())
 }
 
-fn traverse_files(root: impl AsRef<Path>, follow_links: bool, mut f: impl FnMut(&Path, AudioExt)) {
+fn collect_files(root: impl AsRef<Path>, follow_links: bool) -> Vec<(PathBuf, AudioExt)> {
     walkdir::WalkDir::new(root)
         .follow_links(follow_links)
         .into_iter()
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_file())
-        .for_each(|entry| {
-            let path = entry.path();
-            if let Some(ext) = AudioExt::from_path(path) {
-                f(path, ext);
-            }
-        });
+        .filter_map(|entry| {
+            AudioExt::from_path(entry.path()).map(|ext| (entry.path().to_path_buf(), ext))
+        })
+        .collect::<Vec<_>>()
 }

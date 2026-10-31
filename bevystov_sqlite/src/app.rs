@@ -4,7 +4,7 @@ use ecs::*;
 use terminal::*;
 
 use crate::{
-    database::{Database, DatabaseEvent},
+    database::{Database, DatabaseEvent, DatabaseLoadEvent},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
@@ -111,26 +111,40 @@ impl App {
         self.world.non_send_mut::<Database>().load();
 
         fn load_stuff(
-            screen_size: Res<ScreenSize>,
             mut frame: ResMut<Framebuffer>,
             mut database: NonSendMut<Database>,
+            mut logs: ResMut<Logs>,
             settings: Res<Settings>,
+            mut len: Local<usize>,
+            mut progress: Local<usize>,
         ) {
             // Poll db
-            database.poll_receiver(|db, event| {
-                match event {
-                    DatabaseEvent::Track(id) => {}
-                    DatabaseEvent::Error(err) => {}
-                    DatabaseEvent::FinishedLoading => {
-                        //todo?
-                    }
+            database.poll_receiver(|event| match event {
+                DatabaseLoadEvent::Start(total_files) => {
+                    *len = total_files;
+                }
+                DatabaseLoadEvent::Progress(i) => {
+                    *progress = i;
+                }
+                DatabaseLoadEvent::ScanError(err) => {
+                    logs.push_err(err);
                 }
             });
+
+            let (len, progress) = (*len, *progress);
 
             // Render
             let area = frame.area();
             let colors = settings.colors();
-            frame.print_span_with(area, "LOADING DATABASE", SpanOptions::center());
+
+            if len == 0 {
+                // Not started yet
+                frame.print_span_with(area, "LOADING", SpanOptions::center());
+                return;
+            }
+
+            frame.push_fmt(format_args!("{progress} / {len}"));
+            frame.render(area, TextOptions::span_center());
         }
 
         let sys_id = self.world.register_system(load_stuff);
