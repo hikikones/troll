@@ -79,7 +79,7 @@ impl Database {
         }
     }
 
-    pub const fn has_finished_loaed(&self) -> bool {
+    pub const fn has_finished_loading(&self) -> bool {
         self.scanner.is_none()
     }
 

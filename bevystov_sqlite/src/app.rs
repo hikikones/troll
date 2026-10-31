@@ -200,7 +200,7 @@ impl App {
                     .resource_mut::<Framebuffer>()
                     .flush(&mut terminal.lock())?;
 
-                if self.world.non_send::<Database>().has_finished_loaed() {
+                if self.world.non_send::<Database>().has_finished_loading() {
                     // Init first run
                     self.schedules.startup.run(&mut self.world);
                     self.run_state_transitions();
