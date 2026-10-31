@@ -73,6 +73,10 @@ impl Database {
         }
     }
 
+    pub const fn has_finished_loaed(&self) -> bool {
+        self.scanner.is_none()
+    }
+
     pub fn path(&self) -> Option<&Path> {
         self.sqlite.path().map(Path::new)
     }
@@ -385,10 +389,50 @@ impl Database {
     pub fn update(
         &mut self,
         current_track_id: Option<TrackId>,
-        mut on_event: impl FnMut(&mut Self, DatabaseEvent),
+        on_event: impl FnMut(&mut Self, DatabaseEvent),
     ) {
-        self.receive_files(&mut on_event);
+        // self.receive_files(&mut on_event);
         self.poll_writer(current_track_id, on_event);
+    }
+
+    pub fn poll_receiver(&mut self, mut on_event: impl FnMut(&mut Self, DatabaseEvent)) {
+        let Some(scanner) = self.scanner.take() else {
+            return;
+        };
+
+        let mut is_done = false;
+
+        while let Some(event) = scanner.recv() {
+            match event {
+                ScanEvent::Track(track) => {
+                    let id = self.add_track(track);
+                    on_event(self, DatabaseEvent::Track(id));
+                }
+                ScanEvent::Error(path, err) => {
+                    on_event(self, DatabaseEvent::Error(DatabaseError {
+                        message: format!("Failed to scan audio file '{}'", path.display()),
+                        source: Some(DatabaseErrorSource::Audio(err)),
+                    }));
+                }
+                ScanEvent::Done => {
+                    is_done = true;
+                    break;
+                }
+            }
+        }
+
+        if !is_done {
+            self.scanner = Some(scanner);
+            return;
+        }
+
+        // TODO: remove
+        for track in ScannedTrack::test() {
+            let id = self.add_track(track);
+            on_event(self, DatabaseEvent::Track(id));
+        }
+
+        on_event(self, DatabaseEvent::FinishedLoading);
     }
 
     fn receive_files(&mut self, mut on_event: impl FnMut(&mut Self, DatabaseEvent)) {

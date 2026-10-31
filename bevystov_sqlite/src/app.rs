@@ -8,7 +8,7 @@ use crate::{
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
-    pages::{Page, PagesPlugin, Route, TracksParam, TracksSorted},
+    pages::{Page, PagesPlugin, Route, TracksParam},
     settings::{Colors, Settings},
 };
 
@@ -70,8 +70,14 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
-        self.init(terminal)?;
+        // self.init(terminal)?;
 
+        self.update_size()?;
+
+        // load loop
+        self.run_load_loop(terminal)?;
+
+        // event loop
         while self.is_running {
             if self.timers.update.tick() {
                 self.run_update(terminal)?;
@@ -97,6 +103,70 @@ impl App {
 
             self.world.clear_trackers();
         }
+
+        Ok(())
+    }
+
+    fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        self.world.non_send_mut::<Database>().load();
+
+        fn load_stuff(
+            screen_size: Res<ScreenSize>,
+            mut frame: ResMut<Framebuffer>,
+            mut database: NonSendMut<Database>,
+            settings: Res<Settings>,
+        ) {
+            // Poll db
+            database.poll_receiver(|db, event| {
+                match event {
+                    DatabaseEvent::Track(id) => {}
+                    DatabaseEvent::Error(err) => {}
+                    DatabaseEvent::FinishedLoading => {
+                        //todo?
+                    }
+                }
+            });
+
+            // Render
+            let area = frame.area();
+            let colors = settings.colors();
+            frame.print_span_with(area, "LOADING DATABASE", SpanOptions::center());
+        }
+
+        let sys_id = self.world.register_system(load_stuff);
+
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.world.run_system(sys_id).unwrap();
+                self.world
+                    .resource_mut::<Framebuffer>()
+                    .flush(&mut terminal.lock())?;
+
+                if self.world.non_send::<Database>().has_finished_loaed() {
+                    // Init first run
+                    self.schedules.startup.run(&mut self.world);
+                    self.run_state_transitions();
+                    self.run_render(terminal)?;
+                    break;
+                }
+            }
+
+            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+                match event {
+                    TerminalEvent::Key(key) => {
+                        if let KeyCode::Esc = key.code {
+                            self.is_running = false;
+                            break;
+                        }
+                    }
+                    TerminalEvent::Resize => {
+                        self.update_size()?;
+                    }
+                }
+            };
+        }
+
+        self.world.unregister_system(sys_id).unwrap();
 
         Ok(())
     }
@@ -135,6 +205,14 @@ impl App {
         systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
     ) -> &mut Self {
         self.world.add_exit(state, systems);
+        self
+    }
+
+    pub fn add_startup<M>(
+        &mut self,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.schedules.startup.add_systems(systems);
         self
     }
 
@@ -330,6 +408,7 @@ impl Timers {
 }
 
 struct Schedules {
+    startup: Schedule,
     input: Schedule,
     update: Schedule,
     render: Schedule,
@@ -360,6 +439,7 @@ impl Schedules {
         );
 
         Self {
+            startup: Schedule::default(),
             input,
             render,
             update: Schedule::default(),
@@ -739,7 +819,7 @@ fn update_app(
     mut jukebox: NonSendMut<Jukebox>,
     media_controls: Option<NonSend<MediaControls>>,
     mut logs: ResMut<Logs>,
-    mut tracks: ResMut<TracksSorted>,
+    // mut tracks: ResMut<TracksSorted>,
     mut actions: ResMut<Actions>,
     settings: Res<Settings>,
 ) {
@@ -747,13 +827,13 @@ fn update_app(
 
     database.update(jukebox.track_id(), |db, event| match event {
         DatabaseEvent::Track(id) => {
-            tracks.push(id);
+            // tracks.push(id);
         }
         DatabaseEvent::Error(err) => {
             logs.push_err(err);
         }
         DatabaseEvent::FinishedLoading => {
-            tracks.sort(db);
+            // tracks.sort(db);
             render = true;
         }
     });

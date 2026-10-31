@@ -17,8 +17,9 @@ impl TracksPagePlugin {
         app.insert_resource(TracksParam::default())
             .insert_resource(TracksList::default())
             .insert_resource(TracksSorted::default())
+            .add_startup(tracks_startup)
+            .add_enter(Page::Tracks, tracks_enter)
             .add_input(InputSet::Page, input_tracks.run_if(in_state(Page::Tracks)))
-            .add_enter(Page::Tracks, enter_tracks)
             .add_render(
                 RenderSet::Page,
                 render_tracks.run_if(in_state(Page::Tracks)),
@@ -49,7 +50,7 @@ impl Default for TracksList {
 }
 
 #[derive(Debug, Default, Resource, Deref)]
-pub struct TracksSorted(Vec<TrackId>);
+struct TracksSorted(Vec<TrackId>);
 
 impl TracksSorted {
     fn id(&self, index: usize) -> TrackId {
@@ -64,11 +65,7 @@ impl TracksSorted {
             .unwrap()
     }
 
-    pub fn push(&mut self, id: TrackId) {
-        self.0.push(id);
-    }
-
-    pub fn sort(&mut self, database: &mut Database) {
+    fn sort(&mut self, database: &mut Database) {
         self.0.clear();
         self.0.extend(database.tracks_sort());
     }
@@ -119,7 +116,11 @@ impl TableAreas {
     }
 }
 
-fn enter_tracks(
+fn tracks_startup(mut tracks: ResMut<TracksSorted>, mut database: NonSendMut<Database>) {
+    tracks.sort(&mut database);
+}
+
+fn tracks_enter(
     mut param: ResMut<TracksParam>,
     mut list: ResMut<TracksList>,
     tracks: Res<TracksSorted>,
