@@ -16,8 +16,6 @@ impl TracksPagePlugin {
     pub fn build(app: &mut App) {
         app.insert_resource(TracksParam::default())
             .insert_resource(TracksList::default())
-            .insert_resource(TracksSorted::default())
-            .add_startup(tracks_startup)
             .add_enter(Page::Tracks, tracks_enter)
             .add_input(InputSet::Page, input_tracks.run_if(in_state(Page::Tracks)))
             .add_render(
@@ -46,28 +44,6 @@ impl Default for TracksList {
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1).with_top(1)),
         )
-    }
-}
-
-#[derive(Debug, Default, Resource, Deref)]
-struct TracksSorted(Vec<TrackId>);
-
-impl TracksSorted {
-    fn id(&self, index: usize) -> TrackId {
-        self[index]
-    }
-
-    fn index(&self, id: TrackId) -> usize {
-        self.iter()
-            .enumerate()
-            .find(|(_, tid)| id == **tid)
-            .map(|(i, _)| i)
-            .unwrap()
-    }
-
-    fn sort(&mut self, database: &mut Database) {
-        self.0.clear();
-        self.0.extend(database.tracks_sort());
     }
 }
 
@@ -116,26 +92,21 @@ impl TableAreas {
     }
 }
 
-fn tracks_startup(mut tracks: ResMut<TracksSorted>, mut database: NonSendMut<Database>) {
-    tracks.sort(&mut database);
-}
-
 fn tracks_enter(
     mut param: ResMut<TracksParam>,
     mut list: ResMut<TracksList>,
-    tracks: Res<TracksSorted>,
+    database: NonSend<Database>,
 ) {
     let Some(id) = param.0.take() else {
         return;
     };
 
-    let index = tracks.index(id);
+    let index = database.tracks_sorted_index(id);
     list.set_index(index).set_selector(None);
 }
 
 fn input_tracks(
     input: Res<Input>,
-    mut tracks: ResMut<TracksSorted>,
     mut database: NonSendMut<Database>,
     mut jukebox: NonSendMut<Jukebox>,
     mut list: ResMut<TracksList>,
@@ -148,7 +119,7 @@ fn input_tracks(
 
     match key.code {
         KeyCode::Enter => {
-            let id = tracks.id(list.index());
+            let id = database.tracks_sorted_id(list.index());
             jukebox.play_id(id, &database);
         }
         KeyCode::Char(c) => match c {
@@ -156,7 +127,7 @@ fn input_tracks(
                 let rating = TrackRating::from_char(c).unwrap();
                 let mut render = false;
                 for i in list.selection_inclusive() {
-                    let id = tracks.id(i);
+                    let id = database.tracks_sorted_id(i);
                     if database.write_rating(id, rating) {
                         render = true;
                     }
@@ -167,35 +138,34 @@ fn input_tracks(
                 }
             }
             'q' => {
-                jukebox.extend(list.selection_inclusive().map(|i| tracks.id(i)));
+                jukebox.extend(
+                    list.selection_inclusive()
+                        .map(|i| database.tracks_sorted_id(i)),
+                );
             }
             'n' => {
                 for i in list.selection_inclusive().rev() {
-                    let id = tracks.id(i);
+                    let id = database.tracks_sorted_id(i);
                     jukebox.add_next(id);
                 }
             }
             's' => {
                 if settings.keep_selected() {
-                    let id = tracks.id(list.index());
+                    let id = database.tracks_sorted_id(list.index());
                     database.next_sort();
-                    tracks.sort(&mut database);
-                    list.set_index(tracks.index(id));
+                    list.set_index(database.tracks_sorted_index(id));
                 } else {
                     database.next_sort();
-                    tracks.sort(&mut database);
                 }
                 actions.push(Action::Render);
             }
             'S' => {
                 if settings.keep_selected() {
-                    let id = tracks.id(list.index());
+                    let id = database.tracks_sorted_id(list.index());
                     database.toggle_reverse_sort();
-                    tracks.0.reverse();
-                    list.set_index(tracks.index(id));
+                    list.set_index(database.tracks_sorted_index(id));
                 } else {
                     database.toggle_reverse_sort();
-                    tracks.0.reverse();
                 }
                 actions.push(Action::Render);
             }
@@ -219,14 +189,13 @@ fn render_tracks(
     mut frame: ResMut<Framebuffer>,
     settings: Res<Settings>,
     mut list: ResMut<TracksList>,
-    tracks: Res<TracksSorted>,
     mut database: NonSendMut<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
     let area = **area;
     let colors = settings.colors();
 
-    if tracks.is_empty() {
+    if database.is_tracks_empty() {
         frame.print_fmt(Sgr::Fg(colors.neutral));
         frame.print_span_with(area, "No tracks to be found", SpanOptions::center());
         frame.print_fmt(Sgr::reset_fg());
@@ -237,7 +206,7 @@ fn render_tracks(
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
     frame.push_fmt_fg(
-        format_args!(" All Tracks ({}) ", tracks.len()),
+        format_args!(" All Tracks ({}) ", database.tracks_len()),
         colors.normal,
     );
     frame.render(area, TextOptions::span_center_top());
@@ -248,7 +217,6 @@ fn render_tracks(
         &mut frame,
         colors,
         &mut list,
-        &tracks,
         &mut database,
         &jukebox,
     );
@@ -261,12 +229,11 @@ fn render_table(
     frame: &mut Framebuffer,
     colors: &Colors,
     list: &mut List,
-    tracks: &TracksSorted,
     database: &mut Database,
     jukebox: &Jukebox,
 ) {
     let Some((table_area, lines)) = list
-        .set_len(tracks.len())
+        .set_len(database.tracks_len() as usize)
         .set_colors(colors.list())
         .render(area, frame)
     else {
@@ -317,7 +284,7 @@ fn render_table(
     let current_track = jukebox.track_id();
     let mut row = table_area.pos.row;
 
-    for (index, id) in lines.map(|i| (i, tracks.id(i))) {
+    for index in lines {
         let mut style = if index == selected {
             frame.fill(line.with_row(row), colors.primary, true);
             Style::fg(colors.primary).with_reverse()
@@ -327,6 +294,8 @@ fn render_table(
         } else {
             Style::fg(colors.normal)
         };
+
+        let id = database.tracks_sorted_id(index);
 
         if current_track == Some(id) {
             style.insert(Attributes::BOLD);
