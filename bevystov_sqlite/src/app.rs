@@ -115,14 +115,6 @@ impl App {
         self
     }
 
-    pub fn add_startup<M>(
-        &mut self,
-        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
-    ) -> &mut Self {
-        self.schedules.startup.add_systems(systems);
-        self
-    }
-
     pub fn add_input<M>(
         &mut self,
         set: InputSet,
@@ -164,7 +156,6 @@ impl App {
 
                 if self.world.non_send::<Database>().has_finished_loading() {
                     // Init first run
-                    self.schedules.startup.run(&mut self.world);
                     self.run_state_transitions();
                     self.run_render(terminal)?;
                     self.timers.render.reset();
@@ -376,7 +367,6 @@ impl Timers {
 }
 
 struct Schedules {
-    startup: Schedule,
     input: Schedule,
     update: Schedule,
     render: Schedule,
@@ -407,7 +397,6 @@ impl Schedules {
         );
 
         Self {
-            startup: Schedule::default(),
             input,
             render,
             update: Schedule::default(),
