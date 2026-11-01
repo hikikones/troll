@@ -33,8 +33,9 @@ impl Terminal<Stdout> {
         crossterm::event::read().map(|ev| TerminalEvent::from(ev))
     }
 
-    // TODO: The first poll sometimes blocks even with a valid timeout.
+    // TODO: The first poll sometimes blocks forever even with a valid timeout.
     // Seems to be a bug in crossterm, as any manual input when blocked will make it work again.
+    // Reading crossterm event from another thread also triggers this bug.
 
     /// Polls and reads a terminal event in a non-blocking manner.
     pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TerminalEvent>> {
