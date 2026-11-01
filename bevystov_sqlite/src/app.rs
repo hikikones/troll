@@ -189,9 +189,13 @@ impl App {
                 self.run_update(terminal)?;
             }
 
-            let screen_height = self.world.resource::<ScreenSize>().height();
-            if self.timers.render.tick() && screen_height == ScreenHeight::Tall {
-                self.run_render(terminal)?;
+            if self.timers.render.tick() {
+                let is_paused = self.world.non_send::<Jukebox>().is_paused();
+                let is_tall = self.world.resource::<ScreenSize>().is_tall();
+
+                if is_tall && !is_paused {
+                    self.run_render(terminal)?;
+                }
             }
 
             if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
