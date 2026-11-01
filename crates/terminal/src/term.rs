@@ -33,6 +33,10 @@ impl Terminal<Stdout> {
         crossterm::event::read().map(|ev| TerminalEvent::from(ev))
     }
 
+    // TODO: The first poll sometimes blocks forever even with a valid timeout.
+    // Seems to be a bug in crossterm, as any manual input when blocked will make it work again.
+    // Reading crossterm event from another thread also triggers this bug.
+
     /// Polls and reads a terminal event in a non-blocking manner.
     pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TerminalEvent>> {
         match crossterm::event::poll(timeout) {
@@ -222,6 +226,10 @@ impl ScreenSize {
 
     pub const fn both(&self) -> (ScreenWidth, ScreenHeight) {
         (self.width, self.height)
+    }
+
+    pub const fn is_tall(&self) -> bool {
+        matches!(self.height, ScreenHeight::Tall)
     }
 }
 
