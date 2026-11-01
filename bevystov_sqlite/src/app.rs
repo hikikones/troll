@@ -153,71 +153,7 @@ impl App {
         // Start loading
         self.world.non_send_mut::<Database>().load();
 
-        // Temporary system for loading
-        fn load_database_system(
-            mut database: NonSendMut<Database>,
-            mut frame: ResMut<Framebuffer>,
-            mut logs: ResMut<Logs>,
-            settings: Res<Settings>,
-            mut len: Local<u32>,
-            mut progress: Local<u32>,
-        ) {
-            // Poll database for scanning progress
-            database.poll_receiver(|event| match event {
-                DatabaseLoadEvent::Start(total_files) => {
-                    *len = total_files;
-                }
-                DatabaseLoadEvent::Progress(i) => {
-                    *progress = i;
-                }
-                DatabaseLoadEvent::ScanError(err) => {
-                    logs.push_err(err);
-                }
-            });
-
-            // Render
-            let (len, progress) = (*len, *progress);
-
-            let area = frame.area();
-
-            if len == 0 {
-                // Not started yet
-                let logo = Logo::from_size(area.size);
-                frame.push_str(logo.ascii());
-                frame.render(
-                    area.with_size(logo.size()).center(area),
-                    TextOptions::paragraph(),
-                );
-                return;
-            }
-
-            let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
-
-            let colors = settings.colors();
-            frame.print_fmt(Sgr::Fg(colors.neutral));
-
-            // Logo
-            let logo = Logo::from_size(logo_area.size);
-            frame.push_str(logo.ascii());
-            frame.render(
-                logo_area.with_size(logo.size()).center(logo_area),
-                TextOptions::paragraph(),
-            );
-
-            // Progress
-            frame.push_fmt(format_args!("{progress} / {len}"));
-            frame.render(progress_area, TextOptions::span_center_top());
-
-            frame.print_fmt(Sgr::reset_fg());
-
-            // Shortcut
-            frame.push_str_fg("Esc", colors.primary);
-            frame.push_ch(' ');
-            frame.push_str_fg("Quit", colors.normal);
-            frame.render(shortcut_area, TextOptions::span_center_top());
-        }
-
-        let load_db_sid = self.world.register_system(load_database_system);
+        let load_db_sid = self.world.register_system(load_database);
 
         while self.is_running {
             if self.timers.update.tick() {
@@ -906,6 +842,68 @@ fn update_app(
     if render {
         actions.push(Action::Render);
     }
+}
+
+fn load_database(
+    mut database: NonSendMut<Database>,
+    mut frame: ResMut<Framebuffer>,
+    mut logs: ResMut<Logs>,
+    settings: Res<Settings>,
+    mut len: Local<u32>,
+    mut progress: Local<u32>,
+) {
+    // Poll database for scanning progress
+    database.poll_receiver(|event| match event {
+        DatabaseLoadEvent::Start(total_files) => {
+            *len = total_files;
+        }
+        DatabaseLoadEvent::Progress(i) => {
+            *progress = i;
+        }
+        DatabaseLoadEvent::ScanError(err) => {
+            logs.push_err(err);
+        }
+    });
+
+    // Render
+    let (len, progress) = (*len, *progress);
+    let area = frame.area();
+
+    if len == 0 {
+        // Not started yet
+        let logo = Logo::from_size(area.size);
+        frame.push_str(logo.ascii());
+        frame.render(
+            area.with_size(logo.size()).center(area),
+            TextOptions::paragraph(),
+        );
+        return;
+    }
+
+    let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
+
+    let colors = settings.colors();
+    frame.print_fmt(Sgr::Fg(colors.neutral));
+
+    // Logo
+    let logo = Logo::from_size(logo_area.size);
+    frame.push_str(logo.ascii());
+    frame.render(
+        logo_area.with_size(logo.size()).center(logo_area),
+        TextOptions::paragraph(),
+    );
+
+    // Progress
+    frame.push_fmt(format_args!("{progress} / {len}"));
+    frame.render(progress_area, TextOptions::span_center_top());
+
+    frame.print_fmt(Sgr::reset_fg());
+
+    // Shortcut
+    frame.push_str_fg("Esc", colors.primary);
+    frame.push_ch(' ');
+    frame.push_str_fg("Quit", colors.normal);
+    frame.render(shortcut_area, TextOptions::span_center_top());
 }
 
 enum Logo {
