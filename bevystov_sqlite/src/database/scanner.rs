@@ -221,5 +221,5 @@ fn collect_files(root: impl AsRef<Path>, follow_links: bool) -> Vec<(PathBuf, Au
         .filter_map(|entry| {
             AudioExt::from_path(entry.path()).map(|ext| (entry.path().to_path_buf(), ext))
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
