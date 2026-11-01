@@ -29,6 +29,9 @@ CREATE TABLE artist_tracks (
     FOREIGN KEY (track_id) REFERENCES tracks (id) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
+-- Sorted tables
+CREATE TABLE tracks_sorted (id INTEGER PRIMARY KEY);
+
 -- Full-text search for tracks
 CREATE VIRTUAL TABLE track_fts USING fts5(
     title,

@@ -97,12 +97,14 @@ impl Database {
         self.reverse_sort
     }
 
-    pub const fn next_sort(&mut self) {
+    pub fn next_sort(&mut self) {
         self.sort = self.sort.next();
+        self.sort_tracks();
     }
 
-    pub const fn toggle_reverse_sort(&mut self) {
+    pub fn toggle_reverse_sort(&mut self) {
         self.reverse_sort = !self.reverse_sort;
+        self.sort_tracks();
     }
 
     pub const fn is_tracks_empty(&self) -> bool {
@@ -229,55 +231,52 @@ impl Database {
             .unwrap();
     }
 
-    pub fn tracks_sort(&mut self) -> impl Iterator<Item = TrackId> {
-        self.sql.clear();
-
-        let order = if self.reverse_sort { "DESC" } else { "ASC" };
-        let query = match self.sort {
-            TrackSort::Title => {
-                format_args!(
-                    "SELECT id, title FROM tracks \
-                    ORDER BY title COLLATE NOCASE {order}, id {order}"
-                )
-            }
-            TrackSort::Artist => {
-                format_args!(
-                    "SELECT \
-                        t.id, \
-                        GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE {order}) \
-                    FROM tracks t \
-                    JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
-                    JOIN artists ar ON ar.id = ar_t.artist_id \
-                    GROUP BY t.id \
-                    ORDER BY ar.name COLLATE NOCASE {order}, t.id {order}"
-                )
-            }
-            TrackSort::Album => {
-                format_args!(
-                    "SELECT t.id, al.name FROM tracks t \
-                    JOIN albums al ON al.id = t.album_id \
-                    ORDER BY al.name COLLATE NOCASE {order}, t.album_id {order}, t.number {order}, t.id {order}"
-                )
-            }
-            TrackSort::Time => {
-                format_args!(
-                    "SELECT id, duration FROM tracks \
-                    ORDER BY duration {order}, id {order}"
-                )
-            }
-            TrackSort::Rating => {
-                format_args!(
-                    "SELECT id, rating FROM tracks \
-                    ORDER BY rating {order}, id {order}"
-                )
-            }
-        };
-
-        self.sql.write(query);
+    pub fn tracks_sorted(&self, range: std::range::Range<usize>) -> impl Iterator<Item = TrackId> {
+        // SELECT
+        //     id,
+        //     ROW_NUMBER() OVER (ORDER BY rowid) AS row_number
+        // FROM tracks_sorted
+        // LIMIT ?1 OFFSET ?2;
+        let limit = (range.end - range.start) as SqliteId;
+        let offset = range.start as SqliteId;
         self.sqlite
-            .iter(&self.sql, (), |row| row.get(0))
+            .iter(
+                "SELECT id FROM tracks_sorted LIMIT ?1 OFFSET ?2",
+                [limit, offset],
+                |row| row.get(0),
+            )
             .unwrap()
             .map(Result::unwrap)
+    }
+
+    pub fn tracks_sorted_id(&self, index: usize) -> TrackId {
+        self.sqlite
+            .single(
+                "SELECT id FROM \
+                (SELECT \
+                    id, \
+                    ROW_NUMBER() OVER (ORDER BY rowid) - 1 AS row_number \
+                FROM tracks_sorted) \
+                WHERE row_number = ?1",
+                [index as SqliteId],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    pub fn tracks_sorted_index(&self, id: TrackId) -> usize {
+        self.sqlite
+            .single::<SqliteId>(
+                "SELECT row_number FROM \
+                        (SELECT \
+                            id, \
+                            ROW_NUMBER() OVER (ORDER BY rowid) - 1 AS row_number \
+                        FROM tracks_sorted) \
+                    WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap() as usize
     }
 
     pub fn album_name(&self, id: AlbumId, mut f: impl FnMut(&str)) {
@@ -424,6 +423,7 @@ impl Database {
 
         if is_done {
             self.set_tracks_len();
+            self.sort_tracks();
             return;
         }
 
@@ -464,6 +464,60 @@ impl Database {
         self.sqlite
             .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
             .unwrap();
+    }
+
+    fn sort_tracks(&mut self) {
+        self.sql.clear();
+
+        self.sqlite
+            .execute("DELETE FROM tracks_sorted", ())
+            .unwrap();
+
+        let order = if self.reverse_sort { "DESC" } else { "ASC" };
+        let query = match self.sort {
+            TrackSort::Title => {
+                format_args!(
+                    "SELECT id, title FROM tracks \
+                    ORDER BY title COLLATE NOCASE {order}, id {order}"
+                )
+            }
+            TrackSort::Artist => {
+                format_args!(
+                    "SELECT \
+                        t.id, \
+                        GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE {order}) \
+                    FROM tracks t \
+                    JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
+                    JOIN artists ar ON ar.id = ar_t.artist_id \
+                    GROUP BY t.id \
+                    ORDER BY ar.name COLLATE NOCASE {order}, t.id {order}"
+                )
+            }
+            TrackSort::Album => {
+                format_args!(
+                    "SELECT t.id, al.name FROM tracks t \
+                    JOIN albums al ON al.id = t.album_id \
+                    ORDER BY al.name COLLATE NOCASE {order}, t.album_id {order}, t.number {order}, t.id {order}"
+                )
+            }
+            TrackSort::Time => {
+                format_args!(
+                    "SELECT id, duration FROM tracks \
+                    ORDER BY duration {order}, id {order}"
+                )
+            }
+            TrackSort::Rating => {
+                format_args!(
+                    "SELECT id, rating FROM tracks \
+                    ORDER BY rating {order}, id {order}"
+                )
+            }
+        };
+        self.sql.write(format_args!(
+            "INSERT INTO tracks_sorted (id) SELECT id FROM ({query})"
+        ));
+
+        self.sqlite.execute(&self.sql, ()).unwrap();
     }
 
     fn add_track(tx: &Transaction, track: ScannedTrack) {
