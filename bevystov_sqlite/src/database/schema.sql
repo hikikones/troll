@@ -30,7 +30,10 @@ CREATE TABLE artist_tracks (
 );
 
 -- Sorted tables
-CREATE TABLE tracks_sorted (id INTEGER PRIMARY KEY);
+CREATE TABLE tracks_sorted (
+    position INTEGER PRIMARY KEY,
+    track_id INTEGER UNIQUE NOT NULL
+);
 
 -- Full-text search for tracks
 CREATE VIRTUAL TABLE track_fts USING fts5(

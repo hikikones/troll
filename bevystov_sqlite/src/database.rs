@@ -241,7 +241,7 @@ impl Database {
         let offset = range.start as SqliteId;
         self.sqlite
             .iter(
-                "SELECT id FROM tracks_sorted LIMIT ?1 OFFSET ?2",
+                "SELECT track_id FROM tracks_sorted LIMIT ?1 OFFSET ?2",
                 [limit, offset],
                 |row| row.get(0),
             )
@@ -249,15 +249,25 @@ impl Database {
             .map(Result::unwrap)
     }
 
+    // pub fn tracks_sorted_id(&self, index: usize) -> TrackId {
+    //     self.sqlite
+    //         .single(
+    //             "SELECT id FROM \
+    //             (SELECT \
+    //                 id, \
+    //                 ROW_NUMBER() OVER (ORDER BY rowid) - 1 AS row_number \
+    //             FROM tracks_sorted) \
+    //             WHERE row_number = ?1",
+    //             [index as SqliteId],
+    //             |row| row.get(0),
+    //         )
+    //         .unwrap()
+    // }
+
     pub fn tracks_sorted_id(&self, index: usize) -> TrackId {
         self.sqlite
             .single(
-                "SELECT id FROM \
-                (SELECT \
-                    id, \
-                    ROW_NUMBER() OVER (ORDER BY rowid) - 1 AS row_number \
-                FROM tracks_sorted) \
-                WHERE row_number = ?1",
+                "SELECT track_id FROM tracks_sorted WHERE position = ?",
                 [index as SqliteId],
                 |row| row.get(0),
             )
@@ -267,17 +277,27 @@ impl Database {
     pub fn tracks_sorted_index(&self, id: TrackId) -> usize {
         self.sqlite
             .single::<SqliteId>(
-                "SELECT row_number FROM \
-                        (SELECT \
-                            id, \
-                            ROW_NUMBER() OVER (ORDER BY rowid) - 1 AS row_number \
-                        FROM tracks_sorted) \
-                    WHERE id = ?1",
+                "SELECT position FROM tracks_sorted WHERE track_id = ?",
                 [id],
                 |row| row.get(0),
             )
             .unwrap() as usize
     }
+
+    // pub fn tracks_sorted_index(&self, id: TrackId) -> usize {
+    //     self.sqlite
+    //         .single::<SqliteId>(
+    //             "SELECT row_number FROM \
+    //                     (SELECT \
+    //                         id, \
+    //                         ROW_NUMBER() OVER (ORDER BY rowid) - 1 AS row_number \
+    //                     FROM tracks_sorted) \
+    //                 WHERE id = ?1",
+    //             [id],
+    //             |row| row.get(0),
+    //         )
+    //         .unwrap() as usize
+    // }
 
     pub fn album_name(&self, id: AlbumId, mut f: impl FnMut(&str)) {
         self.sqlite
@@ -469,9 +489,9 @@ impl Database {
     fn sort_tracks(&mut self) {
         self.sql.clear();
 
-        self.sqlite
-            .execute("DELETE FROM tracks_sorted", ())
-            .unwrap();
+        // self.sqlite
+        //     .execute("DELETE FROM tracks_sorted", ())
+        //     .unwrap();
 
         let order = if self.reverse_sort { "DESC" } else { "ASC" };
         let query = match self.sort {
@@ -513,11 +533,42 @@ impl Database {
                 )
             }
         };
-        self.sql.write(format_args!(
-            "INSERT INTO tracks_sorted (id) SELECT id FROM ({query})"
-        ));
+        self.sql.write(query);
 
-        self.sqlite.execute(&self.sql, ()).unwrap();
+        self.sqlite
+            .transaction(|tx| {
+                tx.execute("DELETE FROM tracks_sorted", ()).unwrap();
+
+                let mut query = tx.prepare(&self.sql).unwrap();
+                let mut rows = query.query(()).unwrap();
+                let mut insert = tx
+                    .prepare("INSERT INTO tracks_sorted (position, track_id) VALUES (?1, ?2)")
+                    .unwrap();
+
+                let mut index: SqliteId = 0;
+
+                while let Some(row) = rows.next().unwrap() {
+                    let track_id: SqliteId = row.get(0).unwrap();
+                    insert.execute((index, track_id)).unwrap();
+                    index += 1;
+                }
+
+                // for (index, row) in sorted_tracks
+                //     .query_map([], |row| Ok(row.get::<_, i64>(0)?))?
+                //     .enumerate()
+                // {
+                //     insert.execute((index as i64 + 1, row?))?;
+                // }
+
+                Ok(())
+            })
+            .unwrap();
+
+        // self.sql.write(format_args!(
+        //     "INSERT INTO tracks_sorted (id) SELECT id FROM ({query})"
+        // ));
+
+        // self.sqlite.execute(&self.sql, ()).unwrap();
     }
 
     fn add_track(tx: &Transaction, track: ScannedTrack) {
