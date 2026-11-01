@@ -4,11 +4,11 @@ use ecs::*;
 use terminal::*;
 
 use crate::{
-    database::{Database, DatabaseEvent},
+    database::{Database, DatabaseLoadEvent},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
-    pages::{Page, PagesPlugin, Route, TracksParam, TracksSorted},
+    pages::{Page, PagesPlugin, Route, TracksParam},
     settings::{Colors, Settings},
 };
 
@@ -70,33 +70,10 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
-        self.init(terminal)?;
+        self.update_size()?;
 
-        while self.is_running {
-            if self.timers.update.tick() {
-                self.run_update(terminal)?;
-            }
-
-            let screen_height = self.world.resource::<ScreenSize>().height();
-            if self.timers.render.tick() && screen_height == ScreenHeight::Tall {
-                self.run_render(terminal)?;
-            }
-
-            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
-                match event {
-                    TerminalEvent::Key(key) => {
-                        self.insert_resource(Input(Some(key)));
-                        self.run_input(terminal)?;
-                    }
-                    TerminalEvent::Resize => {
-                        self.update_size()?;
-                        self.run_render(terminal)?;
-                    }
-                }
-            };
-
-            self.world.clear_trackers();
-        }
+        self.run_load_loop(terminal)?;
+        self.run_event_loop(terminal)?;
 
         Ok(())
     }
@@ -138,6 +115,14 @@ impl App {
         self
     }
 
+    pub fn add_startup<M>(
+        &mut self,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.schedules.startup.add_systems(systems);
+        self
+    }
+
     pub fn add_input<M>(
         &mut self,
         set: InputSet,
@@ -162,6 +147,79 @@ impl App {
     ) -> &mut Self {
         self.schedules.render.add_systems(systems.in_set(set));
         self
+    }
+
+    fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        // Start loading
+        self.world.non_send_mut::<Database>().load();
+
+        let load_db_sid = self.world.register_system(load_database);
+
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.world.run_system(load_db_sid).unwrap();
+                self.world
+                    .resource_mut::<Framebuffer>()
+                    .flush(&mut terminal.lock())?;
+
+                if self.world.non_send::<Database>().has_finished_loading() {
+                    // Init first run
+                    self.schedules.startup.run(&mut self.world);
+                    self.run_state_transitions();
+                    self.run_render(terminal)?;
+                    self.timers.render.reset();
+                    break;
+                }
+            }
+
+            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+                match event {
+                    TerminalEvent::Key(key) => {
+                        if let KeyCode::Esc = key.code {
+                            self.is_running = false;
+                            break;
+                        }
+                    }
+                    TerminalEvent::Resize => {
+                        self.update_size()?;
+                    }
+                }
+            };
+        }
+
+        self.world.unregister_system(load_db_sid).unwrap();
+
+        Ok(())
+    }
+
+    fn run_event_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.run_update(terminal)?;
+            }
+
+            let screen_height = self.world.resource::<ScreenSize>().height();
+            if self.timers.render.tick() && screen_height == ScreenHeight::Tall {
+                self.run_render(terminal)?;
+            }
+
+            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+                match event {
+                    TerminalEvent::Key(key) => {
+                        self.insert_resource(Input(Some(key)));
+                        self.run_input(terminal)?;
+                    }
+                    TerminalEvent::Resize => {
+                        self.update_size()?;
+                        self.run_render(terminal)?;
+                    }
+                }
+            };
+
+            self.world.clear_trackers();
+        }
+
+        Ok(())
     }
 
     fn run_input(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
@@ -209,18 +267,6 @@ impl App {
         *screen_size = ScreenSize::new(size, ScreenSizeThresholds::DEFAULT);
 
         Ok(())
-    }
-
-    fn init(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
-        // Start database load
-        self.world.non_send_mut::<Database>().load();
-
-        // Update size
-        self.update_size()?;
-
-        // First run
-        self.run_state_transitions();
-        self.run_render(terminal)
     }
 
     fn apply_actions(&mut self) -> bool {
@@ -330,6 +376,7 @@ impl Timers {
 }
 
 struct Schedules {
+    startup: Schedule,
     input: Schedule,
     update: Schedule,
     render: Schedule,
@@ -360,6 +407,7 @@ impl Schedules {
         );
 
         Self {
+            startup: Schedule::default(),
             input,
             render,
             update: Schedule::default(),
@@ -737,25 +785,16 @@ fn render_shortcuts(
 fn update_app(
     mut database: NonSendMut<Database>,
     mut jukebox: NonSendMut<Jukebox>,
-    media_controls: Option<NonSend<MediaControls>>,
     mut logs: ResMut<Logs>,
-    mut tracks: ResMut<TracksSorted>,
     mut actions: ResMut<Actions>,
+    media_controls: Option<NonSend<MediaControls>>,
     settings: Res<Settings>,
 ) {
     let mut render = false;
 
-    database.update(jukebox.track_id(), |db, event| match event {
-        DatabaseEvent::Track(id) => {
-            tracks.push(id);
-        }
-        DatabaseEvent::Error(err) => {
-            logs.push_err(err);
-        }
-        DatabaseEvent::FinishedLoading => {
-            tracks.sort(db);
-            render = true;
-        }
+    database.poll_writer(jukebox.track_id(), |err| {
+        logs.push_err(err);
+        render = true;
     });
 
     if let Some(cmd) = media_controls.as_ref().and_then(|mc| mc.recv()) {
@@ -802,5 +841,139 @@ fn update_app(
 
     if render {
         actions.push(Action::Render);
+    }
+}
+
+fn load_database(
+    mut database: NonSendMut<Database>,
+    mut frame: ResMut<Framebuffer>,
+    mut logs: ResMut<Logs>,
+    settings: Res<Settings>,
+    mut len: Local<u32>,
+    mut progress: Local<u32>,
+) {
+    // Poll database for scanning progress
+    database.poll_receiver(|event| match event {
+        DatabaseLoadEvent::Start(total_files) => {
+            *len = total_files;
+        }
+        DatabaseLoadEvent::Progress(i) => {
+            *progress = i;
+        }
+        DatabaseLoadEvent::ScanError(err) => {
+            logs.push_err(err);
+        }
+    });
+
+    // Render
+    let (len, progress) = (*len, *progress);
+    let area = frame.area();
+
+    if len == 0 {
+        // Not started yet
+        let logo = Logo::from_size(area.size);
+        frame.push_str(logo.ascii());
+        frame.render(
+            area.with_size(logo.size()).center(area),
+            TextOptions::paragraph(),
+        );
+        return;
+    }
+
+    let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
+
+    let colors = settings.colors();
+    frame.print_fmt(Sgr::Fg(colors.neutral));
+
+    // Logo
+    let logo = Logo::from_size(logo_area.size);
+    frame.push_str(logo.ascii());
+    frame.render(
+        logo_area.with_size(logo.size()).center(logo_area),
+        TextOptions::paragraph(),
+    );
+
+    // Progress
+    frame.push_fmt(format_args!("{progress} / {len}"));
+    frame.render(progress_area, TextOptions::span_center_top());
+
+    frame.print_fmt(Sgr::reset_fg());
+
+    // Shortcut
+    frame.push_str_fg("Esc", colors.primary);
+    frame.push_ch(' ');
+    frame.push_str_fg("Quit", colors.normal);
+    frame.render(shortcut_area, TextOptions::span_center_top());
+}
+
+enum Logo {
+    Tiny,
+    Small,
+    Medium,
+    Large,
+}
+
+impl Logo {
+    const TINY_WIDTH: u16 = 9;
+    const TINY_HEIGHT: u16 = 1;
+    const TINY: &str = "TROLLSTOV";
+
+    const SMALL_WIDTH: u16 = 28;
+    const SMALL_HEIGHT: u16 = 5;
+    const SMALL: &str = r#"
+┌┬┐┬─┐┌─┐┬  ┬  ┌─┐┌┬┐┌─┐┬  ┬
+ │ ├┬┘│ ││  │  └─┐ │ │ │└┐┌┘
+ ┴ ┴└─└─┘┴─┘┴─┘└─┘ ┴ └─┘ └┘ 
+"#;
+
+    const MEDIUM_WIDTH: u16 = 66;
+    const MEDIUM_HEIGHT: u16 = 6;
+    const MEDIUM: &str = r#"
+888888 88""Yb  dP"Yb  88     88     .dP"Y8 888888  dP"Yb  Yb    dP
+  88   88__dP dP   Yb 88     88     `Ybo."   88   dP   Yb  Yb  dP 
+  88   88"Yb  Yb   dP 88  .o 88  .o o.`Y8b   88   Yb   dP   YbdP  
+  88   88  Yb  YbodP  88ood8 88ood8 8bodP'   88    YbodP     YP   
+"#;
+
+    const BIG_WIDTH: u16 = 98;
+    const BIG_HEIGHT: u16 = 9;
+    const BIG: &str = r#"
+::::::::::: :::::::::   ::::::::  :::        :::        :::::::: ::::::::::: ::::::::  :::     :::
+    :+:     :+:    :+: :+:    :+: :+:        :+:       :+:    :+:    :+:    :+:    :+: :+:     :+:
+    +:+     +:+    +:+ +:+    +:+ +:+        +:+       +:+           +:+    +:+    +:+ +:+     +:+
+    +#+     +#++:++#:  +#+    +:+ +#+        +#+       +#++:++#++    +#+    +#+    +:+ +#+     +:+
+    +#+     +#+    +#+ +#+    +#+ +#+        +#+              +#+    +#+    +#+    +#+  +#+   +#+ 
+    #+#     #+#    #+# #+#    #+# #+#        #+#       #+#    #+#    #+#    #+#    #+#   #+#+#+#  
+    ###     ###    ###  ########  ########## ########## ########     ###     ########      ###    
+"#;
+
+    const fn from_size(size: Size) -> Self {
+        if size.cols > Self::BIG_WIDTH + 8 && size.rows > Self::BIG_HEIGHT + 4 {
+            Self::Large
+        } else if size.cols > Self::MEDIUM_WIDTH + 4 && size.rows > Self::MEDIUM_HEIGHT + 2 {
+            Self::Medium
+        } else if size.cols > Self::SMALL_WIDTH + 2 && size.rows > Self::SMALL_HEIGHT + 1 {
+            Self::Small
+        } else {
+            Self::Tiny
+        }
+    }
+
+    const fn size(&self) -> Size {
+        match self {
+            Self::Tiny => Size::new(Self::TINY_WIDTH, Self::TINY_HEIGHT),
+            Self::Small => Size::new(Self::SMALL_WIDTH, Self::SMALL_HEIGHT),
+            Self::Medium => Size::new(Self::MEDIUM_WIDTH, Self::MEDIUM_HEIGHT),
+            Self::Large => Size::new(Self::BIG_WIDTH, Self::BIG_HEIGHT),
+        }
+    }
+
+    const fn ascii(&self) -> &'static str {
+        match self {
+            Self::Tiny => Self::TINY,
+            Self::Small => Self::SMALL,
+            Self::Medium => Self::MEDIUM,
+            Self::Large => Self::BIG,
+        }
     }
 }

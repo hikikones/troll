@@ -25,6 +25,7 @@ pub struct Database {
     reverse_sort: bool,
     scanner: Option<Scanner>,
     writer: RatingsWriter,
+    tracks_len: u32,
 }
 
 pub enum DatabaseEvent {
@@ -33,19 +34,14 @@ pub enum DatabaseEvent {
     FinishedLoading,
 }
 
-impl Database {
-    fn new(sqlite: Sqlite) -> Self {
-        Self {
-            sqlite,
-            sql: String::new(),
-            sort: TrackSort::default(),
-            reverse_sort: false,
-            scanner: None,
-            writer: RatingsWriter::new(),
-        }
-    }
+pub enum DatabaseLoadEvent {
+    Start(u32),
+    Progress(u32),
+    ScanError(DatabaseError),
+}
 
-    pub fn open(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
+impl Database {
+    pub fn new(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
         let sqlite = if in_memory {
             Sqlite::open_in_memory().map_err(|err| DatabaseError {
                 message: String::from("Failed to open database in-memory"),
@@ -61,16 +57,32 @@ impl Database {
             })
         }?;
 
-        let mut db = Self::new(sqlite);
-        db.migrate(music_dir)?;
+        sqlite
+            .execute_batch(include_str!("database/schema.sql"))
+            .map_err(|err| DatabaseError {
+                message: String::from("Failed to execute schema"),
+                source: Some(DatabaseErrorSource::Sqlite(err)),
+            })?;
 
-        Ok(db)
+        Ok(Self {
+            sqlite,
+            sql: String::new(),
+            sort: TrackSort::default(),
+            reverse_sort: false,
+            scanner: Some(Scanner::new(music_dir)),
+            writer: RatingsWriter::new(),
+            tracks_len: 0,
+        })
     }
 
     pub fn load(&mut self) {
         if let Some(scanner) = self.scanner.as_mut() {
             scanner.start();
         }
+    }
+
+    pub const fn has_finished_loading(&self) -> bool {
+        self.scanner.is_none()
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -93,19 +105,12 @@ impl Database {
         self.reverse_sort = !self.reverse_sort;
     }
 
-    pub fn is_tracks_empty(&self) -> bool {
-        self.sqlite
-            .single("SELECT NOT EXISTS (SELECT 1 FROM tracks)", (), |row| {
-                row.get(0)
-            })
-            .unwrap()
+    pub const fn is_tracks_empty(&self) -> bool {
+        self.tracks_len == 0
     }
 
-    pub fn tracks_len(&self) -> usize {
-        self.sqlite
-            .single::<SqliteId>("SELECT COUNT(*) FROM tracks", (), |row| row.get(0))
-            .map(|len| len as usize)
-            .unwrap()
+    pub const fn tracks_len(&self) -> u32 {
+        self.tracks_len
     }
 
     pub fn track_title(&self, id: TrackId, mut f: impl FnMut(&str)) {
@@ -378,34 +383,30 @@ impl Database {
 
         // Update new rating immediately
         self.set_track_rating(id, rating);
-
         true
     }
 
-    pub fn update(
-        &mut self,
-        current_track_id: Option<TrackId>,
-        mut on_event: impl FnMut(&mut Self, DatabaseEvent),
-    ) {
-        self.receive_files(&mut on_event);
-        self.poll_writer(current_track_id, on_event);
-    }
-
-    fn receive_files(&mut self, mut on_event: impl FnMut(&mut Self, DatabaseEvent)) {
+    pub fn poll_receiver(&mut self, mut on_event: impl FnMut(DatabaseLoadEvent)) {
         let Some(scanner) = self.scanner.take() else {
             return;
         };
 
         let mut is_done = false;
+        let mut progress = None;
 
         while let Some(event) = scanner.recv() {
             match event {
-                ScanEvent::Track(track) => {
-                    let id = self.add_track(track);
-                    on_event(self, DatabaseEvent::Track(id));
+                ScanEvent::Files(len) => {
+                    on_event(DatabaseLoadEvent::Start(len));
+                }
+                ScanEvent::Track(i, track) => {
+                    self.sqlite
+                        .transaction(|tx| Ok(Self::add_track(tx, track)))
+                        .unwrap();
+                    progress = Some(i);
                 }
                 ScanEvent::Error(path, err) => {
-                    on_event(self, DatabaseEvent::Error(DatabaseError {
+                    on_event(DatabaseLoadEvent::ScanError(DatabaseError {
                         message: format!("Failed to scan audio file '{}'", path.display()),
                         source: Some(DatabaseErrorSource::Audio(err)),
                     }));
@@ -417,24 +418,22 @@ impl Database {
             }
         }
 
-        if !is_done {
-            self.scanner = Some(scanner);
+        if let Some(progress) = progress {
+            on_event(DatabaseLoadEvent::Progress(progress));
+        }
+
+        if is_done {
+            self.set_tracks_len();
             return;
         }
 
-        // TODO: remove
-        for track in ScannedTrack::test() {
-            let id = self.add_track(track);
-            on_event(self, DatabaseEvent::Track(id));
-        }
-
-        on_event(self, DatabaseEvent::FinishedLoading);
+        self.scanner = Some(scanner);
     }
 
-    fn poll_writer(
+    pub fn poll_writer(
         &mut self,
         current_track_id: Option<TrackId>,
-        mut on_event: impl FnMut(&mut Self, DatabaseEvent),
+        mut on_error: impl FnMut(DatabaseError),
     ) {
         if let Some(Err(WriteFailure {
             id,
@@ -447,11 +446,18 @@ impl Database {
             self.set_track_rating(id, old_rating);
 
             // Notify
-            on_event(self, DatabaseEvent::Error(DatabaseError {
+            on_error(DatabaseError {
                 message: format!("Failed to write audio rating to '{}'", path.display()),
                 source: Some(DatabaseErrorSource::Audio(error)),
-            }));
+            });
         }
+    }
+
+    fn set_tracks_len(&mut self) {
+        self.tracks_len = self
+            .sqlite
+            .single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0))
+            .unwrap();
     }
 
     fn set_track_rating(&self, id: TrackId, rating: TrackRating) {
@@ -460,114 +466,91 @@ impl Database {
             .unwrap();
     }
 
-    fn add_track(&mut self, track: ScannedTrack) -> TrackId {
-        self.sqlite.transaction(|tx|{
-            // Album
-            let album_id = utils::hasher_fast(|hasher| {
-                hasher.write(track.album().as_bytes());
-                hasher.write(track.album_artist().as_bytes());
-                hasher.write(track.date().as_bytes());
-            }) as SqliteId;
-            tx.execute(
-                "INSERT INTO albums (id, name) VALUES (?1, ?2) ON CONFLICT(id) DO NOTHING",
-                (album_id, track.album()),
-            )
-            .unwrap();
-    
-            // Track
-            tx.execute(
-                "INSERT INTO tracks \
-                (title, number, rating, duration, bit_rate_kbps, bit_depth, sample_rate, path, album_id) \
+    fn add_track(tx: &Transaction, track: ScannedTrack) {
+        // Album
+        let album_id = utils::hasher_fast(|hasher| {
+            hasher.write(track.album().as_bytes());
+            hasher.write(track.album_artist().as_bytes());
+            hasher.write(track.date().as_bytes());
+        }) as SqliteId;
+
+        tx.execute(
+            "INSERT INTO albums (id, name) \
+                VALUES (?1, ?2) ON CONFLICT(id) DO NOTHING",
+            (album_id, track.album()),
+        )
+        .unwrap();
+
+        // Track
+        tx.execute(
+            "INSERT INTO tracks \
+                (title, \
+                number, \
+                rating, \
+                duration, \
+                bit_rate_kbps, \
+                bit_depth, \
+                sample_rate, \
+                path, album_id) \
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-                (
-                    track.title(),
-                    track.number(),
-                    track.rating(),
-                    track.duration(),
-                    track.bit_rate_kbps(),
-                    track.bit_depth(),
-                    track.sample_rate(),
-                    track.path(),
-                    album_id,
-                ),
-            )
-            .unwrap();
-            let track_id = tx.last_insert_rowid() as u32;
-    
-            // Artists
-            for artist in track.artists() {
-                let rows_changed = tx
-                    .execute(
-                        "INSERT INTO artists (name) VALUES (?1) ON CONFLICT(name) DO NOTHING",
-                        [artist],
-                    )
-                    .unwrap();
-                let artist_id: SqliteId = if rows_changed > 0 {
-                    tx.last_insert_rowid()
-                } else {
-                    tx.query_row("SELECT id FROM artists WHERE name = ?1", [artist], |row| {
-                        row.get(0)
-                    })
-                    .unwrap()
-                };
-                tx.execute("INSERT INTO artist_tracks (artist_id, track_id) VALUES (?1, ?2) ON CONFLICT DO NOTHING", (artist_id, track_id)).unwrap();
-            }
-    
+            (
+                track.title(),
+                track.number(),
+                track.rating(),
+                track.duration(),
+                track.bit_rate_kbps(),
+                track.bit_depth(),
+                track.sample_rate(),
+                track.path(),
+                album_id,
+            ),
+        )
+        .unwrap();
+        let track_id = tx.last_insert_rowid() as u32;
+
+        // Artists
+        for artist in track.artists() {
+            let rows_changed = tx
+                .execute(
+                    "INSERT INTO artists (name) VALUES (?1) \
+                            ON CONFLICT(name) DO NOTHING",
+                    [artist],
+                )
+                .unwrap();
+            let artist_id: SqliteId = if rows_changed > 0 {
+                tx.last_insert_rowid()
+            } else {
+                tx.query_row("SELECT id FROM artists WHERE name = ?1", [artist], |row| {
+                    row.get(0)
+                })
+                .unwrap()
+            };
             tx.execute(
-                "INSERT INTO track_fts (rowid, title, artist, album, path)
-            SELECT
-                t.id,
-                t.title,
-                COALESCE((
-                    SELECT group_concat(ar.name, ' ')
-                    FROM artist_tracks ar_t
-                    JOIN artists ar ON ar.id = ar_t.artist_id
-                    WHERE ar_t.track_id = t.id
-                ), ''),
-                al.name,
-                t.path
-            FROM tracks t
-            JOIN albums al ON al.id = t.album_id
-            WHERE t.id = ?1",
-                [track_id],
+                "INSERT INTO artist_tracks (artist_id, track_id) \
+                VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+                (artist_id, track_id),
             )
             .unwrap();
-    
-            Ok(TrackId(track_id))
-        }).unwrap()
-    }
-
-    fn migrate(&mut self, music_dir: PathBuf) -> DatabaseResult<()> {
-        const VERSION: SqliteId = 1;
-
-        let version = self.sqlite.version();
-        let rescan = match version {
-            0 => {
-                self.sqlite
-                    .execute_batch(include_str!("database/schema.sql"))
-                    .map_err(|err| DatabaseError {
-                        message: String::from("Failed to execute schema"),
-                        source: Some(DatabaseErrorSource::Sqlite(err)),
-                    })?;
-                // TODO: Add dir metadata.
-                true
-            }
-            VERSION => {
-                // TODO: Compare dir metadata -> either keep or rescan.
-                false
-            }
-            _ => {
-                // TODO: Either delete or purge current db. Rescan.
-                true
-            }
-        };
-
-        if rescan {
-            self.scanner = Some(Scanner::new(music_dir));
-            self.sqlite.set_version(VERSION);
         }
-
-        Ok(())
+        tx.execute(
+            "INSERT INTO track_fts (rowid, title, artist, album, path) \
+            SELECT \
+                t.id, \
+                t.title, \
+                COALESCE(( \
+                    SELECT group_concat(ar.name, ' ') \
+                    FROM artist_tracks ar_t \
+                    JOIN artists ar ON ar.id = ar_t.artist_id \
+                    WHERE ar_t.track_id = t.id \
+                ), ''), \
+                al.name, \
+                t.path \
+            FROM tracks t \
+            JOIN albums al ON al.id = t.album_id \
+            WHERE t.id = ?1",
+            [track_id],
+        )
+        .unwrap();
     }
 }
 
