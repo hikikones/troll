@@ -1,4 +1,4 @@
-use std::{fs::File, path::Path, time::Duration};
+use std::{fs::File, path::Path, range::Range};
 
 use lofty::{
     config::{ParseOptions, WriteOptions},
@@ -7,6 +7,9 @@ use lofty::{
     ogg::{OggPictureStorage, OpusFile, VorbisFile, tag::VorbisComments},
     picture::PictureType,
 };
+use utils::StringExt;
+
+use super::{TrackDuration, TrackRating};
 
 pub type AudioResult<T> = Result<T, AudioFileError>;
 
@@ -86,12 +89,24 @@ impl AudioFile {
         }
     }
 
+    pub fn metadata(&self) -> AudioResult<AudioMetadata> {
+        let mut metadata = AudioMetadata::default();
+        self.metadata_in_place(&mut metadata)?;
+        Ok(metadata)
+    }
+
+    pub fn metadata_in_place(&self, metadata: &mut AudioMetadata) -> AudioResult<()> {
+        let vorbis = self.vorbis_comments()?;
+        metadata_vorbis(vorbis, metadata);
+        Ok(())
+    }
+
     pub fn properties(&self) -> AudioProperties {
         match &self.0 {
             AudioFormat::Flac(flac) => {
                 let p = flac.properties();
                 AudioProperties {
-                    duration: p.duration(),
+                    duration: p.duration().into(),
                     bit_rate_kbps: p.audio_bitrate(),
                     bit_depth: Some(p.bit_depth()),
                     sample_rate: Some(p.sample_rate()),
@@ -100,7 +115,7 @@ impl AudioFile {
             AudioFormat::Opus(opus) => {
                 let p = opus.properties();
                 AudioProperties {
-                    duration: p.duration(),
+                    duration: p.duration().into(),
                     bit_rate_kbps: p.audio_bitrate(),
                     bit_depth: None,
                     sample_rate: None,
@@ -109,7 +124,7 @@ impl AudioFile {
             AudioFormat::Vorbis(vorbis) => {
                 let p = vorbis.properties();
                 AudioProperties {
-                    duration: p.duration(),
+                    duration: p.duration().into(),
                     bit_rate_kbps: p.audio_bitrate(),
                     bit_depth: None,
                     sample_rate: Some(p.sample_rate()),
@@ -151,9 +166,61 @@ impl AudioFile {
     }
 }
 
-#[derive(Debug)]
+fn metadata_vorbis(vorbis: &VorbisComments, data: &mut AudioMetadata) {
+    for (key, val) in vorbis.items() {
+        match key {
+            "TITLE" => data.title = data.text.push_str_get_range(val),
+            "ARTIST" => {
+                let range = data.text.push_str_get_range(val);
+                data.artists.push(range);
+            }
+            "ALBUM" => data.album = data.text.push_str_get_range(val),
+            "ALBUMARTIST" => data.album_artist = data.text.push_str_get_range(val),
+            "RATING" => data.rating = TrackRating::from_vorbis_comments(val),
+            "TRACKNUMBER" => data.number = val.parse::<u8>().unwrap_or_default(),
+            "DATE" => data.date = data.text.push_str_get_range(val),
+            _ => {}
+        }
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct AudioMetadata {
+    pub text: String,
+    pub artists: Vec<Range<usize>>,
+    pub number: u8,
+    pub rating: TrackRating,
+    pub path: Range<usize>,
+    pub title: Range<usize>,
+    pub album: Range<usize>,
+    pub album_artist: Range<usize>,
+    pub date: Range<usize>,
+}
+
+impl AudioMetadata {
+    pub fn slice(&self, range: Range<usize>) -> &str {
+        &self.text[range]
+    }
+
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.artists.clear();
+        self.number = 0;
+        self.rating = TrackRating::None;
+
+        let range = Range { start: 0, end: 0 };
+
+        self.path = range;
+        self.title = range;
+        self.album = range;
+        self.album_artist = range;
+        self.date = range;
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct AudioProperties {
-    pub duration: Duration,
+    pub duration: TrackDuration,
     pub bit_rate_kbps: u32,
     pub bit_depth: Option<u8>,
     pub sample_rate: Option<u32>,

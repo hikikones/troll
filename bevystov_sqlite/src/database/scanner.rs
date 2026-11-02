@@ -7,7 +7,8 @@ use std::{
 use utils::StringExt;
 
 use crate::database::{
-    AudioExt, AudioFile, AudioFileError, AudioResult, TrackDuration, TrackRating,
+    AudioExt, AudioFile, AudioFileError, AudioMetadata, AudioProperties, AudioResult,
+    TrackDuration, TrackRating,
 };
 
 type Sender = std::sync::mpsc::Sender<ScanEvent>;
@@ -76,24 +77,9 @@ impl Scanner {
 
 #[derive(Default, Clone)]
 pub struct ScannedTrack {
-    text: String,
-    artists: Vec<Range<usize>>,
-    data: Data,
-}
-
-#[derive(Default, Clone)]
-struct Data {
-    number: u8,
-    rating: TrackRating,
-    duration: TrackDuration,
-    bit_rate_kbps: u32,
-    bit_depth: Option<u8>,
-    sample_rate: Option<u32>,
-    title: Range<usize>,
-    album: Range<usize>,
-    album_artist: Range<usize>,
-    date: Range<usize>,
     path: Range<usize>,
+    metadata: AudioMetadata,
+    properties: AudioProperties,
 }
 
 impl ScannedTrack {
@@ -102,112 +88,94 @@ impl ScannedTrack {
         let mut v = vec![];
 
         let t = v.push_mut(Self::default());
-        t.artists.push(Range::default());
+        t.metadata.artists.push(Range::default());
 
         let t = v.push_mut(Self::default());
-        t.artists.push(t.text.push_str_get_range("a1"));
-        t.artists.push(t.text.push_str_get_range("a2"));
-        t.artists.push(t.text.push_str_get_range("a3"));
+        t.metadata
+            .artists
+            .push(t.metadata.text.push_str_get_range("a1"));
+        t.metadata
+            .artists
+            .push(t.metadata.text.push_str_get_range("a2"));
+        t.metadata
+            .artists
+            .push(t.metadata.text.push_str_get_range("a3"));
 
         v
     }
 
     pub const fn number(&self) -> u8 {
-        self.data.number
+        self.metadata.number
     }
 
     pub const fn rating(&self) -> TrackRating {
-        self.data.rating
+        self.metadata.rating
     }
 
     pub const fn duration(&self) -> TrackDuration {
-        self.data.duration
+        self.properties.duration
     }
 
     pub const fn bit_rate_kbps(&self) -> u32 {
-        self.data.bit_rate_kbps
+        self.properties.bit_rate_kbps
     }
 
     pub const fn bit_depth(&self) -> Option<u8> {
-        self.data.bit_depth
+        self.properties.bit_depth
     }
 
     pub const fn sample_rate(&self) -> Option<u32> {
-        self.data.sample_rate
+        self.properties.sample_rate
     }
 
     pub fn title(&self) -> &str {
-        self.slice(self.data.title)
+        self.slice(self.metadata.title)
     }
 
     pub fn artists(&self) -> impl Iterator<Item = &str> {
-        self.artists.iter().map(|r| self.slice(*r))
+        self.metadata.artists.iter().map(|r| self.slice(*r))
     }
 
     pub fn album(&self) -> &str {
-        self.slice(self.data.album)
+        self.slice(self.metadata.album)
     }
 
     pub fn album_artist(&self) -> &str {
-        self.slice(self.data.album_artist)
+        self.slice(self.metadata.album_artist)
     }
 
     pub fn date(&self) -> &str {
-        self.slice(self.data.date)
+        self.slice(self.metadata.date)
     }
 
     pub fn path(&self) -> &str {
-        self.slice(self.data.path)
+        self.slice(self.metadata.path)
     }
 
     fn slice(&self, range: Range<usize>) -> &str {
-        &self.text[range]
+        &self.metadata.text[range]
     }
 
     fn clear(&mut self) {
-        self.text.clear();
-        self.artists.clear();
-        self.data = Data::default();
+        self.path = Range { start: 0, end: 0 };
+        self.metadata.clear();
+        self.properties = AudioProperties::default();
     }
 }
 
 fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioResult<ScannedTrack> {
-    let mut audio = AudioFile::read_metadata(path, ext)?;
-    let vorbis_comments = audio.vorbis_comments_mut()?;
+    let audio = AudioFile::read_metadata(path, ext)?;
 
-    // Metadata
-    for (mut key, value) in vorbis_comments.take_items() {
-        key.make_ascii_uppercase();
-        let val = value.as_str();
+    audio.metadata_in_place(&mut track.metadata)?;
+    track.properties = audio.properties();
+    track.metadata.path = track
+        .metadata
+        .text
+        .push_str_get_range(&path.to_string_lossy());
 
-        match key.as_str() {
-            "TITLE" => track.data.title = track.text.push_str_get_range(val),
-            "ARTIST" => {
-                let range = track.text.push_str_get_range(val);
-                track.artists.push(range)
-            }
-            "ALBUM" => track.data.album = track.text.push_str_get_range(val),
-            "ALBUMARTIST" => track.data.album_artist = track.text.push_str_get_range(val),
-            "RATING" => track.data.rating = TrackRating::from_vorbis_comments(val),
-            "TRACKNUMBER" => track.data.number = val.parse::<u8>().unwrap_or_default(),
-            "DATE" => track.data.date = track.text.push_str_get_range(val),
-            _ => {}
-        }
+    if track.metadata.artists.is_empty() {
+        track.metadata.artists.push(Range::default());
     }
-
-    if track.artists.is_empty() {
-        track.artists.push(Range::default());
-    }
-
-    // Properties
-    let p = audio.properties();
-    track.data.duration = p.duration.into();
-    track.data.bit_rate_kbps = p.bit_rate_kbps;
-    track.data.bit_depth = p.bit_depth;
-    track.data.sample_rate = p.sample_rate;
-
-    // Path
-    track.data.path = track.text.push_str_get_range(&path.to_string_lossy());
 
     Ok(track.clone())
 }
