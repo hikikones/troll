@@ -103,6 +103,28 @@ impl TrackRating {
         }
     }
 
+    pub const fn from_id3v2(value: u8) -> Self {
+        match value {
+            0 => Self::None,
+            ..=51 => Self::Awful,
+            ..=102 => Self::Bad,
+            ..=153 => Self::Ok,
+            ..=204 => Self::Good,
+            ..=255 => Self::Amazing,
+        }
+    }
+
+    pub const fn into_id3v2(&self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Awful => 51,
+            Self::Bad => 102,
+            Self::Ok => 153,
+            Self::Good => 204,
+            Self::Amazing => 255,
+        }
+    }
+
     pub const fn from_char(c: char) -> Option<Self> {
         match c {
             '0' => Some(Self::None),

@@ -114,21 +114,9 @@ fn start_write(id: TrackId, data: WriteData) -> WriteHandle {
 
 fn write_rating(path: &Path, rating: TrackRating) -> AudioResult<()> {
     let ext = AudioExt::try_from_path(path)?;
-    let mut audio_file = AudioFile::read_all(path, ext)?;
-    let tag = audio_file.vorbis_comments_mut()?;
-
-    match rating {
-        TrackRating::None => {
-            let _ = tag.remove("RATING");
-        }
-        _ => {
-            tag.insert(
-                String::from("RATING"),
-                String::from(rating.into_vorbis_comments()),
-            );
-        }
-    }
-    audio_file.save(path)
+    let mut audio = AudioFile::read_all(path, ext)?;
+    audio.set_rating(rating)?;
+    audio.save(path)
 }
 
 impl Drop for RatingsWriter {
