@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::database::{AudioFileExt, AudioFileError, TrackId};
+use crate::database::{AudioFileError, AudioFileExt, TrackId};
 
 type DecodeResult = Result<DecodeSuccess, DecodeFailure>;
 type DecodeHandle = std::thread::JoinHandle<DecodeResult>;

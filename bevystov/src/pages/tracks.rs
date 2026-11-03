@@ -4,7 +4,7 @@ use widgets2::{Block, list2::List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::{Database, TrackId, AudioRating, TrackSort},
+    database::{AudioRating, Database, TrackId, TrackSort},
     jukebox::Jukebox,
     pages::Page,
     settings::{Colors, Settings},

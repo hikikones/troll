@@ -13,7 +13,7 @@ use player::*;
 use queue::*;
 use utils::StringExt;
 
-use crate::database::{AudioFileExt, AudioRating, AudioDuration, Database, TrackId};
+use crate::database::{AudioDuration, AudioFileExt, AudioRating, Database, TrackId};
 
 pub type JukeboxResult<T> = Result<T, JukeboxError>;
 
