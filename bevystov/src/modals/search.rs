@@ -254,13 +254,7 @@ fn render_search(
                 let _ = database.search_highlight(id, input, start, end, |s| frame.push_str(s));
             }
             None => {
-                database.track_text(id, |track| {
-                    frame.push_str(track.title);
-                    frame.push_ch(' ');
-                    frame.push_str(track.artists);
-                    frame.push_ch(' ');
-                    frame.push_str(track.album);
-                });
+                database.search_text(id, |s| frame.push_str(s));
             }
         }
 

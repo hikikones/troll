@@ -162,28 +162,6 @@ impl Database {
             .unwrap();
     }
 
-    pub fn track_text(&self, id: TrackId, mut f: impl FnMut(TrackText)) {
-        self.sqlite
-            .single(
-                "SELECT t.title, GROUP_CONCAT(ar.name, ', '), al.name \
-                FROM tracks t \
-                JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
-                JOIN artists ar ON ar.id = ar_t.artist_id \
-                JOIN albums al ON al.id = t.album_id \
-                WHERE t.id = ? \
-                GROUP BY t.id",
-                [id],
-                |row| {
-                    Ok(f(TrackText {
-                        title: row.get_ref(0)?.as_str()?,
-                        artists: row.get_ref(1)?.as_str()?,
-                        album: row.get_ref(2)?.as_str()?,
-                    }))
-                },
-            )
-            .unwrap();
-    }
-
     pub fn track_artists(&self, id: TrackId, mut f: impl FnMut(&str)) {
         self.sqlite
             .for_each(
@@ -328,6 +306,22 @@ impl Database {
         self.sqlite.single(&self.sql, (id, input), |row| {
             Ok(f(row.get_ref(1)?.as_str()?))
         })
+    }
+
+    pub fn search_text(&self, id: TrackId, mut f: impl FnMut(&str)) {
+        self.sqlite
+            .single(
+                "SELECT t.title || ' ' || GROUP_CONCAT(ar.name, ' ') || ' ' || al.name \
+                FROM tracks t \
+                JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
+                JOIN artists ar ON ar.id = ar_t.artist_id \
+                JOIN albums al ON al.id = t.album_id \
+                WHERE t.id = ? \
+                GROUP BY t.id",
+                [id],
+                |row| Ok(f(row.get_ref(0)?.as_str()?)),
+            )
+            .unwrap();
     }
 
     pub fn random_track_id(&self) -> TrackId {

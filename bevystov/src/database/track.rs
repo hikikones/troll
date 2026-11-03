@@ -27,13 +27,6 @@ pub struct TrackTable<'a> {
     pub rating: AudioRating,
 }
 
-#[derive(Debug)]
-pub struct TrackText<'a> {
-    pub title: &'a str,
-    pub artists: &'a str,
-    pub album: &'a str,
-}
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TrackId(pub u32);
 
