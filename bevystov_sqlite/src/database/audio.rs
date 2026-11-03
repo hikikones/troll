@@ -232,6 +232,7 @@ impl AudioFile {
 
 fn metadata_vorbis(vorbis: &VorbisComments, data: &mut AudioMetadata) {
     for (key, val) in vorbis.items() {
+        // TODO: Should be case-insensitive.
         match key {
             "TITLE" => data.title = data.text.push_str_get_range(val),
             "ARTIST" => {
