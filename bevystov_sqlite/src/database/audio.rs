@@ -231,20 +231,56 @@ impl AudioFile {
 }
 
 fn metadata_vorbis(vorbis: &VorbisComments, data: &mut AudioMetadata) {
-    for (key, val) in vorbis.items() {
-        // TODO: Should be case-insensitive.
+    #[derive(Clone, Copy)]
+    enum Key {
+        Title,
+        Artist,
+        Album,
+        AlbumArtist,
+        Rating,
+        TrackNumber,
+        Date,
+    }
+
+    impl Key {
+        fn from_str(key: &str) -> Option<Self> {
+            if key.eq_ignore_ascii_case("TITLE") {
+                Some(Self::Title)
+            } else if key.eq_ignore_ascii_case("ARTIST") {
+                Some(Self::Artist)
+            } else if key.eq_ignore_ascii_case("ALBUM") {
+                Some(Self::Album)
+            } else if key.eq_ignore_ascii_case("ALBUMARTIST") {
+                Some(Self::AlbumArtist)
+            } else if key.eq_ignore_ascii_case("RATING") {
+                Some(Self::Rating)
+            } else if key.eq_ignore_ascii_case("TRACKNUMBER")
+                || key.eq_ignore_ascii_case("TRACKNUM")
+            {
+                Some(Self::TrackNumber)
+            } else if key.eq_ignore_ascii_case("DATE") {
+                Some(Self::Date)
+            } else {
+                None
+            }
+        }
+    }
+
+    for (key, val) in vorbis
+        .items()
+        .filter_map(|(key, val)| Key::from_str(key).map(|key| (key, val)))
+    {
         match key {
-            "TITLE" => data.title = data.text.push_str_get_range(val),
-            "ARTIST" => {
+            Key::Title => data.title = data.text.push_str_get_range(val),
+            Key::Artist => {
                 let range = data.text.push_str_get_range(val);
                 data.artists.push(range);
             }
-            "ALBUM" => data.album = data.text.push_str_get_range(val),
-            "ALBUMARTIST" => data.album_artist = data.text.push_str_get_range(val),
-            "RATING" => data.rating = AudioRating::from_vorbis_comments(val),
-            "TRACKNUMBER" => data.number = val.parse::<u8>().unwrap_or_default(),
-            "DATE" => data.date = data.text.push_str_get_range(val),
-            _ => {}
+            Key::Album => data.album = data.text.push_str_get_range(val),
+            Key::AlbumArtist => data.album_artist = data.text.push_str_get_range(val),
+            Key::Rating => data.rating = AudioRating::from_vorbis_comments(val),
+            Key::TrackNumber => data.number = val.parse::<u8>().unwrap_or_default(),
+            Key::Date => data.date = data.text.push_str_get_range(val),
         }
     }
 }
