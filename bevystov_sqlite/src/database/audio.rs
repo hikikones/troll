@@ -92,8 +92,8 @@ impl AudioFile {
             AudioFormat::Opus(opus) => Ok(opus.vorbis_comments()),
             AudioFormat::Vorbis(vorbis) => Ok(vorbis.vorbis_comments()),
             AudioFormat::Mpeg(mpeg) => {
-                let id3 = mpeg.id3v2().ok_or(AudioFileError::MissingId3v2Tag)?;
-                metadata_id3v2(id3, metadata);
+                let id3v2 = mpeg.id3v2().ok_or(AudioFileError::MissingId3v2Tag)?;
+                metadata_id3v2(id3v2, metadata);
                 return Ok(());
             }
         }?;
@@ -175,10 +175,10 @@ impl AudioFile {
             AudioFormat::Opus(opus) => Ok(opus.vorbis_comments_mut()),
             AudioFormat::Vorbis(vorbis) => Ok(vorbis.vorbis_comments_mut()),
             AudioFormat::Mpeg(mpeg) => {
-                const POPM_ID: FrameId<'_> = FrameId::Valid(Cow::Borrowed("POPM"));
                 let id3v2 = mpeg.id3v2_mut().ok_or(AudioFileError::MissingId3v2Tag)?;
                 match rating {
                     AudioRating::None => {
+                        const POPM_ID: FrameId<'_> = FrameId::Valid(Cow::Borrowed("POPM"));
                         let _ = id3v2.remove(&POPM_ID);
                     }
                     _ => {
