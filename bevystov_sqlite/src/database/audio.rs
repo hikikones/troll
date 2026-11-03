@@ -243,7 +243,7 @@ fn metadata_vorbis(vorbis: &VorbisComments, data: &mut AudioMetadata) {
     }
 
     impl Key {
-        fn from_str(key: &str) -> Option<Self> {
+        const fn from_str(key: &str) -> Option<Self> {
             if key.eq_ignore_ascii_case("TITLE") {
                 Some(Self::Title)
             } else if key.eq_ignore_ascii_case("ARTIST") {
