@@ -116,6 +116,10 @@ fn write_rating(path: &Path, rating: AudioRating) -> AudioResult<()> {
     let ext = AudioFileExt::try_from_path(path)?;
     let mut audio = AudioFile::read_all(path, ext)?;
     audio.set_rating(rating)?;
+
+    // TODO: Should save to a tmp path first (in same mount point),
+    // and then swap/replace/move to original path.
+
     audio.save(path)
 }
 
