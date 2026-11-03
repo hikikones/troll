@@ -4,11 +4,11 @@ use ecs::*;
 use terminal::*;
 
 use crate::{
-    database::{Database, DatabaseEvent},
+    database::{Database, DatabaseLoadEvent},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Logs, Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
-    pages::{Page, PagesPlugin, Route, TracksPage},
+    pages::{Page, PagesPlugin, Route, TracksParam},
     settings::{Colors, Settings},
 };
 
@@ -70,33 +70,10 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
-        self.init(terminal)?;
+        self.update_size()?;
 
-        while self.is_running {
-            if self.timers.update.tick() {
-                self.run_update(terminal)?;
-            }
-
-            let screen_height = self.world.resource::<ScreenSize>().height();
-            if self.timers.render.tick() && screen_height == ScreenHeight::Tall {
-                self.run_render(terminal)?;
-            }
-
-            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
-                match event {
-                    TerminalEvent::Key(key) => {
-                        self.insert_resource(Input(Some(key)));
-                        self.run_input(terminal)?;
-                    }
-                    TerminalEvent::Resize => {
-                        self.update_size()?;
-                        self.run_render(terminal)?;
-                    }
-                }
-            };
-
-            self.world.clear_trackers();
-        }
+        self.run_load_loop(terminal)?;
+        self.run_event_loop(terminal)?;
 
         Ok(())
     }
@@ -164,6 +141,82 @@ impl App {
         self
     }
 
+    fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        // Start loading
+        self.world.non_send_mut::<Database>().load();
+
+        let load_db_sid = self.world.register_system(load_database);
+
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.world.run_system(load_db_sid).unwrap();
+                self.world
+                    .resource_mut::<Framebuffer>()
+                    .flush(&mut terminal.lock())?;
+
+                if self.world.non_send::<Database>().has_finished_loading() {
+                    // Init first run
+                    self.run_state_transitions();
+                    self.run_render(terminal)?;
+                    self.timers.render.reset();
+                    break;
+                }
+            }
+
+            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+                match event {
+                    TerminalEvent::Key(key) => {
+                        if let KeyCode::Esc = key.code {
+                            self.is_running = false;
+                            break;
+                        }
+                    }
+                    TerminalEvent::Resize => {
+                        self.update_size()?;
+                    }
+                }
+            };
+        }
+
+        self.world.unregister_system(load_db_sid).unwrap();
+
+        Ok(())
+    }
+
+    fn run_event_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.run_update(terminal)?;
+            }
+
+            if self.timers.render.tick() {
+                let is_paused = self.world.non_send::<Jukebox>().is_paused();
+                let is_tall = self.world.resource::<ScreenSize>().is_tall();
+
+                if is_tall && !is_paused {
+                    self.run_render(terminal)?;
+                }
+            }
+
+            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+                match event {
+                    TerminalEvent::Key(key) => {
+                        self.insert_resource(Input(Some(key)));
+                        self.run_input(terminal)?;
+                    }
+                    TerminalEvent::Resize => {
+                        self.update_size()?;
+                        self.run_render(terminal)?;
+                    }
+                }
+            };
+
+            self.world.clear_trackers();
+        }
+
+        Ok(())
+    }
+
     fn run_input(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.schedules.input.run(&mut self.world);
 
@@ -211,18 +264,6 @@ impl App {
         Ok(())
     }
 
-    fn init(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
-        // Start database load
-        self.world.non_send_mut::<Database>().load();
-
-        // Update size
-        self.update_size()?;
-
-        // First run
-        self.run_state_transitions();
-        self.run_render(terminal)
-    }
-
     fn apply_actions(&mut self) -> bool {
         if self.world.resource::<Actions>().is_empty() {
             return false;
@@ -251,7 +292,7 @@ impl App {
 
                     match route {
                         Route::Tracks(Some(id)) => {
-                            self.world.resource_mut::<TracksPage>().set_params(id);
+                            self.world.resource_mut::<TracksParam>().set(id);
                         }
                         _ => {}
                     }
@@ -436,6 +477,7 @@ fn input_app(
     logs: Res<Logs>,
     mut jukebox: NonSendMut<Jukebox>,
     database: NonSend<Database>,
+    settings: Res<Settings>,
 ) {
     let key = input.take();
 
@@ -455,13 +497,9 @@ fn input_app(
         }
         KeyCode::Left => {
             if key.ctrl() {
-                jukebox.play_previous(&database);
+                jukebox.play_previous(&database, settings.skip_rating());
             } else if key.alt() {
-                if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
-                    let pos = jukebox.current_track_pos();
-                    let min = Duration::from_secs(2);
-                    let secs = track.duration().mul_f32(0.10).max(min);
-                    jukebox.seek(pos.saturating_sub(secs));
+                if jukebox.seek_backwards() {
                     actions.push(Action::Render);
                 }
             } else {
@@ -470,13 +508,9 @@ fn input_app(
         }
         KeyCode::Right => {
             if key.ctrl() {
-                jukebox.play_next(&database);
+                jukebox.play_next(&database, settings.skip_rating());
             } else if key.alt() {
-                if let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) {
-                    let pos = jukebox.current_track_pos();
-                    let min = Duration::from_secs(1);
-                    let secs = track.duration().mul_f32(0.10).max(min);
-                    jukebox.seek(pos + secs);
+                if jukebox.seek_forwards() {
                     actions.push(Action::Render);
                 }
             } else {
@@ -542,7 +576,6 @@ fn render_app(
     current_page: Res<State<Page>>,
     logs: Res<Logs>,
     jukebox: NonSend<Jukebox>,
-    database: NonSend<Database>,
 ) {
     let area = frame.area();
     let colors = settings.colors();
@@ -578,14 +611,7 @@ fn render_app(
                 app_shortcuts_area,
             ] = bottom.split_lines();
 
-            render_playback(
-                title_area,
-                status_area,
-                &mut frame,
-                colors,
-                &jukebox,
-                &database,
-            );
+            render_playback(title_area, status_area, &mut frame, colors, &jukebox);
 
             render_shortcuts(
                 play_shortcuts_area,
@@ -621,13 +647,12 @@ fn render_playback(
     frame: &mut Framebuffer,
     colors: &Colors,
     jukebox: &Jukebox,
-    database: &Database,
 ) {
     let status_width = status_area.cols().saturating_sub(12) * 80 / 100;
     let progress_ch = '─';
     let highlight_ch = '━';
 
-    let Some(track) = jukebox.current_track_id().and_then(|id| database.get(id)) else {
+    let Some(track) = jukebox.track() else {
         // Neutral playback status
         frame.push_fmt(Sgr::Fg(colors.neutral));
         frame.push_str("00:00 ");
@@ -646,31 +671,36 @@ fn render_playback(
 
     // Stats
     frame.push_fmt(Sgr::Fg(normal));
-    frame.push_fmt(format_args!("[{}", track.extension().as_upper_case()));
+    frame.push_fmt(format_args!("[{}", track.ext().as_upper_case()));
 
     if let Some(bit_depth) = track.bit_depth()
         && let Some(sample_rate) = track.sample_rate()
     {
-        frame.push_fmt(format_args!(" {bit_depth}bit/{sample_rate}kHz"));
+        frame.push_fmt(format_args!(" {bit_depth}bit/{}kHz", sample_rate / 1000));
     }
 
-    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate()));
+    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate_kbps()));
 
     // Title
-    frame.push_str(track.artist());
-    if !(track.artist().is_empty() || track.title().is_empty()) {
+    let title = track.title();
+    let artists = track.artists();
+
+    frame.push_str(artists);
+    if !(artists.is_empty() || title.is_empty()) {
         frame.push_str(" - ");
     }
-    frame.push_str(track.title());
+    frame.push_str(title);
     frame.render(title_area, TextOptions::span_center_top());
 
     // Playback status
-    let track_pos = jukebox.current_track_pos();
-    frame.push_iter(utils::format_duration_on_stack(track_pos));
+    let track_pos = jukebox.track_pos();
+    let track_dur = track.duration();
+
+    frame.push_fmt(track_pos);
     frame.push_ch(' ');
 
-    let progress = track_pos.as_secs_f32() / track.duration().as_secs_f32();
-    let highlights = (status_width as f32 * progress).ceil() as u16;
+    let progress = track_pos.progress(track_dur);
+    let highlights = (status_width as f32 * progress) as u16;
     let remaining = status_width.saturating_sub(highlights);
     frame.push_fmt(Sgr::Fg(primary));
     frame.push_ch_repeat(highlight_ch, highlights);
@@ -678,7 +708,7 @@ fn render_playback(
     frame.push_ch_repeat(progress_ch, remaining);
 
     frame.push_ch(' ');
-    frame.push_iter(utils::format_duration_on_stack(track.duration()));
+    frame.push_fmt(track_dur);
 
     frame.push_fmt(Sgr::reset_fg());
     frame.render(status_area, TextOptions::span_center_top());
@@ -748,26 +778,16 @@ fn render_shortcuts(
 fn update_app(
     mut database: NonSendMut<Database>,
     mut jukebox: NonSendMut<Jukebox>,
-    media_controls: Option<NonSend<MediaControls>>,
     mut logs: ResMut<Logs>,
     mut actions: ResMut<Actions>,
+    media_controls: Option<NonSend<MediaControls>>,
+    settings: Res<Settings>,
 ) {
     let mut render = false;
 
-    database.update(|event| {
+    database.poll_writer(jukebox.track_id(), |err| {
+        logs.push_err(err);
         render = true;
-
-        match event {
-            DatabaseEvent::FinishedLoading => {
-                // TODO?
-            }
-            DatabaseEvent::Rating(_id) => {
-                // TODO?
-            }
-            DatabaseEvent::Error(err) => {
-                logs.push_err(err);
-            }
-        }
     });
 
     if let Some(cmd) = media_controls.as_ref().and_then(|mc| mc.recv()) {
@@ -776,26 +796,24 @@ fn update_app(
             MprisCommand::Pause => jukebox.pause(),
             MprisCommand::PlayPause => jukebox.pause_or_play(),
             MprisCommand::Stop => jukebox.stop(),
-            MprisCommand::Next => jukebox.play_next(&database),
-            MprisCommand::Previous => jukebox.play_previous(&database),
+            MprisCommand::Next => jukebox.play_next(&database, settings.skip_rating()),
+            MprisCommand::Previous => jukebox.play_previous(&database, settings.skip_rating()),
         }
     }
 
-    jukebox.update(&database, |event| {
+    jukebox.update(&database, settings.skip_rating(), |jb, event| {
         render = true;
 
         match event {
             JukeboxEvent::Play(id) => {
                 if let Some(mc) = media_controls.as_ref() {
-                    match id.and_then(|id| database.get(id).map(|t| (id, t))) {
-                        Some((id, track)) => {
-                            let metadata = MprisMetadata::new(id, track);
-                            mc.send(MprisEvent::Both(MprisStatus::Playing, Some(metadata)));
-                        }
-                        None => {
-                            mc.send(MprisEvent::Status(MprisStatus::Playing));
-                        }
-                    }
+                    let mpris_event = id
+                        .and_then(|_| jb.track())
+                        .map(|track| {
+                            MprisEvent::Both(MprisStatus::Playing, Some(MprisMetadata::new(track)))
+                        })
+                        .unwrap_or(MprisEvent::Status(MprisStatus::Playing));
+                    mc.send(mpris_event);
                 }
             }
             JukeboxEvent::Pause => {
@@ -809,12 +827,146 @@ fn update_app(
                 }
             }
             JukeboxEvent::Error(err) => {
-                logs.push_str(err);
+                logs.push_err(err);
             }
         }
     });
 
     if render {
         actions.push(Action::Render);
+    }
+}
+
+fn load_database(
+    mut database: NonSendMut<Database>,
+    mut frame: ResMut<Framebuffer>,
+    mut logs: ResMut<Logs>,
+    settings: Res<Settings>,
+    mut len: Local<u32>,
+    mut progress: Local<u32>,
+) {
+    // Poll database for scanning progress
+    database.poll_receiver(|event| match event {
+        DatabaseLoadEvent::Start(total_files) => {
+            *len = total_files;
+        }
+        DatabaseLoadEvent::Progress(i) => {
+            *progress = i;
+        }
+        DatabaseLoadEvent::ScanError(err) => {
+            logs.push_err(err);
+        }
+    });
+
+    // Render
+    let (len, progress) = (*len, *progress);
+    let area = frame.area();
+
+    if len == 0 {
+        // Not started yet
+        let logo = Logo::from_size(area.size);
+        frame.push_str(logo.ascii());
+        frame.render(
+            area.with_size(logo.size()).center(area),
+            TextOptions::paragraph(),
+        );
+        return;
+    }
+
+    let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
+
+    let colors = settings.colors();
+    frame.print_fmt(Sgr::Fg(colors.neutral));
+
+    // Logo
+    let logo = Logo::from_size(logo_area.size);
+    frame.push_str(logo.ascii());
+    frame.render(
+        logo_area.with_size(logo.size()).center(logo_area),
+        TextOptions::paragraph(),
+    );
+
+    // Progress
+    frame.push_fmt(format_args!("{progress} / {len}"));
+    frame.render(progress_area, TextOptions::span_center_top());
+
+    frame.print_fmt(Sgr::reset_fg());
+
+    // Shortcut
+    frame.push_str_fg("Esc", colors.primary);
+    frame.push_ch(' ');
+    frame.push_str_fg("Quit", colors.normal);
+    frame.render(shortcut_area, TextOptions::span_center_top());
+}
+
+enum Logo {
+    Tiny,
+    Small,
+    Medium,
+    Large,
+}
+
+impl Logo {
+    const TINY_WIDTH: u16 = 9;
+    const TINY_HEIGHT: u16 = 1;
+    const TINY: &str = "TROLLSTOV";
+
+    const SMALL_WIDTH: u16 = 28;
+    const SMALL_HEIGHT: u16 = 5;
+    const SMALL: &str = r#"
+┌┬┐┬─┐┌─┐┬  ┬  ┌─┐┌┬┐┌─┐┬  ┬
+ │ ├┬┘│ ││  │  └─┐ │ │ │└┐┌┘
+ ┴ ┴└─└─┘┴─┘┴─┘└─┘ ┴ └─┘ └┘ 
+"#;
+
+    const MEDIUM_WIDTH: u16 = 66;
+    const MEDIUM_HEIGHT: u16 = 6;
+    const MEDIUM: &str = r#"
+888888 88""Yb  dP"Yb  88     88     .dP"Y8 888888  dP"Yb  Yb    dP
+  88   88__dP dP   Yb 88     88     `Ybo."   88   dP   Yb  Yb  dP 
+  88   88"Yb  Yb   dP 88  .o 88  .o o.`Y8b   88   Yb   dP   YbdP  
+  88   88  Yb  YbodP  88ood8 88ood8 8bodP'   88    YbodP     YP   
+"#;
+
+    const BIG_WIDTH: u16 = 98;
+    const BIG_HEIGHT: u16 = 9;
+    const BIG: &str = r#"
+::::::::::: :::::::::   ::::::::  :::        :::        :::::::: ::::::::::: ::::::::  :::     :::
+    :+:     :+:    :+: :+:    :+: :+:        :+:       :+:    :+:    :+:    :+:    :+: :+:     :+:
+    +:+     +:+    +:+ +:+    +:+ +:+        +:+       +:+           +:+    +:+    +:+ +:+     +:+
+    +#+     +#++:++#:  +#+    +:+ +#+        +#+       +#++:++#++    +#+    +#+    +:+ +#+     +:+
+    +#+     +#+    +#+ +#+    +#+ +#+        +#+              +#+    +#+    +#+    +#+  +#+   +#+ 
+    #+#     #+#    #+# #+#    #+# #+#        #+#       #+#    #+#    #+#    #+#    #+#   #+#+#+#  
+    ###     ###    ###  ########  ########## ########## ########     ###     ########      ###    
+"#;
+
+    const fn from_size(size: Size) -> Self {
+        if size.cols > Self::BIG_WIDTH + 8 && size.rows > Self::BIG_HEIGHT + 4 {
+            Self::Large
+        } else if size.cols > Self::MEDIUM_WIDTH + 4 && size.rows > Self::MEDIUM_HEIGHT + 2 {
+            Self::Medium
+        } else if size.cols > Self::SMALL_WIDTH + 2 && size.rows > Self::SMALL_HEIGHT + 1 {
+            Self::Small
+        } else {
+            Self::Tiny
+        }
+    }
+
+    const fn size(&self) -> Size {
+        match self {
+            Self::Tiny => Size::new(Self::TINY_WIDTH, Self::TINY_HEIGHT),
+            Self::Small => Size::new(Self::SMALL_WIDTH, Self::SMALL_HEIGHT),
+            Self::Medium => Size::new(Self::MEDIUM_WIDTH, Self::MEDIUM_HEIGHT),
+            Self::Large => Size::new(Self::BIG_WIDTH, Self::BIG_HEIGHT),
+        }
+    }
+
+    const fn ascii(&self) -> &'static str {
+        match self {
+            Self::Tiny => Self::TINY,
+            Self::Small => Self::SMALL,
+            Self::Medium => Self::MEDIUM,
+            Self::Large => Self::BIG,
+        }
     }
 }
