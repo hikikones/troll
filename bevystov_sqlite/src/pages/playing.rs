@@ -8,7 +8,7 @@ use widgets2::{
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::{AudioExt, AudioFile, AudioFileError, Database, TrackId, TrackRating},
+    database::{AudioFileExt, AudioFile, AudioFileError, Database, TrackId, AudioRating},
     jukebox::Jukebox,
     modals::Logs,
     pages::{Page, Route},
@@ -186,7 +186,7 @@ fn input_playing(
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
                 if let Some(id) = jukebox.track_id() {
-                    let rating = TrackRating::from_char(c).unwrap();
+                    let rating = AudioRating::from_char(c).unwrap();
                     if database.write_rating(id, rating) {
                         actions.push(Action::Render);
                     }
@@ -511,7 +511,7 @@ fn poll_cover(
     }
 }
 
-fn load_front_cover(path: std::path::PathBuf, ext: AudioExt, image_id: u32) -> ImageHandle {
+fn load_front_cover(path: std::path::PathBuf, ext: AudioFileExt, image_id: u32) -> ImageHandle {
     std::thread::spawn(move || {
         let audio_file = AudioFile::read_cover(&path, ext).map_err(|err| LoadImageError {
             message: format!("Failed to read front cover image from '{}'", path.display()),

@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use terminal::Color;
 use widgets2::{PromptColors, ScrollbarColors, list2::ListColors};
 
-use crate::database::TrackRating;
+use crate::database::AudioRating;
 
 // TODO: Add show_scrollbars to config.
 
@@ -58,7 +58,7 @@ impl Settings {
         &mut self.config.general
     }
 
-    pub const fn skip_rating(&self) -> TrackRating {
+    pub const fn skip_rating(&self) -> AudioRating {
         self.config.general.skip_rating
     }
 
@@ -150,7 +150,7 @@ impl Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
     #[serde(rename = "skip_tracks_with_rating")]
-    pub skip_rating: TrackRating,
+    pub skip_rating: AudioRating,
     #[serde(rename = "keep_selected_track_on_sort")]
     pub keep_selected: bool,
     #[serde(rename = "search_by_path")]
@@ -160,7 +160,7 @@ pub struct General {
 impl Default for General {
     fn default() -> Self {
         Self {
-            skip_rating: TrackRating::None,
+            skip_rating: AudioRating::None,
             keep_selected: false,
             search_by_path: false,
         }

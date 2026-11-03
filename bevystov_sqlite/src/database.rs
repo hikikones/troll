@@ -123,7 +123,7 @@ impl Database {
             .unwrap();
     }
 
-    pub fn track_rating(&self, id: TrackId) -> TrackRating {
+    pub fn track_rating(&self, id: TrackId) -> AudioRating {
         self.sqlite
             .single("SELECT rating FROM tracks WHERE id = ?", [id], |row| {
                 row.get(0)
@@ -350,7 +350,7 @@ impl Database {
             .unwrap()
     }
 
-    pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) -> bool {
+    pub fn write_rating(&mut self, id: TrackId, rating: AudioRating) -> bool {
         let current_rating = self.track_rating(id);
 
         if current_rating == rating {
@@ -445,7 +445,7 @@ impl Database {
             .unwrap();
     }
 
-    fn set_track_rating(&self, id: TrackId, rating: TrackRating) {
+    fn set_track_rating(&self, id: TrackId, rating: AudioRating) {
         self.sqlite
             .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
             .unwrap();

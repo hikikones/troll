@@ -13,7 +13,7 @@ use player::*;
 use queue::*;
 use utils::StringExt;
 
-use crate::database::{AudioExt, Database, TrackDuration, TrackId, TrackRating};
+use crate::database::{AudioFileExt, AudioRating, AudioDuration, Database, TrackId};
 
 pub type JukeboxResult<T> = Result<T, JukeboxError>;
 
@@ -32,9 +32,9 @@ pub struct Jukebox {
 struct Metadata {
     text: String,
     path: PathBuf,
-    ext: AudioExt,
-    rating: TrackRating,
-    duration: TrackDuration,
+    ext: AudioFileExt,
+    rating: AudioRating,
+    duration: AudioDuration,
     bit_rate_kbps: u32,
     bit_depth: Option<u8>,
     sample_rate: Option<u32>,
@@ -50,7 +50,7 @@ impl Metadata {
 
         db.track_info(id, |info| {
             self.path.push(info.path);
-            self.ext = AudioExt::from_path(info.path).unwrap_or_default();
+            self.ext = AudioFileExt::from_path(info.path).unwrap_or_default();
             self.rating = info.rating;
             self.duration = info.duration;
             self.bit_rate_kbps = info.bit_rate_kbps;
@@ -91,11 +91,11 @@ impl<'a> CurrentTrack<'a> {
         self.index
     }
 
-    pub const fn rating(&self) -> TrackRating {
+    pub const fn rating(&self) -> AudioRating {
         self.data.rating
     }
 
-    pub const fn duration(&self) -> TrackDuration {
+    pub const fn duration(&self) -> AudioDuration {
         self.data.duration
     }
 
@@ -127,7 +127,7 @@ impl<'a> CurrentTrack<'a> {
         &self.data.path
     }
 
-    pub const fn ext(&self) -> AudioExt {
+    pub const fn ext(&self) -> AudioFileExt {
         self.data.ext
     }
 }
@@ -217,8 +217,8 @@ impl Jukebox {
         self.current.map(|(_, index)| index)
     }
 
-    pub fn track_pos(&self) -> TrackDuration {
-        TrackDuration::from_duration(self.player.position())
+    pub fn track_pos(&self) -> AudioDuration {
+        AudioDuration::from_duration(self.player.position())
     }
 
     pub fn get(&self, index: usize) -> Option<TrackId> {
@@ -371,7 +371,7 @@ impl Jukebox {
         self.events.push(JukeboxEvent::Stop);
     }
 
-    pub fn play_next(&mut self, db: &Database, skip: TrackRating) {
+    pub fn play_next(&mut self, db: &Database, skip: AudioRating) {
         if db.is_tracks_empty() {
             return;
         }
@@ -438,7 +438,7 @@ impl Jukebox {
         self.start_decode(id, index, db);
     }
 
-    pub fn play_previous(&mut self, db: &Database, skip: TrackRating) {
+    pub fn play_previous(&mut self, db: &Database, skip: AudioRating) {
         while let Some((id, index)) = self.queue.previous() {
             if self.is_faulty(id) || self.should_skip(id, db, skip) {
                 continue;
@@ -459,7 +459,7 @@ impl Jukebox {
         }
 
         let pos = self.track_pos();
-        let min = TrackDuration::new(1);
+        let min = AudioDuration::new(1);
         let secs = self.metadata.duration.mul_f32(0.10).max(min);
         self.player.seek(pos.add(secs).as_duration());
         true
@@ -471,16 +471,16 @@ impl Jukebox {
         }
 
         let pos = self.track_pos();
-        let min = TrackDuration::new(2);
+        let min = AudioDuration::new(2);
         let secs = self.metadata.duration.mul_f32(0.10).max(min);
         self.player.seek(pos.sub(secs).as_duration());
         true
     }
 
-    fn should_skip(&self, id: TrackId, db: &Database, skip: TrackRating) -> bool {
+    fn should_skip(&self, id: TrackId, db: &Database, skip: AudioRating) -> bool {
         let rating = db.track_rating(id);
         match rating {
-            TrackRating::None => false,
+            AudioRating::None => false,
             _ => rating.as_u8() <= skip.as_u8(),
         }
     }
@@ -504,7 +504,7 @@ impl Jukebox {
     pub fn update(
         &mut self,
         db: &Database,
-        skip: TrackRating,
+        skip: AudioRating,
         mut on_event: impl FnMut(&Self, JukeboxEvent),
     ) {
         self.poll_decoder(db, skip);
@@ -517,7 +517,7 @@ impl Jukebox {
         }
     }
 
-    fn poll_decoder(&mut self, db: &Database, skip: TrackRating) {
+    fn poll_decoder(&mut self, db: &Database, skip: AudioRating) {
         let Some(result) = self.decoder.poll() else {
             return;
         };
@@ -558,7 +558,7 @@ impl Jukebox {
         }
     }
 
-    fn update_state(&mut self, db: &Database, skip: TrackRating) {
+    fn update_state(&mut self, db: &Database, skip: AudioRating) {
         // Play next when empty and idle
         if self.player.is_empty() && !self.player.is_paused() {
             match self.state {
