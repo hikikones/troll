@@ -300,7 +300,6 @@ pub struct AudioMetadata {
     pub artists: Vec<Range<usize>>,
     pub number: u8,
     pub rating: AudioRating,
-    pub path: Range<usize>,
     pub title: Range<usize>,
     pub album: Range<usize>,
     pub album_artist: Range<usize>,
@@ -316,15 +315,11 @@ impl AudioMetadata {
         self.text.clear();
         self.artists.clear();
         self.number = 0;
-        self.rating = AudioRating::None;
-
-        let range = Range { start: 0, end: 0 };
-
-        self.path = range;
-        self.title = range;
-        self.album = range;
-        self.album_artist = range;
-        self.date = range;
+        self.rating = AudioRating::default();
+        self.title = Range::default();
+        self.album = Range::default();
+        self.album_artist = Range::default();
+        self.date = Range::default();
     }
 }
 

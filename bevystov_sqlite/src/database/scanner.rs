@@ -91,6 +91,8 @@ impl ScannedTrack {
         t.metadata.artists.push(Range::default());
 
         let t = v.push_mut(Self::default());
+        t.metadata.title = t.metadata.text.push_str_get_range("title");
+        t.metadata.album = t.metadata.text.push_str_get_range("album");
         t.metadata
             .artists
             .push(t.metadata.text.push_str_get_range("a1"));
@@ -149,7 +151,7 @@ impl ScannedTrack {
     }
 
     pub fn path(&self) -> &str {
-        self.slice(self.metadata.path)
+        self.slice(self.path)
     }
 
     fn slice(&self, range: Range<usize>) -> &str {
@@ -157,7 +159,7 @@ impl ScannedTrack {
     }
 
     fn clear(&mut self) {
-        self.path = Range { start: 0, end: 0 };
+        self.path = Range::default();
         self.metadata.clear();
         self.properties = AudioProperties::default();
     }
@@ -172,7 +174,7 @@ fn process_file(
 
     audio.metadata_in_place(&mut track.metadata)?;
     track.properties = audio.properties();
-    track.metadata.path = track
+    track.path = track
         .metadata
         .text
         .push_str_get_range(&path.to_string_lossy());
