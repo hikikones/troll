@@ -115,7 +115,7 @@ impl Database {
         self.tracks_len
     }
 
-    pub fn track_title(&self, id: TrackId, mut f: impl FnMut(&str)) {
+    pub fn track_title(&self, id: TrackId, f: impl FnOnce(&str)) {
         self.sqlite
             .single("SELECT title FROM tracks WHERE id = ?", [id], |row| {
                 Ok(f(row.get_ref(0)?.as_str()?))
@@ -139,7 +139,7 @@ impl Database {
             .unwrap()
     }
 
-    pub fn track_info(&self, id: TrackId, mut f: impl FnMut(TrackInfo)) {
+    pub fn track_info(&self, id: TrackId, f: impl FnOnce(TrackInfo)) {
         self.sqlite
             .single(
                 "SELECT \
@@ -174,7 +174,7 @@ impl Database {
             .unwrap();
     }
 
-    pub fn track_table(&mut self, id: TrackId, mut f: impl FnMut(TrackTable)) {
+    pub fn track_table(&mut self, id: TrackId, f: impl FnOnce(TrackTable)) {
         self.sql.clear();
 
         let artists = {
@@ -242,7 +242,7 @@ impl Database {
             .unwrap() as usize
     }
 
-    pub fn album_name(&self, id: AlbumId, mut f: impl FnMut(&str)) {
+    pub fn album_name(&self, id: AlbumId, f: impl FnOnce(&str)) {
         self.sqlite
             .single("SELECT name FROM albums WHERE id = ?", [id], |row| {
                 Ok(f(row.get_ref(0)?.as_str()?))
@@ -302,13 +302,12 @@ impl Database {
             FROM track_fts \
             WHERE rowid = ?1 AND track_fts MATCH ?2",
         ));
-
         self.sqlite.single(&self.sql, (id, input), |row| {
             Ok(f(row.get_ref(1)?.as_str()?))
         })
     }
 
-    pub fn search_text(&self, id: TrackId, mut f: impl FnMut(&str)) {
+    pub fn search_text(&self, id: TrackId, f: impl FnOnce(&str)) {
         self.sqlite
             .single(
                 "SELECT t.title || ' ' || GROUP_CONCAT(ar.name, ' ') || ' ' || al.name \
