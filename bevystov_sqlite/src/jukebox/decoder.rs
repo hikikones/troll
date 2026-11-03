@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::database::{AudioExt, AudioFileError, TrackId};
+use crate::database::{AudioFileExt, AudioFileError, TrackId};
 
 type DecodeResult = Result<DecodeSuccess, DecodeFailure>;
 type DecodeHandle = std::thread::JoinHandle<DecodeResult>;
@@ -90,7 +90,7 @@ fn start_decode(request: DecodeRequest) -> DecodeHandle {
 }
 
 fn decode_audio(path: &Path) -> Result<Decoder, DecodeError> {
-    let ext = AudioExt::try_from_path(path).map_err(|err| DecodeError::Audio(err))?;
+    let ext = AudioFileExt::try_from_path(path).map_err(|err| DecodeError::Audio(err))?;
     let file = File::open(path).map_err(|err| DecodeError::Io(err))?;
     let len = file.metadata().map_err(|err| DecodeError::Io(err))?.len();
     let decoder = rodio::Decoder::builder()

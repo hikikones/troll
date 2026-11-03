@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fs::File, path::Path, range::Range};
+use std::{borrow::Cow, fs::File, path::Path, range::Range, time::Duration};
 
 use lofty::{
     config::{ParseOptions, WriteOptions},
@@ -9,9 +9,11 @@ use lofty::{
     ogg::{OggPictureStorage, OpusFile, VorbisFile, tag::VorbisComments},
     picture::PictureType,
 };
+use shared::sqlite::{
+    FromSql, FromSqlError, FromSqlResult, SqliteId, SqliteResult, ToSql, ToSqlOutput, Value,
+    ValueRef,
+};
 use utils::StringExt;
-
-use super::{TrackDuration, TrackRating};
 
 pub type AudioResult<T> = Result<T, AudioFileError>;
 
@@ -25,11 +27,11 @@ enum AudioFormat {
 }
 
 impl AudioFile {
-    pub fn read_all(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
+    pub fn read_all(path: impl AsRef<Path>, ext: AudioFileExt) -> AudioResult<Self> {
         Self::read(path, ext, ParseOptions::new())
     }
 
-    pub fn read_metadata(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
+    pub fn read_metadata(path: impl AsRef<Path>, ext: AudioFileExt) -> AudioResult<Self> {
         Self::read(
             path,
             ext,
@@ -40,34 +42,34 @@ impl AudioFile {
         )
     }
 
-    pub fn read_cover(path: impl AsRef<Path>, ext: AudioExt) -> AudioResult<Self> {
+    pub fn read_cover(path: impl AsRef<Path>, ext: AudioFileExt) -> AudioResult<Self> {
         Self::read(
             path,
             ext,
             ParseOptions::new()
                 .read_cover_art(true)
-                .read_tags(ext != AudioExt::Flac)
+                .read_tags(ext != AudioFileExt::Flac)
                 .read_properties(false),
         )
     }
 
-    fn read(path: impl AsRef<Path>, ext: AudioExt, options: ParseOptions) -> AudioResult<Self> {
+    fn read(path: impl AsRef<Path>, ext: AudioFileExt, options: ParseOptions) -> AudioResult<Self> {
         let mut file = File::open(path.as_ref())?;
 
         let audio_format = match ext {
-            AudioExt::Flac => {
+            AudioFileExt::Flac => {
                 let flac = FlacFile::read_from(&mut file, options)?;
                 AudioFormat::Flac(flac)
             }
-            AudioExt::Opus => {
+            AudioFileExt::Opus => {
                 let opus = OpusFile::read_from(&mut file, options)?;
                 AudioFormat::Opus(opus)
             }
-            AudioExt::Ogg => {
+            AudioFileExt::Ogg => {
                 let ogg_vorbis = VorbisFile::read_from(&mut file, options)?;
                 AudioFormat::Vorbis(ogg_vorbis)
             }
-            AudioExt::Mp3 => {
+            AudioFileExt::Mp3 => {
                 let mpeg = MpegFile::read_from(&mut file, options)?;
                 AudioFormat::Mpeg(mpeg)
             }
@@ -155,22 +157,6 @@ impl AudioFile {
                     })
                     .find(|picture| picture.pic_type() == PictureType::CoverFront)
                     .map(|picture| picture.data());
-                // let id3v2 = mpeg.id3v2()?;
-
-                // let pictures = || {
-                //     id3v2.into_iter().filter_map(|frame| {
-                //         if let Frame::Picture(picture) = frame {
-                //             Some(&picture.picture)
-                //         } else {
-                //             None
-                //         }
-                //     })
-                // };
-
-                // return pictures()
-                //     .find(|p| p.pic_type() == PictureType::CoverFront)
-                //     .or_else(|| pictures().next())
-                //     .map(|p| p.data());
             }
         };
 
@@ -181,7 +167,7 @@ impl AudioFile {
             .map(|(picture, _)| picture.data())
     }
 
-    pub fn set_rating(&mut self, rating: TrackRating) -> AudioResult<()> {
+    pub fn set_rating(&mut self, rating: AudioRating) -> AudioResult<()> {
         let vorbis = match &mut self.0 {
             AudioFormat::Flac(flac) => flac
                 .vorbis_comments_mut()
@@ -192,7 +178,7 @@ impl AudioFile {
                 const POPM_ID: FrameId<'_> = FrameId::Valid(Cow::Borrowed("POPM"));
                 let id3v2 = mpeg.id3v2_mut().ok_or(AudioFileError::MissingId3v2Tag)?;
                 match rating {
-                    TrackRating::None => {
+                    AudioRating::None => {
                         let _ = id3v2.remove(&POPM_ID);
                     }
                     _ => {
@@ -208,7 +194,7 @@ impl AudioFile {
         }?;
 
         match rating {
-            TrackRating::None => {
+            AudioRating::None => {
                 let _ = vorbis.remove("RATING");
             }
             _ => {
@@ -254,7 +240,7 @@ fn metadata_vorbis(vorbis: &VorbisComments, data: &mut AudioMetadata) {
             }
             "ALBUM" => data.album = data.text.push_str_get_range(val),
             "ALBUMARTIST" => data.album_artist = data.text.push_str_get_range(val),
-            "RATING" => data.rating = TrackRating::from_vorbis_comments(val),
+            "RATING" => data.rating = AudioRating::from_vorbis_comments(val),
             "TRACKNUMBER" => data.number = val.parse::<u8>().unwrap_or_default(),
             "DATE" => data.date = data.text.push_str_get_range(val),
             _ => {}
@@ -297,8 +283,8 @@ fn metadata_id3v2(id3v2: &Id3v2Tag, data: &mut AudioMetadata) {
     data.rating = id3v2
         .get(&RATING_ID)
         .map(|frame| match frame {
-            Frame::Popularimeter(popm) => TrackRating::from_id3v2(popm.rating),
-            _ => TrackRating::None,
+            Frame::Popularimeter(popm) => AudioRating::from_id3v2(popm.rating),
+            _ => AudioRating::None,
         })
         .unwrap_or_default();
 
@@ -313,7 +299,7 @@ pub struct AudioMetadata {
     pub text: String,
     pub artists: Vec<Range<usize>>,
     pub number: u8,
-    pub rating: TrackRating,
+    pub rating: AudioRating,
     pub path: Range<usize>,
     pub title: Range<usize>,
     pub album: Range<usize>,
@@ -330,7 +316,7 @@ impl AudioMetadata {
         self.text.clear();
         self.artists.clear();
         self.number = 0;
-        self.rating = TrackRating::None;
+        self.rating = AudioRating::None;
 
         let range = Range { start: 0, end: 0 };
 
@@ -344,14 +330,287 @@ impl AudioMetadata {
 
 #[derive(Default, Clone)]
 pub struct AudioProperties {
-    pub duration: TrackDuration,
+    pub duration: AudioDuration,
     pub bit_rate_kbps: u32,
     pub bit_depth: Option<u8>,
     pub sample_rate: Option<u32>,
 }
 
+#[derive(
+    Debug,
+    Default,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde_repr::Serialize_repr,
+    serde_repr::Deserialize_repr,
+)]
+#[repr(u8)]
+pub enum AudioRating {
+    #[default]
+    None = 0,
+    Awful = 1,
+    Bad = 2,
+    Ok = 3,
+    Good = 4,
+    Amazing = 5,
+}
+
+impl AudioRating {
+    fn from_vorbis_comments(value: &str) -> Self {
+        value
+            .parse::<u8>()
+            .map(|num| match num {
+                0 => Self::None,
+                ..=20 => Self::Awful,
+                ..=40 => Self::Bad,
+                ..=60 => Self::Ok,
+                ..=80 => Self::Good,
+                ..=255 => Self::Amazing,
+            })
+            .unwrap_or_default()
+    }
+
+    const fn into_vorbis_comments(self) -> &'static str {
+        match self {
+            Self::None => "0",
+            Self::Awful => "20",
+            Self::Bad => "40",
+            Self::Ok => "60",
+            Self::Good => "80",
+            Self::Amazing => "100",
+        }
+    }
+
+    const fn from_id3v2(value: u8) -> Self {
+        match value {
+            0 => Self::None,
+            ..=51 => Self::Awful,
+            ..=102 => Self::Bad,
+            ..=153 => Self::Ok,
+            ..=204 => Self::Good,
+            ..=255 => Self::Amazing,
+        }
+    }
+
+    const fn into_id3v2(&self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Awful => 51,
+            Self::Bad => 102,
+            Self::Ok => 153,
+            Self::Good => 204,
+            Self::Amazing => 255,
+        }
+    }
+
+    pub const fn from_char(c: char) -> Option<Self> {
+        match c {
+            '0' => Some(Self::None),
+            '1' => Some(Self::Awful),
+            '2' => Some(Self::Bad),
+            '3' => Some(Self::Ok),
+            '4' => Some(Self::Good),
+            '5' => Some(Self::Amazing),
+            _ => None,
+        }
+    }
+
+    pub const fn as_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub const fn stars(self) -> &'static str {
+        use shared::symbols::{STAR, repeat};
+        match self {
+            Self::None => "",
+            Self::Awful => STAR,
+            Self::Bad => repeat!(STAR, 2),
+            Self::Ok => repeat!(STAR, 3),
+            Self::Good => repeat!(STAR, 4),
+            Self::Amazing => repeat!(STAR, 5),
+        }
+    }
+
+    pub const fn stars_split(self) -> (&'static str, &'static str) {
+        use shared::symbols::{STAR_BIG, repeat};
+        match self {
+            Self::None => (repeat!(STAR_BIG, 0), repeat!(STAR_BIG, 5)),
+            Self::Awful => (repeat!(STAR_BIG, 1), repeat!(STAR_BIG, 4)),
+            Self::Bad => (repeat!(STAR_BIG, 2), repeat!(STAR_BIG, 3)),
+            Self::Ok => (repeat!(STAR_BIG, 3), repeat!(STAR_BIG, 2)),
+            Self::Good => (repeat!(STAR_BIG, 4), repeat!(STAR_BIG, 1)),
+            Self::Amazing => (repeat!(STAR_BIG, 5), repeat!(STAR_BIG, 0)),
+        }
+    }
+}
+
+impl ToSql for AudioRating {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Owned(Value::Integer(*self as SqliteId)))
+    }
+}
+
+impl FromSql for AudioRating {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().and_then(|n| match n {
+            0 => Ok(Self::None),
+            1 => Ok(Self::Awful),
+            2 => Ok(Self::Bad),
+            3 => Ok(Self::Ok),
+            4 => Ok(Self::Good),
+            5 => Ok(Self::Amazing),
+            _ => Err(FromSqlError::Other(
+                format!("Track rating {n} is out of range (0-5)").into(),
+            )),
+        })
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AudioDuration(u16);
+
+impl AudioDuration {
+    pub const fn new(seconds: u16) -> Self {
+        Self(seconds)
+    }
+
+    pub const fn from_duration(duration: Duration) -> Self {
+        Self(duration.as_secs() as u16)
+    }
+
+    pub const fn progress(self, other: Self) -> f32 {
+        if self.0 >= other.0 || other.0 == 0 {
+            return 1.0;
+        }
+
+        self.as_f32() / other.as_f32()
+    }
+
+    pub const fn add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
+
+    pub const fn sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+
+    pub const fn mul_f32(self, v: f32) -> Self {
+        Self((self.0 as f32 * v) as u16)
+    }
+
+    pub const fn max(self, other: Self) -> Self {
+        if self.0 < other.0 { other } else { self }
+    }
+
+    pub const fn as_f32(self) -> f32 {
+        self.0 as f32
+    }
+
+    pub const fn as_duration(self) -> Duration {
+        Duration::from_secs(self.0 as u64)
+    }
+}
+
+impl From<Duration> for AudioDuration {
+    fn from(value: Duration) -> Self {
+        Self::from_duration(value)
+    }
+}
+
+impl From<AudioDuration> for Duration {
+    fn from(value: AudioDuration) -> Self {
+        value.as_duration()
+    }
+}
+
+impl std::fmt::Display for AudioDuration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let seconds = self.0 % 60;
+        let minutes = (self.0 - seconds) / 60;
+        f.write_fmt(format_args!("{:02}:{:02}", minutes, seconds))
+    }
+}
+
+impl ToSql for AudioDuration {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
+    }
+}
+
+impl FromSql for AudioDuration {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().map(|n| Self(n as u16))
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AudioDate {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+}
+
+impl AudioDate {
+    /// Parses dates in ISO 8601 "YYYY-MM-DD".
+    /// Months and days defaults to zero when not found.
+    pub fn parse(s: &str) -> Option<Self> {
+        let mut parts = s.split('-');
+
+        let year = parts.next()?.parse().ok()?;
+        let month = parts
+            .next()
+            .map(|s| s.parse().unwrap_or_default())
+            .unwrap_or_default();
+        let day = parts
+            .next()
+            .map(|s| s.parse().unwrap_or_default())
+            .unwrap_or_default();
+
+        Some(Self { year, month, day })
+    }
+
+    pub const fn from_u32(yyyymmdd: u32) -> Self {
+        Self {
+            year: (yyyymmdd / 10_000) as u16,
+            month: ((yyyymmdd / 100) % 100) as u8,
+            day: (yyyymmdd % 100) as u8,
+        }
+    }
+
+    pub const fn as_u32(self) -> u32 {
+        self.year as u32 * 10_000 + self.month as u32 * 100 + self.day as u32
+    }
+}
+
+impl std::fmt::Display for AudioDate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "{:04}-{:02}-{:02}",
+            self.year, self.month, self.day
+        ))
+    }
+}
+
+impl ToSql for AudioDate {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Owned(
+            Value::Integer(self.as_u32() as SqliteId),
+        ))
+    }
+}
+
+impl FromSql for AudioDate {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().map(|n| Self::from_u32(n as u32))
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum AudioExt {
+pub enum AudioFileExt {
     #[default]
     Flac,
     Opus,
@@ -359,7 +618,7 @@ pub enum AudioExt {
     Mp3,
 }
 
-impl AudioExt {
+impl AudioFileExt {
     pub fn from_path(path: &Path) -> Option<Self> {
         path.extension().and_then(|ext| {
             if ext.eq_ignore_ascii_case("flac") {

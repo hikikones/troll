@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::database::{AudioExt, AudioFile, AudioFileError, AudioResult, TrackId, TrackRating};
+use crate::database::{AudioFile, AudioFileError, AudioFileExt, AudioRating, AudioResult, TrackId};
 
 type WriteResult = Result<(), WriteFailure>;
 type WriteHandle = std::thread::JoinHandle<WriteResult>;
@@ -77,21 +77,21 @@ impl RatingsWriter {
 
 pub struct WriteRequest {
     pub id: TrackId,
-    pub old_rating: TrackRating,
-    pub new_rating: TrackRating,
+    pub old_rating: AudioRating,
+    pub new_rating: AudioRating,
     pub path: PathBuf,
 }
 
 pub struct WriteFailure {
     pub id: TrackId,
-    pub old_rating: TrackRating,
+    pub old_rating: AudioRating,
     pub path: PathBuf,
     pub error: AudioFileError,
 }
 
 struct WriteData {
-    old_rating: TrackRating,
-    new_rating: TrackRating,
+    old_rating: AudioRating,
+    new_rating: AudioRating,
     path: PathBuf,
 }
 
@@ -112,8 +112,8 @@ fn start_write(id: TrackId, data: WriteData) -> WriteHandle {
     })
 }
 
-fn write_rating(path: &Path, rating: TrackRating) -> AudioResult<()> {
-    let ext = AudioExt::try_from_path(path)?;
+fn write_rating(path: &Path, rating: AudioRating) -> AudioResult<()> {
+    let ext = AudioFileExt::try_from_path(path)?;
     let mut audio = AudioFile::read_all(path, ext)?;
     audio.set_rating(rating)?;
     audio.save(path)

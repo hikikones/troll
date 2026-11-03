@@ -4,7 +4,7 @@ use widgets2::{Block, list2::List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::{Database, TrackId, TrackRating, TrackSort},
+    database::{Database, TrackId, AudioRating, TrackSort},
     jukebox::Jukebox,
     pages::Page,
     settings::{Colors, Settings},
@@ -124,7 +124,7 @@ fn input_tracks(
         }
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
-                let rating = TrackRating::from_char(c).unwrap();
+                let rating = AudioRating::from_char(c).unwrap();
                 let mut render = false;
                 for i in list.selection_inclusive() {
                     let id = database.tracks_sorted_id(i);

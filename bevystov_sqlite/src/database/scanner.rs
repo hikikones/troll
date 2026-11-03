@@ -7,8 +7,8 @@ use std::{
 use utils::StringExt;
 
 use crate::database::{
-    AudioExt, AudioFile, AudioFileError, AudioMetadata, AudioProperties, AudioResult,
-    TrackDuration, TrackRating,
+    AudioDuration, AudioFile, AudioFileError, AudioFileExt, AudioMetadata, AudioProperties,
+    AudioRating, AudioResult,
 };
 
 type Sender = std::sync::mpsc::Sender<ScanEvent>;
@@ -108,11 +108,11 @@ impl ScannedTrack {
         self.metadata.number
     }
 
-    pub const fn rating(&self) -> TrackRating {
+    pub const fn rating(&self) -> AudioRating {
         self.metadata.rating
     }
 
-    pub const fn duration(&self) -> TrackDuration {
+    pub const fn duration(&self) -> AudioDuration {
         self.properties.duration
     }
 
@@ -163,7 +163,11 @@ impl ScannedTrack {
     }
 }
 
-fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioResult<ScannedTrack> {
+fn process_file(
+    path: &Path,
+    ext: AudioFileExt,
+    track: &mut ScannedTrack,
+) -> AudioResult<ScannedTrack> {
     let audio = AudioFile::read_metadata(path, ext)?;
 
     audio.metadata_in_place(&mut track.metadata)?;
@@ -180,14 +184,14 @@ fn process_file(path: &Path, ext: AudioExt, track: &mut ScannedTrack) -> AudioRe
     Ok(track.clone())
 }
 
-fn collect_files(root: impl AsRef<Path>, follow_links: bool) -> Vec<(PathBuf, AudioExt)> {
+fn collect_files(root: impl AsRef<Path>, follow_links: bool) -> Vec<(PathBuf, AudioFileExt)> {
     walkdir::WalkDir::new(root)
         .follow_links(follow_links)
         .into_iter()
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_file())
         .filter_map(|entry| {
-            AudioExt::from_path(entry.path()).map(|ext| (entry.path().to_path_buf(), ext))
+            AudioFileExt::from_path(entry.path()).map(|ext| (entry.path().to_path_buf(), ext))
         })
         .collect()
 }
