@@ -330,7 +330,7 @@ fn metadata_vorbis(vorbis: &VorbisComments, data: &mut AudioMetadata) {
             Key::Album => data.album = data.text.push_str_get_range(val),
             Key::AlbumArtist => data.album_artist = data.text.push_str_get_range(val),
             Key::Rating => data.rating = TrackRating::from_vorbis_comments(val),
-            Key::TrackNumber => data.number = val.parse::<u8>().unwrap_or_default(),
+            Key::TrackNumber => data.number = TrackNumber::parse(val).unwrap_or_default(),
             Key::Date => data.date = data.text.push_str_get_range(val),
         }
     }
@@ -378,7 +378,7 @@ fn metadata_id3v2(id3v2: &Id3v2Tag, data: &mut AudioMetadata) {
 
     data.number = id3v2
         .get_text(&TRACK_NUMBER_ID)
-        .map(|num| num.parse().unwrap_or_default())
+        .and_then(|s| TrackNumber::parse(s).ok())
         .unwrap_or_default();
 }
 
@@ -386,7 +386,7 @@ fn metadata_id3v2(id3v2: &Id3v2Tag, data: &mut AudioMetadata) {
 pub struct AudioMetadata {
     pub text: String,
     pub artists: Vec<Range<usize>>,
-    pub number: u8,
+    pub number: TrackNumber,
     pub rating: TrackRating,
     pub title: Range<usize>,
     pub album: Range<usize>,
@@ -402,7 +402,7 @@ impl AudioMetadata {
     pub fn clear(&mut self) {
         self.text.clear();
         self.artists.clear();
-        self.number = 0;
+        self.number = TrackNumber::default();
         self.rating = TrackRating::default();
         self.title = Range::default();
         self.album = Range::default();
@@ -417,6 +417,28 @@ pub struct AudioProperties {
     pub bit_rate_kbps: u32,
     pub bit_depth: Option<u8>,
     pub sample_rate: Option<u32>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct TrackNumber(pub u8);
+
+impl TrackNumber {
+    fn parse(s: &str) -> Result<Self, std::num::ParseIntError> {
+        let num = s.parse()?;
+        Ok(Self(num))
+    }
+}
+
+impl ToSql for TrackNumber {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
+    }
+}
+
+impl FromSql for TrackNumber {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().map(|n| Self(n as u8))
+    }
 }
 
 #[derive(
