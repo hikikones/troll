@@ -7,8 +7,8 @@ use std::{
 use utils::StringExt;
 
 use crate::database::{
-    AudioDuration, AudioFile, AudioFileError, AudioFileExt, AudioMetadata, AudioProperties,
-    AudioRating, AudioResult,
+    AudioFile, AudioFileError, AudioFileExt, AudioMetadata, AudioProperties, AudioResult,
+    TrackDuration, TrackRating,
 };
 
 type Sender = std::sync::mpsc::Sender<ScanEvent>;
@@ -110,11 +110,11 @@ impl ScannedTrack {
         self.metadata.number
     }
 
-    pub const fn rating(&self) -> AudioRating {
+    pub const fn rating(&self) -> TrackRating {
         self.metadata.rating
     }
 
-    pub const fn duration(&self) -> AudioDuration {
+    pub const fn duration(&self) -> TrackDuration {
         self.properties.duration
     }
 

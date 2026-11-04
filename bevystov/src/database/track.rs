@@ -4,13 +4,13 @@ use shared::sqlite::{
     FromSql, FromSqlResult, SqliteId, SqliteResult, ToSql, ToSqlOutput, Value, ValueRef,
 };
 
-use super::{AlbumId, AudioDuration, AudioRating};
+use super::{AlbumId, TrackDuration, TrackRating};
 
 #[derive(Debug)]
 pub struct TrackInfo<'a> {
     pub title: &'a str,
-    pub duration: AudioDuration,
-    pub rating: AudioRating,
+    pub duration: TrackDuration,
+    pub rating: TrackRating,
     pub bit_rate_kbps: u32,
     pub bit_depth: Option<u8>,
     pub sample_rate: Option<u32>,
@@ -23,8 +23,8 @@ pub struct TrackTable<'a> {
     pub title: &'a str,
     pub artists: &'a str,
     pub album: &'a str,
-    pub duration: AudioDuration,
-    pub rating: AudioRating,
+    pub duration: TrackDuration,
+    pub rating: TrackRating,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

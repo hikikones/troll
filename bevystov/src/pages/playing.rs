@@ -8,7 +8,7 @@ use widgets2::{
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
-    database::{AudioFile, AudioFileError, AudioFileExt, AudioRating, Database, TrackId},
+    database::{AudioFile, AudioFileError, AudioFileExt, Database, TrackId, TrackRating},
     jukebox::Jukebox,
     modals::Logs,
     pages::{Page, Route},
@@ -186,7 +186,7 @@ fn input_playing(
         KeyCode::Char(c) => match c {
             '0' | '1' | '2' | '3' | '4' | '5' => {
                 if let Some(id) = jukebox.track_id() {
-                    let rating = AudioRating::from_char(c).unwrap();
+                    let rating = TrackRating::from_char(c).unwrap();
                     if database.write_rating(id, rating) {
                         actions.push(Action::Render);
                     }

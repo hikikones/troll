@@ -26,6 +26,57 @@ enum AudioFormat {
     Mpeg(MpegFile),
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AudioFileExt {
+    #[default]
+    Flac,
+    Opus,
+    Ogg,
+    Mp3,
+}
+
+impl AudioFileExt {
+    pub fn from_path(path: &Path) -> Option<Self> {
+        path.extension().and_then(|ext| {
+            if ext.eq_ignore_ascii_case("flac") {
+                Some(Self::Flac)
+            } else if ext.eq_ignore_ascii_case("ogg") {
+                Some(Self::Ogg)
+            } else if ext.eq_ignore_ascii_case("mp3") {
+                Some(Self::Mp3)
+            } else {
+                #[cfg(feature = "opus")]
+                if ext.eq_ignore_ascii_case("opus") {
+                    return Some(Self::Opus);
+                }
+                None
+            }
+        })
+    }
+
+    pub fn try_from_path(path: &Path) -> AudioResult<Self> {
+        Self::from_path(path).ok_or(AudioFileError::InvalidExtension)
+    }
+
+    pub const fn as_lower_case(self) -> &'static str {
+        match self {
+            Self::Flac => "flac",
+            Self::Opus => "opus",
+            Self::Ogg => "ogg",
+            Self::Mp3 => "mp3",
+        }
+    }
+
+    pub const fn as_upper_case(self) -> &'static str {
+        match self {
+            Self::Flac => "FLAC",
+            Self::Opus => "OPUS",
+            Self::Ogg => "OGG",
+            Self::Mp3 => "MP3",
+        }
+    }
+}
+
 impl AudioFile {
     pub fn read_all(path: impl AsRef<Path>, ext: AudioFileExt) -> AudioResult<Self> {
         Self::read(path, ext, ParseOptions::new())
@@ -167,7 +218,7 @@ impl AudioFile {
             .map(|(picture, _)| picture.data())
     }
 
-    pub fn set_rating(&mut self, rating: AudioRating) -> AudioResult<()> {
+    pub fn set_rating(&mut self, rating: TrackRating) -> AudioResult<()> {
         let vorbis = match &mut self.0 {
             AudioFormat::Flac(flac) => flac
                 .vorbis_comments_mut()
@@ -177,7 +228,7 @@ impl AudioFile {
             AudioFormat::Mpeg(mpeg) => {
                 let id3v2 = mpeg.id3v2_mut().ok_or(AudioFileError::MissingId3v2Tag)?;
                 match rating {
-                    AudioRating::None => {
+                    TrackRating::None => {
                         const POPM_ID: FrameId<'_> = FrameId::Valid(Cow::Borrowed("POPM"));
                         let _ = id3v2.remove(&POPM_ID);
                     }
@@ -194,7 +245,7 @@ impl AudioFile {
         }?;
 
         match rating {
-            AudioRating::None => {
+            TrackRating::None => {
                 let _ = vorbis.remove("RATING");
             }
             _ => {
@@ -278,7 +329,7 @@ fn metadata_vorbis(vorbis: &VorbisComments, data: &mut AudioMetadata) {
             }
             Key::Album => data.album = data.text.push_str_get_range(val),
             Key::AlbumArtist => data.album_artist = data.text.push_str_get_range(val),
-            Key::Rating => data.rating = AudioRating::from_vorbis_comments(val),
+            Key::Rating => data.rating = TrackRating::from_vorbis_comments(val),
             Key::TrackNumber => data.number = val.parse::<u8>().unwrap_or_default(),
             Key::Date => data.date = data.text.push_str_get_range(val),
         }
@@ -320,8 +371,8 @@ fn metadata_id3v2(id3v2: &Id3v2Tag, data: &mut AudioMetadata) {
     data.rating = id3v2
         .get(&RATING_ID)
         .map(|frame| match frame {
-            Frame::Popularimeter(popm) => AudioRating::from_id3v2(popm.rating),
-            _ => AudioRating::None,
+            Frame::Popularimeter(popm) => TrackRating::from_id3v2(popm.rating),
+            _ => TrackRating::None,
         })
         .unwrap_or_default();
 
@@ -336,7 +387,7 @@ pub struct AudioMetadata {
     pub text: String,
     pub artists: Vec<Range<usize>>,
     pub number: u8,
-    pub rating: AudioRating,
+    pub rating: TrackRating,
     pub title: Range<usize>,
     pub album: Range<usize>,
     pub album_artist: Range<usize>,
@@ -352,7 +403,7 @@ impl AudioMetadata {
         self.text.clear();
         self.artists.clear();
         self.number = 0;
-        self.rating = AudioRating::default();
+        self.rating = TrackRating::default();
         self.title = Range::default();
         self.album = Range::default();
         self.album_artist = Range::default();
@@ -362,7 +413,7 @@ impl AudioMetadata {
 
 #[derive(Default, Clone)]
 pub struct AudioProperties {
-    pub duration: AudioDuration,
+    pub duration: TrackDuration,
     pub bit_rate_kbps: u32,
     pub bit_depth: Option<u8>,
     pub sample_rate: Option<u32>,
@@ -381,7 +432,7 @@ pub struct AudioProperties {
     serde_repr::Deserialize_repr,
 )]
 #[repr(u8)]
-pub enum AudioRating {
+pub enum TrackRating {
     #[default]
     None = 0,
     Awful = 1,
@@ -391,7 +442,7 @@ pub enum AudioRating {
     Amazing = 5,
 }
 
-impl AudioRating {
+impl TrackRating {
     fn from_vorbis_comments(value: &str) -> Self {
         value
             .parse::<u8>()
@@ -480,13 +531,13 @@ impl AudioRating {
     }
 }
 
-impl ToSql for AudioRating {
+impl ToSql for TrackRating {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(*self as SqliteId)))
     }
 }
 
-impl FromSql for AudioRating {
+impl FromSql for TrackRating {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         value.as_i64().and_then(|n| match n {
             0 => Ok(Self::None),
@@ -503,9 +554,9 @@ impl FromSql for AudioRating {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct AudioDuration(u16);
+pub struct TrackDuration(u16);
 
-impl AudioDuration {
+impl TrackDuration {
     pub const fn new(seconds: u16) -> Self {
         Self(seconds)
     }
@@ -547,19 +598,19 @@ impl AudioDuration {
     }
 }
 
-impl From<Duration> for AudioDuration {
+impl From<Duration> for TrackDuration {
     fn from(value: Duration) -> Self {
         Self::from_duration(value)
     }
 }
 
-impl From<AudioDuration> for Duration {
-    fn from(value: AudioDuration) -> Self {
+impl From<TrackDuration> for Duration {
+    fn from(value: TrackDuration) -> Self {
         value.as_duration()
     }
 }
 
-impl std::fmt::Display for AudioDuration {
+impl std::fmt::Display for TrackDuration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let seconds = self.0 % 60;
         let minutes = (self.0 - seconds) / 60;
@@ -567,26 +618,26 @@ impl std::fmt::Display for AudioDuration {
     }
 }
 
-impl ToSql for AudioDuration {
+impl ToSql for TrackDuration {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
     }
 }
 
-impl FromSql for AudioDuration {
+impl FromSql for TrackDuration {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         value.as_i64().map(|n| Self(n as u16))
     }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct AudioDate {
+pub struct TrackDate {
     pub year: u16,
     pub month: u8,
     pub day: u8,
 }
 
-impl AudioDate {
+impl TrackDate {
     /// Parses dates in ISO 8601 "YYYY-MM-DD".
     /// Months and days defaults to zero when not found.
     pub fn parse(s: &str) -> Option<Self> {
@@ -618,7 +669,7 @@ impl AudioDate {
     }
 }
 
-impl std::fmt::Display for AudioDate {
+impl std::fmt::Display for TrackDate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "{:04}-{:02}-{:02}",
@@ -627,7 +678,7 @@ impl std::fmt::Display for AudioDate {
     }
 }
 
-impl ToSql for AudioDate {
+impl ToSql for TrackDate {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::Owned(
             Value::Integer(self.as_u32() as SqliteId),
@@ -635,60 +686,9 @@ impl ToSql for AudioDate {
     }
 }
 
-impl FromSql for AudioDate {
+impl FromSql for TrackDate {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         value.as_i64().map(|n| Self::from_u32(n as u32))
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum AudioFileExt {
-    #[default]
-    Flac,
-    Opus,
-    Ogg,
-    Mp3,
-}
-
-impl AudioFileExt {
-    pub fn from_path(path: &Path) -> Option<Self> {
-        path.extension().and_then(|ext| {
-            if ext.eq_ignore_ascii_case("flac") {
-                Some(Self::Flac)
-            } else if ext.eq_ignore_ascii_case("ogg") {
-                Some(Self::Ogg)
-            } else if ext.eq_ignore_ascii_case("mp3") {
-                Some(Self::Mp3)
-            } else {
-                #[cfg(feature = "opus")]
-                if ext.eq_ignore_ascii_case("opus") {
-                    return Some(Self::Opus);
-                }
-                None
-            }
-        })
-    }
-
-    pub fn try_from_path(path: &Path) -> AudioResult<Self> {
-        Self::from_path(path).ok_or(AudioFileError::InvalidExtension)
-    }
-
-    pub const fn as_lower_case(self) -> &'static str {
-        match self {
-            Self::Flac => "flac",
-            Self::Opus => "opus",
-            Self::Ogg => "ogg",
-            Self::Mp3 => "mp3",
-        }
-    }
-
-    pub const fn as_upper_case(self) -> &'static str {
-        match self {
-            Self::Flac => "FLAC",
-            Self::Opus => "OPUS",
-            Self::Ogg => "OGG",
-            Self::Mp3 => "MP3",
-        }
     }
 }
 
