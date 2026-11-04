@@ -249,10 +249,7 @@ impl AudioFile {
                 let _ = vorbis.remove("RATING");
             }
             _ => {
-                vorbis.insert(
-                    String::from("RATING"),
-                    String::from(rating.into_vorbis_comments()),
-                );
+                vorbis.insert(String::from("RATING"), String::from(rating.into_vorbis()));
             }
         }
 
@@ -329,7 +326,7 @@ fn metadata_vorbis(vorbis: &VorbisComments, data: &mut AudioMetadata) {
             }
             Key::Album => data.album = data.text.push_str_get_range(val),
             Key::AlbumArtist => data.album_artist = data.text.push_str_get_range(val),
-            Key::Rating => data.rating = TrackRating::from_vorbis_comments(val),
+            Key::Rating => data.rating = TrackRating::from_vorbis(val),
             Key::TrackNumber => data.number = TrackNumber::parse(val).unwrap_or_default(),
             Key::Date => data.date = data.text.push_str_get_range(val),
         }
@@ -465,7 +462,7 @@ pub enum TrackRating {
 }
 
 impl TrackRating {
-    fn from_vorbis_comments(value: &str) -> Self {
+    fn from_vorbis(value: &str) -> Self {
         value
             .parse::<u8>()
             .map(|num| match num {
@@ -479,7 +476,7 @@ impl TrackRating {
             .unwrap_or_default()
     }
 
-    const fn into_vorbis_comments(self) -> &'static str {
+    const fn into_vorbis(self) -> &'static str {
         match self {
             Self::None => "0",
             Self::Awful => "20",
@@ -501,7 +498,7 @@ impl TrackRating {
         }
     }
 
-    const fn into_id3v2(&self) -> u8 {
+    const fn into_id3v2(self) -> u8 {
         match self {
             Self::None => 0,
             Self::Awful => 51,
