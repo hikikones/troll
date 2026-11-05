@@ -2,8 +2,7 @@ use ecs::*;
 use shared::symbols;
 use terminal::*;
 use widgets2::{
-    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, ScrollMargins,
-    list2::List,
+    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, List, ScrollMargins,
 };
 
 use crate::{

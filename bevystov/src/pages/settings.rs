@@ -1,7 +1,7 @@
 use ecs::*;
 use shared::symbols;
 use terminal::*;
-use widgets2::{Block, Prompt, ScrollMargins, list2::List};
+use widgets2::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},

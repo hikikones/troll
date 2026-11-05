@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, list2::List};
+use widgets2::{Block, List};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},

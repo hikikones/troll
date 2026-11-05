@@ -6,7 +6,7 @@ use std::{
 use ecs::Resource;
 use serde::{Deserialize, Serialize};
 use terminal::Color;
-use widgets2::{PromptColors, ScrollbarColors, list2::ListColors};
+use widgets2::{ListColors, PromptColors, ScrollbarColors};
 
 use crate::database::TrackRating;
 
