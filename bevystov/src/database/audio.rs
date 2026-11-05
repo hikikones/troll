@@ -566,7 +566,7 @@ impl FromSql for TrackRating {
             4 => Ok(Self::Good),
             5 => Ok(Self::Amazing),
             _ => Err(FromSqlError::Other(
-                format!("Audio rating {n} is out of range (0-5)").into(),
+                format!("Track rating {n} is out of range (0-5)").into(),
             )),
         })
     }
