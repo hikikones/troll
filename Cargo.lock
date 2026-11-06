@@ -5405,17 +5405,13 @@ dependencies = [
  "directories",
  "edit",
  "fsrs",
- "itoa",
- "nucleo-matcher",
- "ratatui",
  "ron",
  "serde",
  "shared",
+ "terminal",
  "toml",
- "unicode-segmentation",
- "unicode-width",
  "utils",
- "widgets",
+ "widgets2",
 ]
 
 [[package]]

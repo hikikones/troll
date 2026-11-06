@@ -16,14 +16,10 @@ clap-cargo = { workspace = true }
 directories = { workspace = true }
 edit = { workspace = true }
 fsrs = { workspace = true }
-itoa = { workspace = true }
-nucleo-matcher = { workspace = true }
-ratatui = { workspace = true }
 ron = { workspace = true }
 serde = { workspace = true }
 shared = { workspace = true }
+terminal = { workspace = true }
 toml = { workspace = true }
-unicode-segmentation = { workspace = true }
-unicode-width = { workspace = true }
 utils = { workspace = true }
-widgets = { workspace = true }
+widgets2 = { workspace = true }
