@@ -7,8 +7,6 @@ mod prompt;
 mod scroll;
 mod tag_list;
 
-pub mod list2;
-
 pub use ansi::*;
 pub use block::*;
 pub use editor::*;
