@@ -404,7 +404,7 @@ impl Default for CellDims {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Rgb(u8, u8, u8);
+pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
     pub const BLACK: Self = Self(0, 0, 0);

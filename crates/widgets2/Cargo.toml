@@ -8,6 +8,11 @@ license.workspace = true
 [dependencies]
 base64 = { workspace = true }
 image = { workspace = true }
+ratex-layout = { workspace = true }
+ratex-parser = { workspace = true }
+ratex-render = { workspace = true }
+ratex-types = { workspace = true }
+syntect = { workspace = true }
 terminal = { workspace = true }
 utils = { workspace = true }
 zlib-rs = { workspace = true }

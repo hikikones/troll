@@ -5885,6 +5885,11 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "image",
+ "ratex-layout",
+ "ratex-parser",
+ "ratex-render",
+ "ratex-types",
+ "syntect",
  "terminal",
  "utils",
  "zlib-rs",
