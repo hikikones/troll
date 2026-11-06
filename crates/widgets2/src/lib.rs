@@ -7,7 +7,9 @@ mod prompt;
 mod scroll;
 mod tag_list;
 
-pub mod markup;
+// pub mod markup;
+// pub mod markup2;
+pub mod markup3;
 
 pub use ansi::*;
 pub use block::*;
