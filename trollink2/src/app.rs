@@ -7,6 +7,7 @@ pub struct App {
     frame: Framebuffer,
     markup: Markup,
     kitty: KittyGraphics,
+    index: usize,
     is_running: bool,
 }
 
@@ -16,6 +17,7 @@ impl App {
             frame: Framebuffer::new(),
             markup: Markup::new(dir),
             kitty: KittyGraphics::new(),
+            index: 0,
             is_running: true,
         }
     }
@@ -45,6 +47,22 @@ impl App {
         let action = match event {
             TerminalEvent::Key(key) => match key.code {
                 KeyCode::Esc => Action::Quit,
+                KeyCode::Left => {
+                    if self.index == 0 {
+                        self.index = 3
+                    } else {
+                        self.index -= 1;
+                    }
+                    Action::Render
+                }
+                KeyCode::Right => {
+                    if self.index == 3 {
+                        self.index = 0
+                    } else {
+                        self.index += 1;
+                    }
+                    Action::Render
+                }
                 _ => {
                     if self.markup.input(key.code) {
                         Action::Render
@@ -85,8 +103,15 @@ impl App {
         Block::rectangle().render(area, &mut frame);
         let inner = area.inner(Margin::proportional(1));
 
-        self.markup
-            .render(inner, &mut frame, MARKUP, &mut self.kitty);
+        let text = match self.index {
+            0 => MARKUP,
+            1 => LOREM,
+            2 => EMOJI_TAB,
+            3 => PICARD,
+            _ => unreachable!(),
+        };
+
+        self.markup.render(inner, &mut frame, text, &mut self.kitty);
 
         frame.flush(&mut terminal.lock())?;
         self.frame = frame;

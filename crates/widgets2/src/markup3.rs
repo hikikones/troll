@@ -310,6 +310,7 @@ impl Markup {
         // self.desired_scroll = None;
         self.total_lines = 0;
         self.view = Size::ZERO;
+        self.size = Size::ZERO;
         self.hash = 0;
         // self.scroll_area = None;
     }
