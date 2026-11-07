@@ -139,7 +139,7 @@ impl Markup {
 
     pub fn render(
         &mut self,
-        mut area: Rect,
+        area: Rect,
         frame: &mut Framebuffer,
         markup: &str,
         kitty: &mut KittyGraphics,
@@ -184,7 +184,10 @@ impl Markup {
                             is_in_viewport(current_line, viewport_top, viewport_bot);
 
                         if is_in_viewport {
+                            // frame.cursor(area.pos.with_row(area.row() + current_line));
+                            frame.cursor(area.pos);
                             frame.print_str(line);
+                            area.shrink_down(1);
                         }
 
                         current_line += 1;
