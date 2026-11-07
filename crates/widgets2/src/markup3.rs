@@ -184,9 +184,8 @@ impl Markup {
                             is_in_viewport(current_line, viewport_top, viewport_bot);
 
                         if is_in_viewport {
-                            // frame.cursor(area.pos.with_row(area.row() + current_line));
-                            frame.cursor(area.pos);
-                            frame.print_str(line);
+                            frame.push_str(line);
+                            frame.render(area, TextOptions::span().with_horizontal(alignment));
                             area.shrink_down(1);
                         }
 
@@ -234,10 +233,14 @@ impl Markup {
                     //     // area.shrink_down(image_rows);
                     // }
 
+                    area.shrink_down(1);
+                    current_line += 1;
+
                     // // current_line += resized_rows;
                 }
                 MarkupRich::Break => {
                     if is_in_viewport(current_line, viewport_top, viewport_bot) {
+                        frame.cursor(area.pos);
                         frame.print_fmt(Sgr::Fg(self.colors.break_char));
                         frame.print_ch_repeat(self.options.break_char, area.cols());
                         frame.print_fmt(Sgr::reset_fg());
@@ -534,7 +537,7 @@ impl Markup {
                     // let max_width = kitty.width(max_width);
                     // let resized_dims = KittyGraphics::resize(dims, dims.with_width(max_width));
                     // kitty.rows(resized_dims.height)
-                    0
+                    1
                 }
                 MarkupRich::Break | MarkupRich::EmptyLine => 1,
             })

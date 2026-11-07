@@ -571,6 +571,16 @@ impl TextOptions {
         }
     }
 
+    pub const fn with_horizontal(mut self, align: HorizontalAlignment) -> Self {
+        self.horizontal = align;
+        self
+    }
+
+    pub const fn with_vertical(mut self, align: VerticalAlignment) -> Self {
+        self.vertical = align;
+        self
+    }
+
     pub const fn with_fill(mut self) -> Self {
         self.fill = true;
         self
