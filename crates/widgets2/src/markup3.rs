@@ -18,6 +18,7 @@ pub struct Markup {
     rich: Vec<MarkupRich>,
     images: Vec<MarkupImage>,
     id_start: u32,
+    cell: CellDims,
     view: Size,
     size: Size,
     hash: u64,
@@ -87,6 +88,7 @@ impl Markup {
             rich: Vec::new(),
             images: Vec::new(),
             id_start: 90,
+            cell: CellDims::DEFAULT,
             view: Size::ZERO,
             size: Size::ZERO,
             hash: 0,
@@ -120,6 +122,11 @@ impl Markup {
 
     pub const fn set_colors(&mut self, colors: MarkupColors) -> &mut Self {
         self.colors = colors;
+        self
+    }
+
+    pub const fn set_cell_dims(&mut self, size: CellDims) -> &mut Self {
+        self.cell = size;
         self
     }
 
@@ -200,7 +207,7 @@ impl Markup {
                     let dims = self.images[index as usize].image.dims();
 
                     // TODO
-                    let cell = CellDims::DEFAULT;
+                    let cell = self.cell;
 
                     let max_width = cell.width(area.cols());
                     let resized_dims = dims.resize(dims.with_width(max_width));
@@ -588,7 +595,7 @@ impl Markup {
                 }
 
                 // TODO: pass rgb and cell dims
-                let png = math_to_png(math, Rgb::WHITE, CellDims::DEFAULT);
+                let png = math_to_png(math, Rgb::WHITE, self.cell);
                 image
                     .image
                     .load_from_bytes(png, kitty)
@@ -680,9 +687,9 @@ impl Markup {
                     // kitty.rows(resized_dims.height)
                     // 1
                     // TODO
-                    let cell = CellDims::DEFAULT;
+                    let cell = self.cell;
                     let dims = self.images[index as usize].image.dims();
-                    let max_width = self.size.cols;
+                    let max_width = cell.width(self.size.cols);
                     let resized_dims = dims.resize(dims.with_width(max_width));
                     cell.rows(resized_dims.height)
                 }
