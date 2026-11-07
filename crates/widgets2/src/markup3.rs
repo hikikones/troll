@@ -16,6 +16,8 @@ pub struct Markup {
     desired_scroll: Option<ScrollMove>,
     plain: Vec<MarkupPlain>,
     rich: Vec<MarkupRich>,
+    images: Vec<MarkupImage>,
+    id_start: u32,
     view: Size,
     size: Size,
     hash: u64,
@@ -83,6 +85,8 @@ impl Markup {
             desired_scroll: None,
             plain: Vec::new(),
             rich: Vec::new(),
+            images: Vec::new(),
+            id_start: 90,
             view: Size::ZERO,
             size: Size::ZERO,
             hash: 0,
@@ -193,50 +197,64 @@ impl Markup {
                     }
                 }
                 MarkupRich::Image { index } => {
-                    //TODO
-                    // let dims = self.kitty.dims(index);
+                    let dims = self.images[index as usize].image.dims();
+
+                    // TODO
+                    let cell = CellDims::DEFAULT;
+
+                    let max_width = cell.width(area.cols());
+                    let resized_dims = dims.resize(dims.with_width(max_width));
+                    let resized_rows = cell.rows(resized_dims.height);
                     // let max_width = kitty.width(area.width);
                     // let resized_dims = KittyGraphics::resize(dims, dims.with_width(max_width));
                     // let resized_rows = kitty.rows(resized_dims.height);
 
-                    // if is_in_viewport(
-                    //     current_line,
-                    //     viewport_top.saturating_sub(resized_rows - 1),
-                    //     viewport_bot,
-                    // ) {
-                    //     // let is_at_top = area.y == top_y;
-                    //     // let rows_outside_top = if is_at_top {
-                    //     //     current_line.abs_diff(self.scroll.current)
-                    //     // } else {
-                    //     //     0
-                    //     // };
-                    //     // let image_rows = (resized_rows - rows_outside_top).min(area.height);
-                    //     // let image_area = Rect {
-                    //     //     height: image_rows,
-                    //     //     ..area
-                    //     // };
-                    //     // self.kitty.image_mut(index).render(
-                    //     //     image_area,
-                    //     //     frame,
-                    //     //     kitty,
-                    //     //     ImageOptions {
-                    //     //         resize: ResizeMode::FitWidthCropHeight { rows_outside_top },
-                    //     //         horizontal: HorizontalAlignment::Center,
-                    //     //         vertical: VerticalAlignment::Top,
-                    //     //     },
-                    //     //     // ImageOptions::new()
-                    //     //     //     .with_resize(ResizeMode::FitWidthCropHeight { rows_outside_top }),
-                    //     //     // ResizeMode::FitWidthCropHeight { rows_outside_top },
-                    //     //     // crate::Alignment::CenterHorizontal,
-                    //     // );
-                    //     // self.kitty.has_rendered = true;
-                    //     // area.shrink_down(image_rows);
-                    // }
+                    if is_in_viewport(
+                        current_line,
+                        viewport_top.saturating_sub(resized_rows - 1),
+                        viewport_bot,
+                    ) {
+                        let is_at_top = area.row() == top_y;
+                        let rows_outside_top = if is_at_top {
+                            current_line.abs_diff(self.scroll)
+                        } else {
+                            0
+                        };
+                        let image_rows = (resized_rows - rows_outside_top).min(area.rows());
+                        let image_area = area.with_rows(image_rows);
+                        // let image_area = Rect {
+                        //     height: image_rows,
+                        //     ..area
+                        // };
+                        self.images[index as usize].image.render(
+                            image_area,
+                            frame,
+                            kitty,
+                            ImageOptions {
+                                resize: ResizeMode::FitWidthCropHeight { rows_outside_top },
+                                horizontal: HorizontalAlignment::Center,
+                                vertical: VerticalAlignment::Top,
+                            },
+                        );
+                        // self.kitty.image_mut(index).render(
+                        //     image_area,
+                        //     frame,
+                        //     kitty,
+                        //     ImageOptions {
+                        //         resize: ResizeMode::FitWidthCropHeight { rows_outside_top },
+                        //         horizontal: HorizontalAlignment::Center,
+                        //         vertical: VerticalAlignment::Top,
+                        //     },
+                        //     // ImageOptions::new()
+                        //     //     .with_resize(ResizeMode::FitWidthCropHeight { rows_outside_top }),
+                        //     // ResizeMode::FitWidthCropHeight { rows_outside_top },
+                        //     // crate::Alignment::CenterHorizontal,
+                        // );
+                        // self.kitty.has_rendered = true;
+                        area.shrink_down(image_rows);
+                    }
 
-                    area.shrink_down(1);
-                    current_line += 1;
-
-                    // // current_line += resized_rows;
+                    current_line += resized_rows;
                 }
                 MarkupRich::Break => {
                     if is_in_viewport(current_line, viewport_top, viewport_bot) {
@@ -282,6 +300,8 @@ impl Markup {
         self.clear();
         self.hash = hash;
 
+        let mut image_index = 0;
+
         // Parse and load markup
         for (block, _) in MarkupBlockParser::new(markup) {
             match block {
@@ -321,10 +341,42 @@ impl Markup {
                     self.plain.push(MarkupPlain::EmptyLine);
                 }
                 MarkupBlock::Image { description, path } => {
-                    // todo
+                    match self.load_image(image_index, ImageSource::Filename(path), kitty) {
+                        Ok(_) => {
+                            self.plain.push(MarkupPlain::Image { index: image_index });
+                        }
+                        Err(err) => {
+                            self.plain.push(MarkupPlain::ImageError {
+                                text: self.text.extend_get_range(["ERROR\n", err.as_str()]),
+                            });
+                        }
+                    }
+
+                    image_index += 1;
+
+                    if !description.is_empty() {
+                        self.plain.push(MarkupPlain::ImageDescription {
+                            text: self.text.push_str_get_range(description),
+                        });
+                    }
+
+                    self.plain.push(MarkupPlain::EmptyLine);
                 }
                 MarkupBlock::Math { text } => {
-                    // todo
+                    match self.load_image(image_index, ImageSource::Math(text), kitty) {
+                        Ok(_) => {
+                            self.plain.push(MarkupPlain::Image { index: image_index });
+                        }
+                        Err(err) => {
+                            self.plain.push(MarkupPlain::ImageError {
+                                text: self.text.extend_get_range(["ERROR\n", err.as_str()]),
+                            });
+                        }
+                    }
+
+                    image_index += 1;
+
+                    self.plain.push(MarkupPlain::EmptyLine);
                 }
                 MarkupBlock::Break => {
                     self.plain.push(MarkupPlain::Break);
@@ -437,25 +489,28 @@ impl Markup {
                         alignment: HorizontalAlignment::Left,
                     }
                 }
-                MarkupPlain::Image { index } => {
-                    //TODO
-                    MarkupRich::Text {
-                        range: Range::default(),
-                        alignment: HorizontalAlignment::Left,
-                    }
-                }
+                MarkupPlain::Image { index } => MarkupRich::Image { index },
                 MarkupPlain::ImageError { text } => {
-                    //TODO
+                    let error = self.text.slice(text);
+                    writer.write(format_args!(
+                        "{}{error}{}",
+                        Sgr::Fg(Color::Red),
+                        Sgr::reset_fg()
+                    ));
+                    utils::text_wrap(writer, width);
+                    let range = self.text.push_str_get_range(writer.as_str());
                     MarkupRich::Text {
-                        range: Range::default(),
-                        alignment: HorizontalAlignment::Left,
+                        range,
+                        alignment: HorizontalAlignment::Center,
                     }
                 }
                 MarkupPlain::ImageDescription { text } => {
-                    //TODO
+                    let markup = self.text.slice(text);
+                    let ansi = markup_to_ansi(markup, width, writer);
+                    let range = self.text.push_str_get_range(ansi);
                     MarkupRich::Text {
-                        range: Range::default(),
-                        alignment: HorizontalAlignment::Left,
+                        range,
+                        alignment: HorizontalAlignment::Center,
                     }
                 }
                 MarkupPlain::Break => MarkupRich::Break,
@@ -478,6 +533,92 @@ impl Markup {
             utils::text_wrap(writer, width);
             writer.as_str()
         }
+    }
+
+    fn load_image(
+        &mut self,
+        index: u32,
+        src: ImageSource,
+        kitty: &mut KittyGraphics,
+    ) -> Result<(), String> {
+        if index == self.images.len() as u32 {
+            self.images.push(MarkupImage::new(self.id_start + index));
+        }
+
+        match src {
+            ImageSource::Filename(name) => {
+                if name.is_empty() {
+                    return Err(String::from("No image filename found"));
+                }
+
+                let path = self.assets.join(name);
+                let hash = utils::hash_fast(&path);
+                let image = &mut self.images[index as usize];
+
+                if hash == image.hash {
+                    return Ok(());
+                }
+
+                // TODO: only return err, let caller format
+
+                image
+                    .image
+                    .load_from_path(&path, kitty)
+                    .map_err(|err| match err {
+                        KittyError::Load(err) => format!(
+                            "Failed to load image\n'{}'\ndue to\n\"{}\"",
+                            path.display(),
+                            err
+                        ),
+                        KittyError::Encode(err) => format!(
+                            "Failed to encode image\n'{}'\ndue to\n\"{}\"",
+                            path.display(),
+                            err
+                        ),
+                    })?;
+
+                image.hash = hash;
+            }
+            ImageSource::Math(math) => {
+                let hash = utils::hash_fast(math);
+                let image = &mut self.images[index as usize];
+
+                if hash == image.hash {
+                    return Ok(());
+                }
+
+                // TODO: pass rgb and cell dims
+                let png = math_to_png(math, Rgb::WHITE, CellDims::DEFAULT);
+                image
+                    .image
+                    .load_from_bytes(png, kitty)
+                    .map_err(|err| format!("Failed to encode math image: {err}"))?;
+
+                // TODO
+                // let ast = self.math.parse(math).map_err(|err| {
+                //     format!("Failed to parse math\n\"{math}\"\ndue to\n\"{}\"", err)
+                // })?;
+                // let png = self
+                //     .math
+                //     .to_png(ast)
+                //     .map_err(|err| format!("Failed to create math image due to\n\"{}\"", err))?;
+                // image
+                //     .image
+                //     .load_from_png_bytes(png, kitty)
+                //     .map_err(|err| match err {
+                //         KittyError::Load(err) => {
+                //             format!("Failed to load math image due to\n\"{}\"", err)
+                //         }
+                //         KittyError::Encode(err) => {
+                //             format!("Failed to encode math image due to\n\"{}\"", err)
+                //         }
+                //     })?;
+
+                image.hash = hash;
+            }
+        }
+
+        Ok(())
     }
 
     const fn is_scrollable(&self) -> bool {
@@ -537,12 +678,73 @@ impl Markup {
                     // let max_width = kitty.width(max_width);
                     // let resized_dims = KittyGraphics::resize(dims, dims.with_width(max_width));
                     // kitty.rows(resized_dims.height)
-                    1
+                    // 1
+                    // TODO
+                    let cell = CellDims::DEFAULT;
+                    let dims = self.images[index as usize].image.dims();
+                    let max_width = self.size.cols;
+                    let resized_dims = dims.resize(dims.with_width(max_width));
+                    cell.rows(resized_dims.height)
                 }
                 MarkupRich::Break | MarkupRich::EmptyLine => 1,
             })
             .sum()
     }
+}
+
+struct MarkupImage {
+    hash: u64,
+    image: KittyImage,
+}
+
+impl MarkupImage {
+    const fn new(id: u32) -> Self {
+        Self {
+            hash: 0,
+            image: KittyImage::new(id),
+        }
+    }
+}
+
+enum ImageSource<'a> {
+    Filename(&'a str),
+    Math(&'a str),
+}
+
+fn math_to_png(math: &str, color: Rgb, size: CellDims) -> Vec<u8> {
+    // TODO: return Result
+
+    let Rgb(r, g, b) = color;
+    let layout_options = ratex_layout::LayoutOptions {
+        style: ratex_types::MathStyle::Display,
+        color: ratex_types::Color {
+            r: r as f32 / 255.0,
+            g: g as f32 / 255.0,
+            b: b as f32 / 255.0,
+            a: 1.0,
+        },
+        align_relation_spacing: None,
+        leftright_delim_height: None,
+        inter_glyph_kern_em: 0.0,
+        explicit_size_multiplier: 1.0,
+    };
+    let render_options = ratex_render::RenderOptions {
+        font_size: size.width as f32 * 1.2,
+        padding: 0.0,
+        background_color: ratex_types::Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        },
+        font_dir: String::new(),
+        device_pixel_ratio: size.height as f32 / size.width as f32,
+    };
+
+    let ast = ratex_parser::parse(math).unwrap();
+    let layout = ratex_layout::layout(&ast, &layout_options);
+    let display_list = ratex_layout::to_display_list(&layout);
+    ratex_render::render_to_png(&display_list, &render_options).unwrap()
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -1087,6 +1087,7 @@ impl std::fmt::Display for KittyCrop {
         ))
     }
 }
+
 /// The z-index vertical stacking order of the image.
 #[derive(Debug, Clone, Copy)]
 struct KittyLayer(i32);
@@ -1251,7 +1252,7 @@ impl Base64 {
     fn encode(&mut self, input: &[u8]) -> &str {
         self.encoded.clear();
         base64::Engine::encode_string(&self.engine, input, &mut self.encoded);
-        &self.encoded.as_str()
+        self.encoded.as_str()
     }
 }
 

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use terminal::*;
-use widgets2::{Block, KittyGraphics, markup3::*};
+use widgets2::{Block, KittyDeleteAll, KittyGraphics, markup3::*};
 
 pub struct App {
     frame: Framebuffer,
@@ -78,6 +78,8 @@ impl App {
     fn render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         let mut frame = std::mem::take(&mut self.frame);
 
+        frame.print_fmt(KittyDeleteAll);
+
         let area = frame.area().inner(Margin::proportional(3));
         Block::rectangle().render(area, &mut frame);
         let inner = area.inner(Margin::proportional(1));
@@ -124,7 +126,7 @@ const MARKUP: &str = r#"
 
 : center paragraph
 
-![ image description text ]( assets/wallpaper.jpg )
+![ image description text ]( wallpaper.jpg )
 
 ```rust
 fn main() {
@@ -135,7 +137,7 @@ fn main() {
 ---
 
 =; Heading 2
-![  ]( assets/meow.png )
+![  ]( meow.png )
 
 ---
 
@@ -179,7 +181,7 @@ $$
 
 ---
 
-![ image description text ]( assets/tall2.jpg )
+![ image description text ]( tall2.jpg )
 
 ---
 
@@ -189,7 +191,7 @@ another one
 
 and another one
 
-![ image description text ]( assets/tall.gif )
+![ image description text ]( tall.gif )
 
 = Final Heading
 "#;
