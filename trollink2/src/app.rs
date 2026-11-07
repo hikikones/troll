@@ -127,7 +127,7 @@ const MARKUP: &str = r#"
 
 : center paragraph
 
-![ image description text ]( wallpaper.jpg )
+![ image description text ]( wallpaper.jpg2 )
 
 ```rust
 fn main() {

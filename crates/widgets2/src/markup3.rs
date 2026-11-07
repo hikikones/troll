@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    range::{Range, RangeInclusive},
-};
+use std::{path::PathBuf, range::Range};
 use terminal::*;
 use utils::StringExt;
 
@@ -28,6 +25,16 @@ pub struct Markup {
     colors: MarkupColors,
     highlighter: CodeHighlighter,
     assets: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ScrollMove {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Start,
+    End,
 }
 
 pub struct MarkupOptions {
@@ -189,13 +196,23 @@ impl Markup {
 
             match item {
                 MarkupRich::Text { range, alignment } => {
-                    // todo: must print all ansi from start
                     for line in self.text.slice(range).lines() {
                         let is_in_viewport =
                             is_in_viewport(current_line, viewport_top, viewport_bot);
 
+                        utils::GraphemeAnsiIter::new(line).for_each(|ga| match ga {
+                            utils::GraphemeOrAnsi::Grapheme(g) => {
+                                if is_in_viewport {
+                                    frame.push_str(g.0);
+                                }
+                            }
+                            utils::GraphemeOrAnsi::Ansi(s) => match is_in_viewport {
+                                true => frame.push_str(s),
+                                false => frame.print_str(s),
+                            },
+                        });
+
                         if is_in_viewport {
-                            frame.push_str(line);
                             frame.render(area, TextOptions::span().with_horizontal(alignment));
                             area.shrink_down(1);
                         }
@@ -535,7 +552,7 @@ impl Markup {
         fn markup_to_ansi<'a>(markup: &str, width: u16, writer: &'a mut String) -> &'a str {
             InlineParser::new(markup).for_each(|event| match event {
                 InlineEvent::Text(text) => writer.push_str(text),
-                InlineEvent::Tag(tag) => writer.write(tag.into_sgr()),
+                InlineEvent::Tag(tag) => writer.write(tag.as_sgr()),
             });
             utils::text_wrap(writer, width);
             writer.as_str()
@@ -699,6 +716,49 @@ impl Markup {
     }
 }
 
+#[derive(Debug, Clone)]
+enum MarkupPlain {
+    Paragraph {
+        text: Range<usize>,
+        alignment: HorizontalAlignment,
+    },
+    Heading {
+        text: Range<usize>,
+        alignment: HorizontalAlignment,
+    },
+    ListItem {
+        text: Range<usize>,
+    },
+    Code {
+        text: Range<usize>,
+        _language: Range<usize>,
+    },
+    Image {
+        index: u32,
+    },
+    ImageError {
+        text: Range<usize>,
+    },
+    ImageDescription {
+        text: Range<usize>,
+    },
+    Break,
+    EmptyLine,
+}
+
+#[derive(Debug, Clone)]
+enum MarkupRich {
+    Text {
+        range: Range<usize>,
+        alignment: HorizontalAlignment,
+    },
+    Image {
+        index: u32,
+    },
+    Break,
+    EmptyLine,
+}
+
 struct MarkupImage {
     hash: u64,
     image: KittyImage,
@@ -755,56 +815,74 @@ fn math_to_png(math: &str, color: Rgb, size: CellDims) -> Vec<u8> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ScrollMove {
-    Up,
-    Down,
-    PageUp,
-    PageDown,
-    Start,
-    End,
+pub enum SyntaxHighlightTheme {
+    Base16OceanDark,
+    Base16OceanLight,
+    Base16MochaDark,
+    Base16EightiesDark,
+    InspiredGitHub,
+    SolarizedDark,
+    SolarizedLight,
 }
 
-#[derive(Debug, Clone)]
-enum MarkupPlain {
-    Paragraph {
-        text: Range<usize>,
-        alignment: HorizontalAlignment,
-    },
-    Heading {
-        text: Range<usize>,
-        alignment: HorizontalAlignment,
-    },
-    ListItem {
-        text: Range<usize>,
-    },
-    Code {
-        text: Range<usize>,
-        _language: Range<usize>,
-    },
-    Image {
-        index: u32,
-    },
-    ImageError {
-        text: Range<usize>,
-    },
-    ImageDescription {
-        text: Range<usize>,
-    },
-    Break,
-    EmptyLine,
+impl SyntaxHighlightTheme {
+    const fn as_str(self) -> &'static str {
+        match self {
+            SyntaxHighlightTheme::Base16OceanDark => "base16-ocean.dark",
+            SyntaxHighlightTheme::Base16OceanLight => "base16-ocean.light",
+            SyntaxHighlightTheme::Base16MochaDark => "base16-mocha.dark",
+            SyntaxHighlightTheme::Base16EightiesDark => "base16-eighties.dark",
+            SyntaxHighlightTheme::InspiredGitHub => "InspiredGitHub",
+            SyntaxHighlightTheme::SolarizedDark => "Solarized (dark)",
+            SyntaxHighlightTheme::SolarizedLight => "Solarized (light)",
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
-enum MarkupRich {
-    Text {
-        range: Range<usize>,
-        alignment: HorizontalAlignment,
-    },
-    Image {
-        index: u32,
-    },
-    Break,
-    EmptyLine,
+struct CodeHighlighter {
+    syntax_set: syntect::parsing::SyntaxSet,
+    theme_set: syntect::highlighting::ThemeSet,
+}
+
+impl CodeHighlighter {
+    fn new() -> Self {
+        Self {
+            syntax_set: syntect::parsing::SyntaxSet::load_defaults_newlines(),
+            theme_set: syntect::highlighting::ThemeSet::load_defaults(),
+        }
+    }
+
+    fn highlight(
+        &self,
+        language: &str,
+        code: &str,
+        theme: SyntaxHighlightTheme,
+        mut f: impl FnMut(&str, Option<(u8, u8, u8)>),
+    ) {
+        let syntax = if language.is_empty() {
+            self.syntax_set.find_syntax_plain_text()
+        } else {
+            self.syntax_set
+                .find_syntax_by_token(language)
+                .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text())
+        };
+
+        let mut highlighter =
+            syntect::easy::HighlightLines::new(syntax, &self.theme_set.themes[theme.as_str()]);
+        for code_line in syntect::util::LinesWithEndings::from(code) {
+            match highlighter.highlight_line(code_line, &self.syntax_set) {
+                Ok(spans) => {
+                    for (style, span) in spans {
+                        let syntect::highlighting::Color { r, g, b, .. } = style.foreground;
+                        f(span, Some((r, g, b)));
+                    }
+                }
+                Err(_) => {
+                    f(code_line, None);
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1219,77 +1297,6 @@ impl<'a> Iterator for ListItems<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SyntaxHighlightTheme {
-    Base16OceanDark,
-    Base16OceanLight,
-    Base16MochaDark,
-    Base16EightiesDark,
-    InspiredGitHub,
-    SolarizedDark,
-    SolarizedLight,
-}
-
-impl SyntaxHighlightTheme {
-    const fn as_str(self) -> &'static str {
-        match self {
-            SyntaxHighlightTheme::Base16OceanDark => "base16-ocean.dark",
-            SyntaxHighlightTheme::Base16OceanLight => "base16-ocean.light",
-            SyntaxHighlightTheme::Base16MochaDark => "base16-mocha.dark",
-            SyntaxHighlightTheme::Base16EightiesDark => "base16-eighties.dark",
-            SyntaxHighlightTheme::InspiredGitHub => "InspiredGitHub",
-            SyntaxHighlightTheme::SolarizedDark => "Solarized (dark)",
-            SyntaxHighlightTheme::SolarizedLight => "Solarized (light)",
-        }
-    }
-}
-
-struct CodeHighlighter {
-    syntax_set: syntect::parsing::SyntaxSet,
-    theme_set: syntect::highlighting::ThemeSet,
-}
-
-impl CodeHighlighter {
-    fn new() -> Self {
-        Self {
-            syntax_set: syntect::parsing::SyntaxSet::load_defaults_newlines(),
-            theme_set: syntect::highlighting::ThemeSet::load_defaults(),
-        }
-    }
-
-    fn highlight(
-        &self,
-        language: &str,
-        code: &str,
-        theme: SyntaxHighlightTheme,
-        mut f: impl FnMut(&str, Option<(u8, u8, u8)>),
-    ) {
-        let syntax = if language.is_empty() {
-            self.syntax_set.find_syntax_plain_text()
-        } else {
-            self.syntax_set
-                .find_syntax_by_token(language)
-                .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text())
-        };
-
-        let mut highlighter =
-            syntect::easy::HighlightLines::new(syntax, &self.theme_set.themes[theme.as_str()]);
-        for code_line in syntect::util::LinesWithEndings::from(code) {
-            match highlighter.highlight_line(code_line, &self.syntax_set) {
-                Ok(spans) => {
-                    for (style, span) in spans {
-                        let syntect::highlighting::Color { r, g, b, .. } = style.foreground;
-                        f(span, Some((r, g, b)));
-                    }
-                }
-                Err(_) => {
-                    f(code_line, None);
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 enum InlineEvent<'a> {
     Text(&'a str),
     Tag(InlineTag),
@@ -1304,7 +1311,7 @@ enum InlineTag {
 }
 
 impl InlineTag {
-    const fn into_sgr(self) -> Sgr {
+    const fn as_sgr(self) -> Sgr {
         match self {
             InlineTag::BoldStart => Sgr::Bold,
             InlineTag::BoldEnd => Sgr::NotBold,
