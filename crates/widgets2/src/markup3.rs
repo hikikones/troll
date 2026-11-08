@@ -3,18 +3,20 @@ use terminal::*;
 use utils::StringExt;
 
 use crate::{
-    ImageOptions, KittyEncodeError, KittyError, KittyGraphics, KittyImage, ResizeMode, Scroll,
-    Scrollbar, ScrollbarColors, ScrollbarData,
+    ImageOptions, KittyError, KittyGraphics, KittyImage, ResizeMode, Scroll, Scrollbar,
+    ScrollbarColors, ScrollbarData,
 };
+
+type MarkupResult<T> = Result<T, MarkupError>;
 
 pub struct Markup {
     text: String,
     scroll: u16,
-    desired_scroll: Option<ScrollMove>,
+    desired_scroll: Option<MarkupScroll>,
     plain: Vec<MarkupPlain>,
     rich: Vec<MarkupRich>,
     images: Vec<MarkupImage>,
-    id_start: u32,
+    image_id_start: u8,
     cell: CellDims,
     view: Size,
     size: Size,
@@ -28,7 +30,7 @@ pub struct Markup {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ScrollMove {
+pub enum MarkupScroll {
     Up,
     Down,
     PageUp,
@@ -62,19 +64,21 @@ impl Default for MarkupOptions {
 }
 
 pub struct MarkupColors {
-    pub syntax_theme: SyntaxHighlightTheme,
+    pub syntax_theme: MarkupCodeTheme,
     pub scrollbar: ScrollbarColors,
     pub heading: Color,
     pub break_char: Color,
+    pub math: Rgb,
 }
 
 impl MarkupColors {
     pub const fn new() -> Self {
         Self {
-            syntax_theme: SyntaxHighlightTheme::Base16EightiesDark,
+            syntax_theme: MarkupCodeTheme::Base16EightiesDark,
             scrollbar: ScrollbarColors::DEFAULT,
             heading: Color::Yellow,
             break_char: Color::Indexed(240),
+            math: Rgb::WHITE,
         }
     }
 }
@@ -94,7 +98,7 @@ impl Markup {
             plain: Vec::new(),
             rich: Vec::new(),
             images: Vec::new(),
-            id_start: 90,
+            image_id_start: 90,
             cell: CellDims::DEFAULT,
             view: Size::ZERO,
             size: Size::ZERO,
@@ -122,7 +126,7 @@ impl Markup {
         self.scroll
     }
 
-    pub const fn set_desired_scroll(&mut self, sm: ScrollMove) -> &mut Self {
+    pub const fn set_desired_scroll(&mut self, sm: MarkupScroll) -> &mut Self {
         self.desired_scroll = Some(sm);
         self
     }
@@ -139,20 +143,25 @@ impl Markup {
 
     pub fn input(&mut self, key: KeyCode) -> bool {
         match key {
-            KeyCode::Down => self.scroll(ScrollMove::Down),
-            KeyCode::Up => self.scroll(ScrollMove::Up),
-            KeyCode::PageDown => self.scroll(ScrollMove::PageDown),
-            KeyCode::PageUp => self.scroll(ScrollMove::PageUp),
-            KeyCode::Home => self.scroll(ScrollMove::Start),
-            KeyCode::End => self.scroll(ScrollMove::End),
+            KeyCode::Down => self.scroll(MarkupScroll::Down),
+            KeyCode::Up => self.scroll(MarkupScroll::Up),
+            KeyCode::PageDown => self.scroll(MarkupScroll::PageDown),
+            KeyCode::PageUp => self.scroll(MarkupScroll::PageUp),
+            KeyCode::Home => self.scroll(MarkupScroll::Start),
+            KeyCode::End => self.scroll(MarkupScroll::End),
             _ => false,
         }
     }
 
-    pub fn scroll(&mut self, sm: ScrollMove) -> bool {
+    pub fn scroll(&mut self, sm: MarkupScroll) -> bool {
         let old_scroll = self.scroll;
-        self.set_scroll(sm, self.view.rows);
+        self.set_scroll(sm);
         self.scroll != old_scroll
+    }
+
+    pub fn reset(&mut self) {
+        self.scroll = 0;
+        self.desired_scroll = None;
     }
 
     pub fn render(
@@ -170,86 +179,76 @@ impl Markup {
 
         // Prepare markup
         self.parse_and_load(markup, kitty);
-        self.process_markup(area, inner, frame, kitty);
+        self.process_markup(area, inner, frame);
 
         // Scroll
         self.update_scroll();
         self.render_scrollbar(frame);
 
-        // Setup
-        let mut area = inner;
-
-        let top_y = area.row();
-        let viewport_top = self.scroll;
-        let viewport_bot = self.scroll + area.rows();
-        let mut current_line = 0;
-
         // Render
-        for item in self.rich.iter().cloned() {
-            if area.rows() == 0 {
-                break;
-            }
+        self.render_markup(inner, frame, kitty);
+    }
 
-            const fn is_in_viewport(curr_line: u16, top: u16, bot: u16) -> bool {
-                curr_line >= top && curr_line < bot
-            }
+    fn render_markup(
+        &mut self,
+        mut area: Rect,
+        frame: &mut Framebuffer,
+        kitty: &mut KittyGraphics,
+    ) {
+        let top_row = area.row();
+        let view_top = self.scroll;
+        let view_bot = self.scroll + area.rows();
+        let mut curr_line = 0;
 
-            match item {
+        const fn is_in_view(curr_line: u16, top: u16, bot: u16) -> bool {
+            curr_line >= top && curr_line < bot
+        }
+
+        for markup in self.rich.iter().copied() {
+            match markup {
                 MarkupRich::Text { range, alignment } => {
                     for line in self.text.slice(range).lines() {
-                        let is_in_viewport =
-                            is_in_viewport(current_line, viewport_top, viewport_bot);
+                        let is_in_view = is_in_view(curr_line, view_top, view_bot);
 
                         utils::GraphemeAnsiIter::new(line).for_each(|ga| match ga {
                             utils::GraphemeOrAnsi::Grapheme(g) => {
-                                if is_in_viewport {
+                                if is_in_view {
                                     frame.push_str(g.0);
                                 }
                             }
-                            utils::GraphemeOrAnsi::Ansi(s) => match is_in_viewport {
+                            utils::GraphemeOrAnsi::Ansi(s) => match is_in_view {
                                 true => frame.push_str(s),
                                 false => frame.print_str(s),
                             },
                         });
 
-                        if is_in_viewport {
+                        if is_in_view {
                             frame.render(area, TextOptions::span().with_horizontal(alignment));
                             area.shrink_down(1);
                         }
 
-                        current_line += 1;
+                        curr_line += 1;
                     }
                 }
                 MarkupRich::Image { index } => {
                     let dims = self.images[index as usize].image.dims();
-
-                    // TODO
-                    let cell = self.cell;
-
-                    let max_width = cell.width(area.cols());
+                    let max_width = self.cell.width(area.cols());
                     let resized_dims = dims.resize(dims.with_width(max_width));
-                    let resized_rows = cell.rows(resized_dims.height);
-                    // let max_width = kitty.width(area.width);
-                    // let resized_dims = KittyGraphics::resize(dims, dims.with_width(max_width));
-                    // let resized_rows = kitty.rows(resized_dims.height);
+                    let resized_rows = self.cell.rows(resized_dims.height);
 
-                    if is_in_viewport(
-                        current_line,
-                        viewport_top.saturating_sub(resized_rows - 1),
-                        viewport_bot,
+                    if is_in_view(
+                        curr_line,
+                        view_top.saturating_sub(resized_rows - 1),
+                        view_bot,
                     ) {
-                        let is_at_top = area.row() == top_y;
+                        let is_at_top = area.row() == top_row;
                         let rows_outside_top = if is_at_top {
-                            current_line.abs_diff(self.scroll)
+                            curr_line.abs_diff(self.scroll)
                         } else {
                             0
                         };
                         let image_rows = (resized_rows - rows_outside_top).min(area.rows());
                         let image_area = area.with_rows(image_rows);
-                        // let image_area = Rect {
-                        //     height: image_rows,
-                        //     ..area
-                        // };
                         self.images[index as usize].image.render(
                             image_area,
                             frame,
@@ -260,28 +259,14 @@ impl Markup {
                                 vertical: VerticalAlignment::Top,
                             },
                         );
-                        // self.kitty.image_mut(index).render(
-                        //     image_area,
-                        //     frame,
-                        //     kitty,
-                        //     ImageOptions {
-                        //         resize: ResizeMode::FitWidthCropHeight { rows_outside_top },
-                        //         horizontal: HorizontalAlignment::Center,
-                        //         vertical: VerticalAlignment::Top,
-                        //     },
-                        //     // ImageOptions::new()
-                        //     //     .with_resize(ResizeMode::FitWidthCropHeight { rows_outside_top }),
-                        //     // ResizeMode::FitWidthCropHeight { rows_outside_top },
-                        //     // crate::Alignment::CenterHorizontal,
-                        // );
-                        // self.kitty.has_rendered = true;
+
                         area.shrink_down(image_rows);
                     }
 
-                    current_line += resized_rows;
+                    curr_line += resized_rows;
                 }
                 MarkupRich::Break => {
-                    if is_in_viewport(current_line, viewport_top, viewport_bot) {
+                    if is_in_view(curr_line, view_top, view_bot) {
                         frame.cursor(area.pos);
                         frame.print_fmt(Sgr::Fg(self.colors.break_char));
                         frame.print_ch_repeat(self.options.break_char, area.cols());
@@ -289,30 +274,31 @@ impl Markup {
                         area.shrink_down(1);
                     }
 
-                    current_line += 1;
+                    curr_line += 1;
                 }
                 MarkupRich::EmptyLine => {
-                    if is_in_viewport(current_line, viewport_top, viewport_bot) {
+                    if is_in_view(curr_line, view_top, view_bot) {
                         area.shrink_down(1);
                     }
 
-                    current_line += 1;
+                    curr_line += 1;
                 }
+            }
+
+            if area.rows() == 0 {
+                break;
             }
         }
     }
 
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.text.clear();
         self.plain.clear();
         self.rich.clear();
-        // self.scroll = 0;
-        // self.desired_scroll = None;
         self.total_lines = 0;
         self.view = Size::ZERO;
         self.size = Size::ZERO;
         self.hash = 0;
-        // self.scroll_area = None;
     }
 
     fn parse_and_load(&mut self, markup: &str, kitty: &mut KittyGraphics) {
@@ -422,13 +408,7 @@ impl Markup {
         }
     }
 
-    fn process_markup(
-        &mut self,
-        area: Rect,
-        inner: Rect,
-        frame: &mut Framebuffer,
-        kitty: &KittyGraphics,
-    ) {
+    fn process_markup(&mut self, area: Rect, inner: Rect, frame: &mut Framebuffer) {
         if self.size == area.size {
             return;
         }
@@ -437,24 +417,33 @@ impl Markup {
         self.view = inner.size;
         self.scroll_area = None;
 
-        self.relayout(frame, kitty);
+        self.relayout(frame);
 
         if self.is_scrollable() {
             let scroll_area = area.with_col(area.right_col()).with_cols(1);
             self.view
                 .sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
             self.scroll_area = Some(scroll_area);
-            self.relayout(frame, kitty);
+            self.relayout(frame);
         }
     }
 
-    fn relayout(&mut self, frame: &mut Framebuffer, kitty: &KittyGraphics) {
+    fn relayout(&mut self, frame: &mut Framebuffer) {
         self.rich.clear();
 
         let width = self.view.cols;
         let writer = frame.text_mut();
 
-        let plain_to_rich_iter = self.plain.iter().cloned().map(|plain| {
+        fn markup_to_ansi<'a>(markup: &str, width: u16, writer: &'a mut String) -> &'a str {
+            InlineParser::new(markup).for_each(|event| match event {
+                InlineEvent::Text(text) => writer.push_str(text),
+                InlineEvent::Tag(tag) => writer.write(tag.as_sgr()),
+            });
+            utils::text_wrap(writer, width);
+            writer.as_str()
+        }
+
+        let plain_to_rich_iter = self.plain.iter().copied().map(|plain| {
             let rich = match plain {
                 MarkupPlain::Paragraph { text, alignment } => {
                     let markup = self.text.slice(text);
@@ -498,7 +487,7 @@ impl Markup {
                         code,
                         self.colors.syntax_theme,
                         |span, color| match color {
-                            Some((r, g, b)) => {
+                            Some(Rgb(r, g, b)) => {
                                 writer.write(Sgr::Fg(Color::Rgb(r, g, b)));
                                 writer.push_str(span);
                                 writer.write(Sgr::Reset);
@@ -545,19 +534,9 @@ impl Markup {
             writer.clear();
             rich
         });
+
         self.rich.extend(plain_to_rich_iter);
-
-        // Compute total lines
-        self.total_lines = self.compute_total_lines(kitty);
-
-        fn markup_to_ansi<'a>(markup: &str, width: u16, writer: &'a mut String) -> &'a str {
-            InlineParser::new(markup).for_each(|event| match event {
-                InlineEvent::Text(text) => writer.push_str(text),
-                InlineEvent::Tag(tag) => writer.write(tag.as_sgr()),
-            });
-            utils::text_wrap(writer, width);
-            writer.as_str()
-        }
+        self.total_lines = self.compute_total_lines();
     }
 
     const fn is_scrollable(&self) -> bool {
@@ -565,28 +544,29 @@ impl Markup {
     }
 
     fn update_scroll(&mut self) {
-        let height = self.view.rows;
         match self.desired_scroll.take() {
             Some(sm) => {
-                self.set_scroll(sm, height);
+                self.set_scroll(sm);
             }
             None => {
-                self.scroll = self.scroll.min(self.total_lines.saturating_sub(height));
+                self.scroll = self
+                    .scroll
+                    .min(self.total_lines.saturating_sub(self.view.rows));
             }
         }
     }
 
-    fn set_scroll(&mut self, sm: ScrollMove, viewport_height: u16) {
-        self.scroll = match sm {
-            ScrollMove::Up => self.scroll.saturating_sub(1),
-            ScrollMove::Down => {
-                (self.scroll + 1).min(self.total_lines.saturating_sub(viewport_height))
+    fn set_scroll(&mut self, ms: MarkupScroll) {
+        let height = self.view.rows;
+        self.scroll = match ms {
+            MarkupScroll::Up => self.scroll.saturating_sub(1),
+            MarkupScroll::Down => (self.scroll + 1).min(self.total_lines.saturating_sub(height)),
+            MarkupScroll::PageUp => self.scroll.saturating_sub(height),
+            MarkupScroll::PageDown => {
+                (self.scroll + height).min(self.total_lines.saturating_sub(height))
             }
-            ScrollMove::PageUp => self.scroll.saturating_sub(viewport_height),
-            ScrollMove::PageDown => (self.scroll + viewport_height)
-                .min(self.total_lines.saturating_sub(viewport_height)),
-            ScrollMove::Start => 0,
-            ScrollMove::End => self.total_lines.saturating_sub(viewport_height),
+            MarkupScroll::Start => 0,
+            MarkupScroll::End => self.total_lines.saturating_sub(height),
         };
     }
 
@@ -604,26 +584,17 @@ impl Markup {
         .render(scroll_area, frame);
     }
 
-    fn compute_total_lines(&self, kitty: &KittyGraphics) -> u16 {
-        // let max_width = self.cache.area.cols();
+    fn compute_total_lines(&self) -> u16 {
         self.rich
             .iter()
-            .cloned()
+            .copied()
             .map(|item| match item {
                 MarkupRich::Text { range, .. } => self.text.slice(range).lines().count() as u16,
                 MarkupRich::Image { index } => {
-                    // TODO
-                    // let dims = self.kitty.dims(index);
-                    // let max_width = kitty.width(max_width);
-                    // let resized_dims = KittyGraphics::resize(dims, dims.with_width(max_width));
-                    // kitty.rows(resized_dims.height)
-                    // 1
-                    // TODO
-                    let cell = self.cell;
                     let dims = self.images[index as usize].image.dims();
-                    let max_width = cell.width(self.size.cols);
+                    let max_width = self.cell.width(self.size.cols);
                     let resized_dims = dims.resize(dims.with_width(max_width));
-                    cell.rows(resized_dims.height)
+                    self.cell.rows(resized_dims.height)
                 }
                 MarkupRich::Break | MarkupRich::EmptyLine => 1,
             })
@@ -632,12 +603,13 @@ impl Markup {
 
     fn load_image(
         &mut self,
-        index: u32,
+        index: u8,
         src: ImageSource,
         kitty: &mut KittyGraphics,
     ) -> MarkupResult<()> {
-        if index == self.images.len() as u32 {
-            self.images.push(MarkupImage::new(self.id_start + index));
+        if index == self.images.len() as u8 {
+            self.images
+                .push(MarkupImage::new((self.image_id_start + index) as u32));
         }
 
         match src {
@@ -669,8 +641,7 @@ impl Markup {
                     return Ok(());
                 }
 
-                // TODO: pass rgb and cell dims
-                let png = math_to_png(math, Rgb::WHITE, self.cell)?;
+                let png = math_to_png(math, self.colors.math, self.cell)?;
                 image
                     .image
                     .load_from_bytes(png, kitty)
@@ -684,7 +655,7 @@ impl Markup {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum MarkupPlain {
     Paragraph {
         text: Range<usize>,
@@ -702,7 +673,7 @@ enum MarkupPlain {
         _language: Range<usize>,
     },
     Image {
-        index: u32,
+        index: u8,
     },
     ImageError {
         text: Range<usize>,
@@ -714,21 +685,21 @@ enum MarkupPlain {
     EmptyLine,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum MarkupRich {
     Text {
         range: Range<usize>,
         alignment: HorizontalAlignment,
     },
     Image {
-        index: u32,
+        index: u8,
     },
     Break,
     EmptyLine,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SyntaxHighlightTheme {
+pub enum MarkupCodeTheme {
     Base16OceanDark,
     Base16OceanLight,
     Base16MochaDark,
@@ -738,16 +709,16 @@ pub enum SyntaxHighlightTheme {
     SolarizedLight,
 }
 
-impl SyntaxHighlightTheme {
+impl MarkupCodeTheme {
     const fn as_str(self) -> &'static str {
         match self {
-            SyntaxHighlightTheme::Base16OceanDark => "base16-ocean.dark",
-            SyntaxHighlightTheme::Base16OceanLight => "base16-ocean.light",
-            SyntaxHighlightTheme::Base16MochaDark => "base16-mocha.dark",
-            SyntaxHighlightTheme::Base16EightiesDark => "base16-eighties.dark",
-            SyntaxHighlightTheme::InspiredGitHub => "InspiredGitHub",
-            SyntaxHighlightTheme::SolarizedDark => "Solarized (dark)",
-            SyntaxHighlightTheme::SolarizedLight => "Solarized (light)",
+            Self::Base16OceanDark => "base16-ocean.dark",
+            Self::Base16OceanLight => "base16-ocean.light",
+            Self::Base16MochaDark => "base16-mocha.dark",
+            Self::Base16EightiesDark => "base16-eighties.dark",
+            Self::InspiredGitHub => "InspiredGitHub",
+            Self::SolarizedDark => "Solarized (dark)",
+            Self::SolarizedLight => "Solarized (light)",
         }
     }
 }
@@ -769,8 +740,8 @@ impl CodeHighlighter {
         &self,
         language: &str,
         code: &str,
-        theme: SyntaxHighlightTheme,
-        mut f: impl FnMut(&str, Option<(u8, u8, u8)>),
+        theme: MarkupCodeTheme,
+        mut f: impl FnMut(&str, Option<Rgb>),
     ) {
         let syntax = if language.is_empty() {
             self.syntax_set.find_syntax_plain_text()
@@ -787,7 +758,7 @@ impl CodeHighlighter {
                 Ok(spans) => {
                     for (style, span) in spans {
                         let syntect::highlighting::Color { r, g, b, .. } = style.foreground;
-                        f(span, Some((r, g, b)));
+                        f(span, Some(Rgb(r, g, b)));
                     }
                 }
                 Err(_) => {
@@ -818,22 +789,17 @@ enum ImageSource<'a> {
 }
 
 fn math_to_png(math: &str, color: Rgb, size: CellDims) -> MarkupResult<Vec<u8>> {
-    let Rgb(r, g, b) = color;
     let layout_options = ratex_layout::LayoutOptions {
-        style: ratex_types::MathStyle::Display,
         color: ratex_types::Color {
-            r: r as f32 / 255.0,
-            g: g as f32 / 255.0,
-            b: b as f32 / 255.0,
+            r: color.0 as f32 / 255.0,
+            g: color.1 as f32 / 255.0,
+            b: color.2 as f32 / 255.0,
             a: 1.0,
         },
-        align_relation_spacing: None,
-        leftright_delim_height: None,
-        inter_glyph_kern_em: 0.0,
-        explicit_size_multiplier: 1.0,
+        ..Default::default()
     };
     let render_options = ratex_render::RenderOptions {
-        font_size: size.width as f32 * 1.2,
+        font_size: size.width as f32,
         padding: 0.0,
         background_color: ratex_types::Color {
             r: 0.0,
@@ -841,8 +807,8 @@ fn math_to_png(math: &str, color: Rgb, size: CellDims) -> MarkupResult<Vec<u8>> 
             b: 0.0,
             a: 0.0,
         },
-        font_dir: String::new(),
         device_pixel_ratio: size.height as f32 / size.width as f32,
+        ..Default::default()
     };
 
     let ast = ratex_parser::parse(math).map_err(|err| MarkupError::Math(MathError::Parse(err)))?;
@@ -851,8 +817,6 @@ fn math_to_png(math: &str, color: Rgb, size: CellDims) -> MarkupResult<Vec<u8>> 
     ratex_render::render_to_png(&display_list, &render_options)
         .map_err(|err| MarkupError::Math(MathError::Render(err)))
 }
-
-type MarkupResult<T> = Result<T, MarkupError>;
 
 #[derive(Debug)]
 enum MarkupError {
