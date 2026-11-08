@@ -3,8 +3,8 @@ use terminal::*;
 use utils::StringExt;
 
 use crate::{
-    ImageOptions, KittyError, KittyGraphics, KittyImage, ResizeMode, Scroll, Scrollbar,
-    ScrollbarColors, ScrollbarData,
+    ImageOptions, KittyEncodeError, KittyError, KittyGraphics, KittyImage, ResizeMode, Scroll,
+    Scrollbar, ScrollbarColors, ScrollbarData,
 };
 
 pub struct Markup {
@@ -372,7 +372,7 @@ impl Markup {
                         }
                         Err(err) => {
                             self.plain.push(MarkupPlain::ImageError {
-                                text: self.text.extend_get_range(["ERROR\n", err.as_str()]),
+                                text: self.text.write_get_range(format_args!("ERROR\n{err}")),
                             });
                         }
                     }
@@ -394,7 +394,7 @@ impl Markup {
                         }
                         Err(err) => {
                             self.plain.push(MarkupPlain::ImageError {
-                                text: self.text.extend_get_range(["ERROR\n", err.as_str()]),
+                                text: self.text.write_get_range(format_args!("ERROR\n{err}")),
                             });
                         }
                     }
@@ -560,92 +560,6 @@ impl Markup {
         }
     }
 
-    fn load_image(
-        &mut self,
-        index: u32,
-        src: ImageSource,
-        kitty: &mut KittyGraphics,
-    ) -> Result<(), String> {
-        if index == self.images.len() as u32 {
-            self.images.push(MarkupImage::new(self.id_start + index));
-        }
-
-        match src {
-            ImageSource::Filename(name) => {
-                if name.is_empty() {
-                    return Err(String::from("No image filename found"));
-                }
-
-                let path = self.assets.join(name);
-                let hash = utils::hash_fast(&path);
-                let image = &mut self.images[index as usize];
-
-                if hash == image.hash {
-                    return Ok(());
-                }
-
-                // TODO: only return err, let caller format
-
-                image
-                    .image
-                    .load_from_path(&path, kitty)
-                    .map_err(|err| match err {
-                        KittyError::Load(err) => format!(
-                            "Failed to load image\n'{}'\ndue to\n\"{}\"",
-                            path.display(),
-                            err
-                        ),
-                        KittyError::Encode(err) => format!(
-                            "Failed to encode image\n'{}'\ndue to\n\"{}\"",
-                            path.display(),
-                            err
-                        ),
-                    })?;
-
-                image.hash = hash;
-            }
-            ImageSource::Math(math) => {
-                let hash = utils::hash_fast(math);
-                let image = &mut self.images[index as usize];
-
-                if hash == image.hash {
-                    return Ok(());
-                }
-
-                // TODO: pass rgb and cell dims
-                let png = math_to_png(math, Rgb::WHITE, self.cell);
-                image
-                    .image
-                    .load_from_bytes(png, kitty)
-                    .map_err(|err| format!("Failed to encode math image: {err}"))?;
-
-                // TODO
-                // let ast = self.math.parse(math).map_err(|err| {
-                //     format!("Failed to parse math\n\"{math}\"\ndue to\n\"{}\"", err)
-                // })?;
-                // let png = self
-                //     .math
-                //     .to_png(ast)
-                //     .map_err(|err| format!("Failed to create math image due to\n\"{}\"", err))?;
-                // image
-                //     .image
-                //     .load_from_png_bytes(png, kitty)
-                //     .map_err(|err| match err {
-                //         KittyError::Load(err) => {
-                //             format!("Failed to load math image due to\n\"{}\"", err)
-                //         }
-                //         KittyError::Encode(err) => {
-                //             format!("Failed to encode math image due to\n\"{}\"", err)
-                //         }
-                //     })?;
-
-                image.hash = hash;
-            }
-        }
-
-        Ok(())
-    }
-
     const fn is_scrollable(&self) -> bool {
         self.options.scrollbar && Scroll::is_scrollable(self.total_lines as usize, self.view)
     }
@@ -715,6 +629,59 @@ impl Markup {
             })
             .sum()
     }
+
+    fn load_image(
+        &mut self,
+        index: u32,
+        src: ImageSource,
+        kitty: &mut KittyGraphics,
+    ) -> MarkupResult<()> {
+        if index == self.images.len() as u32 {
+            self.images.push(MarkupImage::new(self.id_start + index));
+        }
+
+        match src {
+            ImageSource::Filename(name) => {
+                if name.is_empty() {
+                    return Err(MarkupError::Image(ImageError::NoFilename));
+                }
+
+                let path = self.assets.join(name);
+                let hash = utils::hash_fast(&path);
+                let image = &mut self.images[index as usize];
+
+                if hash == image.hash {
+                    return Ok(());
+                }
+
+                image
+                    .image
+                    .load_from_path(&path, kitty)
+                    .map_err(|err| MarkupError::Image(ImageError::Kitty(path, err)))?;
+
+                image.hash = hash;
+            }
+            ImageSource::Math(math) => {
+                let hash = utils::hash_fast(math);
+                let image = &mut self.images[index as usize];
+
+                if hash == image.hash {
+                    return Ok(());
+                }
+
+                // TODO: pass rgb and cell dims
+                let png = math_to_png(math, Rgb::WHITE, self.cell)?;
+                image
+                    .image
+                    .load_from_bytes(png, kitty)
+                    .map_err(|err| MarkupError::Math(MathError::Kitty(err)))?;
+
+                image.hash = hash;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -758,61 +725,6 @@ enum MarkupRich {
     },
     Break,
     EmptyLine,
-}
-
-struct MarkupImage {
-    hash: u64,
-    image: KittyImage,
-}
-
-impl MarkupImage {
-    const fn new(id: u32) -> Self {
-        Self {
-            hash: 0,
-            image: KittyImage::new(id),
-        }
-    }
-}
-
-enum ImageSource<'a> {
-    Filename(&'a str),
-    Math(&'a str),
-}
-
-fn math_to_png(math: &str, color: Rgb, size: CellDims) -> Vec<u8> {
-    // TODO: return Result
-
-    let Rgb(r, g, b) = color;
-    let layout_options = ratex_layout::LayoutOptions {
-        style: ratex_types::MathStyle::Display,
-        color: ratex_types::Color {
-            r: r as f32 / 255.0,
-            g: g as f32 / 255.0,
-            b: b as f32 / 255.0,
-            a: 1.0,
-        },
-        align_relation_spacing: None,
-        leftright_delim_height: None,
-        inter_glyph_kern_em: 0.0,
-        explicit_size_multiplier: 1.0,
-    };
-    let render_options = ratex_render::RenderOptions {
-        font_size: size.width as f32 * 1.2,
-        padding: 0.0,
-        background_color: ratex_types::Color {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            a: 0.0,
-        },
-        font_dir: String::new(),
-        device_pixel_ratio: size.height as f32 / size.width as f32,
-    };
-
-    let ast = ratex_parser::parse(math).unwrap();
-    let layout = ratex_layout::layout(&ast, &layout_options);
-    let display_list = ratex_layout::to_display_list(&layout);
-    ratex_render::render_to_png(&display_list, &render_options).unwrap()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -885,6 +797,114 @@ impl CodeHighlighter {
         }
     }
 }
+
+struct MarkupImage {
+    hash: u64,
+    image: KittyImage,
+}
+
+impl MarkupImage {
+    const fn new(id: u32) -> Self {
+        Self {
+            hash: 0,
+            image: KittyImage::new(id),
+        }
+    }
+}
+
+enum ImageSource<'a> {
+    Filename(&'a str),
+    Math(&'a str),
+}
+
+fn math_to_png(math: &str, color: Rgb, size: CellDims) -> MarkupResult<Vec<u8>> {
+    let Rgb(r, g, b) = color;
+    let layout_options = ratex_layout::LayoutOptions {
+        style: ratex_types::MathStyle::Display,
+        color: ratex_types::Color {
+            r: r as f32 / 255.0,
+            g: g as f32 / 255.0,
+            b: b as f32 / 255.0,
+            a: 1.0,
+        },
+        align_relation_spacing: None,
+        leftright_delim_height: None,
+        inter_glyph_kern_em: 0.0,
+        explicit_size_multiplier: 1.0,
+    };
+    let render_options = ratex_render::RenderOptions {
+        font_size: size.width as f32 * 1.2,
+        padding: 0.0,
+        background_color: ratex_types::Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        },
+        font_dir: String::new(),
+        device_pixel_ratio: size.height as f32 / size.width as f32,
+    };
+
+    let ast = ratex_parser::parse(math).map_err(|err| MarkupError::Math(MathError::Parse(err)))?;
+    let layout = ratex_layout::layout(&ast, &layout_options);
+    let display_list = ratex_layout::to_display_list(&layout);
+    ratex_render::render_to_png(&display_list, &render_options)
+        .map_err(|err| MarkupError::Math(MathError::Render(err)))
+}
+
+type MarkupResult<T> = Result<T, MarkupError>;
+
+#[derive(Debug)]
+enum MarkupError {
+    Image(ImageError),
+    Math(MathError),
+}
+
+#[derive(Debug)]
+enum ImageError {
+    NoFilename,
+    Kitty(PathBuf, KittyError),
+}
+
+#[derive(Debug)]
+enum MathError {
+    Parse(ratex_parser::ParseError),
+    Render(String),
+    Kitty(KittyError),
+}
+
+impl std::fmt::Display for MarkupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Image(ImageError::NoFilename) => f.write_str("No image filename found"),
+            Self::Image(ImageError::Kitty(path, err)) => match err {
+                KittyError::Load(err) => f.write_fmt(format_args!(
+                    "Failed to load image\n'{}'\ndue to\n\"{}\"",
+                    path.display(),
+                    err
+                )),
+                KittyError::Encode(err) => f.write_fmt(format_args!(
+                    "Failed to encode image\n'{}'\ndue to\n\"{}\"",
+                    path.display(),
+                    err
+                )),
+            },
+            Self::Math(MathError::Parse(err)) => {
+                f.write_fmt(format_args!("Failed to parse math due to\n\"{}\"", err))
+            }
+            Self::Math(MathError::Render(msg)) => f.write_fmt(format_args!(
+                "Failed to render math as png due to\n\"{}\"",
+                msg
+            )),
+            Self::Math(MathError::Kitty(err)) => f.write_fmt(format_args!(
+                "Failed to load or encode math image due to\n\"{}\"",
+                err
+            )),
+        }
+    }
+}
+
+impl std::error::Error for MarkupError {}
 
 #[derive(Debug)]
 pub enum MarkupBlock<'a> {
