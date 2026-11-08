@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use terminal::*;
-use widgets2::{Block, KittyDeleteAll, KittyGraphics, markup3::*};
+use widgets2::{Block, KittyDeleteAll, KittyGraphics, Markup};
 
 pub struct App {
     frame: Framebuffer,

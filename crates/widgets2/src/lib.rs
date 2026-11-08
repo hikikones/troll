@@ -3,19 +3,17 @@ mod block;
 mod editor;
 mod image;
 mod list;
+mod markup;
 mod prompt;
 mod scroll;
 mod tag_list;
-
-// pub mod markup;
-// pub mod markup2;
-pub mod markup3;
 
 pub use ansi::*;
 pub use block::*;
 pub use editor::*;
 pub use image::*;
 pub use list::*;
+pub use markup::*;
 pub use prompt::*;
 pub use scroll::*;
 pub use tag_list::*;
