@@ -15,8 +15,8 @@ pub struct Markup {
     desired_scroll: Option<MarkupScroll>,
     plain: Vec<MarkupPlain>,
     rich: Vec<MarkupRich>,
-    images: Vec<MarkupImage>,
-    image_id_start: u8,
+    highlighter: CodeHighlighter,
+    images: MarkupImages,
     cell: CellDims,
     view: Size,
     size: Size,
@@ -25,8 +25,6 @@ pub struct Markup {
     scroll_area: Option<Rect>,
     options: MarkupOptions,
     colors: MarkupColors,
-    highlighter: CodeHighlighter,
-    assets: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -97,8 +95,8 @@ impl Markup {
             desired_scroll: None,
             plain: Vec::new(),
             rich: Vec::new(),
-            images: Vec::new(),
-            image_id_start: 90,
+            images: MarkupImages::new(assets),
+            highlighter: CodeHighlighter::new(),
             cell: CellDims::DEFAULT,
             view: Size::ZERO,
             size: Size::ZERO,
@@ -107,8 +105,6 @@ impl Markup {
             scroll_area: None,
             options: MarkupOptions::new(),
             colors: MarkupColors::new(),
-            highlighter: CodeHighlighter::new(),
-            assets,
         }
     }
 
@@ -231,7 +227,7 @@ impl Markup {
                     }
                 }
                 MarkupRich::Image { index } => {
-                    let dims = self.images[index as usize].image.dims();
+                    let dims = self.images.dims(index);
                     let max_width = self.cell.width(area.cols());
                     let resized_dims = dims.resize(dims.with_width(max_width));
                     let resized_rows = self.cell.rows(resized_dims.height);
@@ -249,16 +245,9 @@ impl Markup {
                         };
                         let image_rows = (resized_rows - rows_outside_top).min(area.rows());
                         let image_area = area.with_rows(image_rows);
-                        self.images[index as usize].image.render(
-                            image_area,
-                            frame,
-                            kitty,
-                            ImageOptions {
-                                resize: ResizeMode::FitWidthCropHeight { rows_outside_top },
-                                horizontal: HorizontalAlignment::Center,
-                                vertical: VerticalAlignment::Top,
-                            },
-                        );
+
+                        self.images
+                            .render(index, image_area, rows_outside_top, frame, kitty);
 
                         area.shrink_down(image_rows);
                     }
@@ -352,7 +341,10 @@ impl Markup {
                     self.plain.push(MarkupPlain::EmptyLine);
                 }
                 MarkupBlock::Image { description, path } => {
-                    match self.load_image(image_index, ImageSource::Filename(path), kitty) {
+                    match self
+                        .images
+                        .load(image_index, ImageSource::Filename(path), kitty)
+                    {
                         Ok(_) => {
                             self.plain.push(MarkupPlain::Image { index: image_index });
                         }
@@ -374,7 +366,11 @@ impl Markup {
                     self.plain.push(MarkupPlain::EmptyLine);
                 }
                 MarkupBlock::Math { text } => {
-                    match self.load_image(image_index, ImageSource::Math(text), kitty) {
+                    match self.images.load(
+                        image_index,
+                        ImageSource::Math(text, self.colors.math, self.cell),
+                        kitty,
+                    ) {
                         Ok(_) => {
                             self.plain.push(MarkupPlain::Image { index: image_index });
                         }
@@ -591,7 +587,7 @@ impl Markup {
             .map(|item| match item {
                 MarkupRich::Text { range, .. } => self.text.slice(range).lines().count() as u16,
                 MarkupRich::Image { index } => {
-                    let dims = self.images[index as usize].image.dims();
+                    let dims = self.images.dims(index);
                     let max_width = self.cell.width(self.size.cols);
                     let resized_dims = dims.resize(dims.with_width(max_width));
                     self.cell.rows(resized_dims.height)
@@ -599,59 +595,6 @@ impl Markup {
                 MarkupRich::Break | MarkupRich::EmptyLine => 1,
             })
             .sum()
-    }
-
-    fn load_image(
-        &mut self,
-        index: u8,
-        src: ImageSource,
-        kitty: &mut KittyGraphics,
-    ) -> MarkupResult<()> {
-        if index == self.images.len() as u8 {
-            self.images
-                .push(MarkupImage::new((self.image_id_start + index) as u32));
-        }
-
-        match src {
-            ImageSource::Filename(name) => {
-                if name.is_empty() {
-                    return Err(MarkupError::Image(ImageError::NoFilename));
-                }
-
-                let path = self.assets.join(name);
-                let hash = utils::hash_fast(&path);
-                let image = &mut self.images[index as usize];
-
-                if hash == image.hash {
-                    return Ok(());
-                }
-
-                image
-                    .image
-                    .load_from_path(&path, kitty)
-                    .map_err(|err| MarkupError::Image(ImageError::Kitty(path, err)))?;
-
-                image.hash = hash;
-            }
-            ImageSource::Math(math) => {
-                let hash = utils::hash_fast(math);
-                let image = &mut self.images[index as usize];
-
-                if hash == image.hash {
-                    return Ok(());
-                }
-
-                let png = math_to_png(math, self.colors.math, self.cell)?;
-                image
-                    .image
-                    .load_from_bytes(png, kitty)
-                    .map_err(|err| MarkupError::Math(MathError::Kitty(err)))?;
-
-                image.hash = hash;
-            }
-        }
-
-        Ok(())
     }
 }
 
@@ -769,6 +712,99 @@ impl CodeHighlighter {
     }
 }
 
+struct MarkupImages {
+    images: Vec<MarkupImage>,
+    id_start: u8,
+    dir: PathBuf,
+}
+
+impl MarkupImages {
+    const fn new(dir: PathBuf) -> Self {
+        Self {
+            images: Vec::new(),
+            id_start: 90,
+            dir,
+        }
+    }
+
+    fn dims(&self, index: u8) -> Dims {
+        self.images[index as usize].image.dims()
+    }
+
+    fn load(
+        &mut self,
+        index: u8,
+        source: ImageSource,
+        kitty: &mut KittyGraphics,
+    ) -> MarkupResult<()> {
+        if index == self.images.len() as u8 {
+            self.images
+                .push(MarkupImage::new((self.id_start + index) as u32));
+        }
+
+        match source {
+            ImageSource::Filename(name) => {
+                if name.is_empty() {
+                    return Err(MarkupError::Image(ImageError::NoFilename));
+                }
+
+                let path = self.dir.join(name);
+                let hash = utils::hash_fast(&path);
+                let image = &mut self.images[index as usize];
+
+                if hash == image.hash {
+                    return Ok(());
+                }
+
+                image
+                    .image
+                    .load_from_path(&path, kitty)
+                    .map_err(|err| MarkupError::Image(ImageError::Kitty(path, err)))?;
+
+                image.hash = hash;
+            }
+            ImageSource::Math(math, color, cell) => {
+                let hash = utils::hash_fast(math);
+                let image = &mut self.images[index as usize];
+
+                if hash == image.hash {
+                    return Ok(());
+                }
+
+                let png = math_to_png(math, color, cell)?;
+                image
+                    .image
+                    .load_from_bytes(png, kitty)
+                    .map_err(|err| MarkupError::Math(MathError::Kitty(err)))?;
+
+                image.hash = hash;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn render(
+        &mut self,
+        index: u8,
+        area: Rect,
+        rows_outside_top: u16,
+        frame: &mut Framebuffer,
+        kitty: &mut KittyGraphics,
+    ) {
+        self.images[index as usize].image.render(
+            area,
+            frame,
+            kitty,
+            ImageOptions {
+                resize: ResizeMode::FitWidthCropHeight { rows_outside_top },
+                horizontal: HorizontalAlignment::Center,
+                vertical: VerticalAlignment::Top,
+            },
+        );
+    }
+}
+
 struct MarkupImage {
     hash: u64,
     image: KittyImage,
@@ -785,7 +821,7 @@ impl MarkupImage {
 
 enum ImageSource<'a> {
     Filename(&'a str),
-    Math(&'a str),
+    Math(&'a str, Rgb, CellDims),
 }
 
 fn math_to_png(math: &str, color: Rgb, size: CellDims) -> MarkupResult<Vec<u8>> {
