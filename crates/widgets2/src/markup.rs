@@ -17,7 +17,6 @@ pub struct Markup {
     rich: Vec<MarkupRich>,
     highlighter: CodeHighlighter,
     images: MarkupImages,
-    cell: CellDims,
     view: Size,
     size: Size,
     hash: u64,
@@ -97,7 +96,6 @@ impl Markup {
             rich: Vec::new(),
             images: MarkupImages::new(assets),
             highlighter: CodeHighlighter::new(),
-            cell: CellDims::DEFAULT,
             view: Size::ZERO,
             size: Size::ZERO,
             hash: 0,
@@ -131,11 +129,6 @@ impl Markup {
 
     pub const fn set_colors(&mut self, colors: MarkupColors) -> &mut Self {
         self.colors = colors;
-        self
-    }
-
-    pub const fn set_cell_dims(&mut self, size: CellDims) -> &mut Self {
-        self.cell = size;
         self
     }
 
@@ -181,20 +174,23 @@ impl Markup {
         }
 
         // Prepare markup
-        self.parse_and_load(markup, kitty);
-        self.process_markup(area, inner, frame);
+        let cell = frame.cell_dims().unwrap_or_default();
+        self.parse_and_load(markup, cell, kitty);
+        self.process_markup(area, inner, cell, frame);
 
         // Scroll
         self.update_scroll();
         self.render_scrollbar(frame);
 
         // Render
-        self.render_markup(inner.with_size(self.view), frame, kitty);
+        let render_area = inner.with_size(self.view);
+        self.render_markup(render_area, cell, frame, kitty);
     }
 
     fn render_markup(
         &mut self,
         mut area: Rect,
+        cell: CellDims,
         frame: &mut Framebuffer,
         kitty: &mut KittyGraphics,
     ) {
@@ -235,9 +231,9 @@ impl Markup {
                 }
                 MarkupRich::Image { index } => {
                     let dims = self.images.dims(index);
-                    let max_width = self.cell.width(area.cols());
+                    let max_width = cell.width(area.cols());
                     let resized_dims = dims.resize(dims.with_width(max_width));
-                    let resized_rows = self.cell.rows(resized_dims.height);
+                    let resized_rows = cell.rows(resized_dims.height);
 
                     if is_in_view(
                         curr_line,
@@ -297,7 +293,7 @@ impl Markup {
         self.hash = 0;
     }
 
-    fn parse_and_load(&mut self, markup: &str, kitty: &mut KittyGraphics) {
+    fn parse_and_load(&mut self, markup: &str, cell: CellDims, kitty: &mut KittyGraphics) {
         let hash = utils::hash_fast(markup);
 
         if self.hash == hash {
@@ -375,7 +371,7 @@ impl Markup {
                 MarkupBlock::Math { text } => {
                     match self.images.load(
                         image_index,
-                        ImageSource::Math(text, self.colors.math, self.cell),
+                        ImageSource::Math(text, self.colors.math, cell),
                         kitty,
                     ) {
                         Ok(_) => {
@@ -411,7 +407,7 @@ impl Markup {
         }
     }
 
-    fn process_markup(&mut self, area: Rect, inner: Rect, frame: &mut Framebuffer) {
+    fn process_markup(&mut self, area: Rect, inner: Rect, cell: CellDims, frame: &mut Framebuffer) {
         if self.size == area.size {
             return;
         }
@@ -420,18 +416,18 @@ impl Markup {
         self.view = inner.size;
         self.scroll_area = None;
 
-        self.relayout(frame);
+        self.relayout(cell, frame);
 
         if self.is_scrollable() {
             let scroll_area = area.with_col(area.right_col()).with_cols(1);
             self.view
                 .sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
             self.scroll_area = Some(scroll_area);
-            self.relayout(frame);
+            self.relayout(cell, frame);
         }
     }
 
-    fn relayout(&mut self, frame: &mut Framebuffer) {
+    fn relayout(&mut self, cell: CellDims, frame: &mut Framebuffer) {
         self.rich.clear();
 
         let width = self.view.cols;
@@ -539,7 +535,7 @@ impl Markup {
         });
 
         self.rich.extend(plain_to_rich_iter);
-        self.total_lines = self.compute_total_lines();
+        self.total_lines = self.compute_total_lines(cell);
     }
 
     const fn is_scrollable(&self) -> bool {
@@ -587,7 +583,7 @@ impl Markup {
         .render(scroll_area, frame);
     }
 
-    fn compute_total_lines(&self) -> u16 {
+    fn compute_total_lines(&self, cell: CellDims) -> u16 {
         self.rich
             .iter()
             .copied()
@@ -595,9 +591,9 @@ impl Markup {
                 MarkupRich::Text { range, .. } => self.text.slice(range).lines().count() as u16,
                 MarkupRich::Image { index } => {
                     let dims = self.images.dims(index);
-                    let max_width = self.cell.width(self.size.cols);
+                    let max_width = cell.width(self.size.cols);
                     let resized_dims = dims.resize(dims.with_width(max_width));
-                    self.cell.rows(resized_dims.height)
+                    cell.rows(resized_dims.height)
                 }
                 MarkupRich::Break | MarkupRich::EmptyLine => 1,
             })

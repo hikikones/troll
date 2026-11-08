@@ -26,7 +26,6 @@ impl App {
 
     pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.frame.query_size()?;
-        self.markup.set_cell_dims(self.frame.cell_dims().unwrap());
         self.render(terminal)?;
 
         while self.is_running {
