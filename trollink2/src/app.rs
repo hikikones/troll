@@ -15,7 +15,9 @@ impl App {
     pub fn new(dir: PathBuf) -> Self {
         Self {
             frame: Framebuffer::new(),
-            markup: Markup::new(dir),
+            markup: Markup::new(dir)
+                .with_scrollbar(0)
+                .with_padding(Margin::horizontal(1)),
             kitty: KittyGraphics::new(),
             index: 0,
             is_running: true,
@@ -101,7 +103,7 @@ impl App {
 
         let area = frame.area().inner(Margin::proportional(3));
         Block::rectangle().render(area, &mut frame);
-        let inner = area.inner(Margin::proportional(1));
+        let inner = area.inner(Margin::all(1));
 
         let text = match self.index {
             0 => MARKUP,

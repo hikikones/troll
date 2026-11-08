@@ -113,6 +113,17 @@ impl Markup {
         self
     }
 
+    pub const fn with_scrollbar(mut self, margin: u16) -> Self {
+        self.options.scrollbar = true;
+        self.options.scrollbar_margin = margin;
+        self
+    }
+
+    pub const fn with_padding(mut self, padding: Margin) -> Self {
+        self.options.padding = padding;
+        self
+    }
+
     pub const fn with_colors(mut self, colors: MarkupColors) -> Self {
         self.colors = colors;
         self
@@ -182,7 +193,7 @@ impl Markup {
         self.render_scrollbar(frame);
 
         // Render
-        self.render_markup(inner, frame, kitty);
+        self.render_markup(inner.with_size(self.view), frame, kitty);
     }
 
     fn render_markup(
