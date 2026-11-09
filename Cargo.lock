@@ -5400,9 +5400,13 @@ dependencies = [
 name = "trollink2"
 version = "0.1.0"
 dependencies = [
+ "bevy_derive",
+ "bevy_ecs",
+ "bevy_state",
  "clap",
  "clap-cargo",
  "directories",
+ "ecs",
  "edit",
  "fsrs",
  "ron",
@@ -5884,6 +5888,7 @@ name = "widgets2"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "bevy_ecs",
  "image",
  "ratex-layout",
  "ratex-parser",

@@ -9,6 +9,7 @@ use crate::{
 
 type MarkupResult<T> = Result<T, MarkupError>;
 
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Markup {
     text: String,
     scroll: u16,

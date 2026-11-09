@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 base64 = { workspace = true }
+bevy_ecs = { workspace = true, optional = true }
 image = { workspace = true }
 ratex-layout = { workspace = true }
 ratex-parser = { workspace = true }
@@ -16,3 +17,6 @@ syntect = { workspace = true }
 terminal = { workspace = true }
 utils = { workspace = true }
 zlib-rs = { workspace = true }
+
+[features]
+bevy = ["dep:bevy_ecs"]

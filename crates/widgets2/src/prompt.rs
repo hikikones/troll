@@ -4,9 +4,10 @@ use terminal::*;
 
 use crate::{Scroll, ScrollData, ScrollMargins};
 
-// TODO: Scrolling assumes all chars/graphemes are one width.
+// TODO: Horizontal scrolling assumes all chars/graphemes are one display width.
 
 #[derive(Debug)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Prompt {
     input: String,
     placeholder: &'static str,
@@ -18,6 +19,12 @@ pub struct Prompt {
     colors: PromptColors,
     area_pos: Pos,
     last_width: u16,
+}
+
+impl Default for Prompt {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug)]

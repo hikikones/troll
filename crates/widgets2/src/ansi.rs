@@ -15,6 +15,12 @@ pub struct AnsiViewer {
     colors: AnsiViewerColors,
 }
 
+impl Default for AnsiViewer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct AnsiViewerOptions {
     pub padding: Margin,

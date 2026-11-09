@@ -8,6 +8,7 @@ use crate::{Scroll, ScrollData, ScrollMargins};
 // TODO: Add scrollbar and padding.
 // TODO: Use ansi codes for syntax highlighting.
 
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Editor {
     input: String,
     cursor: usize,
@@ -23,6 +24,12 @@ pub struct Editor {
     area_pos: Pos,
     last_size: Size,
     last_hash: u64,
+}
+
+impl Default for Editor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub struct EditorColors {

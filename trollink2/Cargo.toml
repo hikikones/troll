@@ -11,9 +11,13 @@ keywords = ["flashcards", "spaced-repetion", "study", "terminal", "tui"]
 categories = ["command-line-utilities"]
 
 [dependencies]
+bevy_derive = { workspace = true }
+bevy_ecs = { workspace = true }
+bevy_state = { workspace = true }
 clap = { workspace = true }
 clap-cargo = { workspace = true }
 directories = { workspace = true }
+ecs = { workspace = true }
 edit = { workspace = true }
 fsrs = { workspace = true }
 ron = { workspace = true }
@@ -22,4 +26,4 @@ shared = { workspace = true }
 terminal = { workspace = true }
 toml = { workspace = true }
 utils = { workspace = true }
-widgets2 = { workspace = true }
+widgets2 = { workspace = true, features = ["bevy"] }
