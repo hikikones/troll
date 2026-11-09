@@ -10,6 +10,8 @@ use widgets2::{ListColors, PromptColors, ScrollbarColors};
 
 // TODO: Add show_scrollbars to config.
 
+pub type SettingsResult<T> = Result<T, ConfigError>;
+
 const VERSION: u8 = 0;
 
 #[derive(Debug, Default, Resource)]
@@ -19,7 +21,7 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn read_or_create(path: Option<&Path>) -> Result<Self, ConfigError> {
+    pub fn read_or_create(path: Option<&Path>) -> SettingsResult<Self> {
         #[cfg(debug_assertions)]
         if path.is_none() {
             return Ok(Settings::default());
@@ -42,16 +44,14 @@ impl Settings {
         };
 
         if file.exists() {
-            return Self::read(file);
+            return Ok(Self {
+                config: Config::read(&file)?,
+                path: Some(file),
+            });
         }
 
         if let Some(parent) = file.parent() {
-            std::fs::create_dir_all(parent).map_err(|err| {
-                ConfigError::new(
-                    format!("Failed to create directory path for '{}'.", file.display()),
-                    Some(ConfigErrorSource::Io(err)),
-                )
-            })?;
+            std::fs::create_dir_all(parent)?;
         }
 
         let config = Config::default();
@@ -63,7 +63,7 @@ impl Settings {
         })
     }
 
-    pub fn read(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
+    pub fn read(path: impl AsRef<Path>) -> SettingsResult<Self> {
         let path = path.as_ref();
 
         Ok(Self {
@@ -99,10 +99,9 @@ impl Settings {
         &mut self.config.colors
     }
 
-    pub fn save(&self) -> Result<(), ConfigError> {
+    pub fn save(&self) -> SettingsResult<()> {
         let Some(path) = self.path.as_ref() else {
-            // TODO: return error
-            return Ok(());
+            return Err("No path to save settings to")?;
         };
 
         self.config.save(path)
@@ -131,28 +130,27 @@ impl Default for Config {
 }
 
 impl Config {
-    fn read(path: &Path) -> Result<Self, ConfigError> {
-        let bytes = std::fs::read(path).map_err(|err| ConfigError::from_read(path, err))?;
+    fn read(path: &Path) -> SettingsResult<Self> {
+        let bytes = std::fs::read(path)?;
 
         #[derive(Deserialize)]
         struct V {
             version: u8,
         }
 
-        let V { version } =
-            toml::from_slice(&bytes).map_err(|err| ConfigError::from_de(path, err))?;
+        let V { version } = toml::from_slice(&bytes)?;
 
         let config: Self = match version {
-            VERSION => toml::from_slice(&bytes).map_err(|err| ConfigError::from_de(path, err))?,
-            _ => Err(ConfigError::from_unknown_version(path, version))?,
+            VERSION => toml::from_slice(&bytes)?,
+            _ => Err("Unknown version")?,
         };
 
         Ok(config)
     }
 
-    fn save(&self, path: &Path) -> Result<(), ConfigError> {
-        let toml = toml::to_string(self).map_err(|err| ConfigError::from_ser(path, err))?;
-        std::fs::write(path, &toml).map_err(|err| ConfigError::from_write(path, err))?;
+    fn save(&self, path: &Path) -> SettingsResult<()> {
+        let toml = toml::to_string(self)?;
+        std::fs::write(path, &toml)?;
 
         Ok(())
     }
@@ -243,92 +241,46 @@ impl Default for Colors {
 }
 
 #[derive(Debug)]
-pub struct ConfigError {
-    message: String,
-    source: Option<ConfigErrorSource>,
-}
-
-impl ConfigError {
-    pub const fn new(message: String, source: Option<ConfigErrorSource>) -> Self {
-        Self { message, source }
-    }
-
-    fn from_read(path: &Path, err: std::io::Error) -> Self {
-        Self {
-            message: format!("Failed to read settings from '{}'.", path.display()),
-            source: Some(ConfigErrorSource::Io(err)),
-        }
-    }
-
-    fn from_write(path: &Path, err: std::io::Error) -> Self {
-        Self {
-            message: format!("Failed to write settings to '{}'.", path.display()),
-            source: Some(ConfigErrorSource::Io(err)),
-        }
-    }
-
-    fn from_de(path: &Path, err: toml::de::Error) -> Self {
-        Self {
-            message: format!("Failed to deserialize settings from '{}'.", path.display()),
-            source: Some(ConfigErrorSource::De(err)),
-        }
-    }
-
-    fn from_ser(path: &Path, err: toml::ser::Error) -> Self {
-        Self {
-            message: format!("Failed to write settings to '{}'.", path.display()),
-            source: Some(ConfigErrorSource::Ser(err)),
-        }
-    }
-
-    fn from_unknown_version(path: &Path, version: u8) -> Self {
-        Self {
-            message: format!(
-                "Failed to deserialize settings from '{}' due to unknown version: {version}.",
-                path.display()
-            ),
-            source: None,
-        }
-    }
+pub enum ConfigError {
+    Io(std::io::Error),
+    De(toml::de::Error),
+    Ser(toml::ser::Error),
+    Other(&'static str),
 }
 
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message.as_str())
-    }
-}
-
-impl std::error::Error for ConfigError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|source| match source {
-            ConfigErrorSource::Io(err) => err as _,
-            ConfigErrorSource::De(err) => err as _,
-            ConfigErrorSource::Ser(err) => err as _,
-        })
-    }
-}
-
-#[derive(Debug)]
-pub enum ConfigErrorSource {
-    Io(std::io::Error),
-    De(toml::de::Error),
-    Ser(toml::ser::Error),
-}
-
-impl From<String> for ConfigError {
-    fn from(message: String) -> Self {
-        Self {
-            message,
-            source: None,
+        match self {
+            Self::Io(err) => err.fmt(f),
+            Self::De(err) => err.fmt(f),
+            Self::Ser(err) => err.fmt(f),
+            Self::Other(msg) => f.write_str(msg),
         }
     }
 }
 
-impl From<&str> for ConfigError {
-    fn from(message: &str) -> Self {
-        Self {
-            message: String::from(message),
-            source: None,
-        }
+impl std::error::Error for ConfigError {}
+
+impl From<std::io::Error> for ConfigError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl From<toml::de::Error> for ConfigError {
+    fn from(err: toml::de::Error) -> Self {
+        Self::De(err)
+    }
+}
+
+impl From<toml::ser::Error> for ConfigError {
+    fn from(err: toml::ser::Error) -> Self {
+        Self::Ser(err)
+    }
+}
+
+impl From<&'static str> for ConfigError {
+    fn from(err: &'static str) -> Self {
+        Self::Other(err)
     }
 }

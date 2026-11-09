@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use terminal::*;
 use widgets2::{Block, KittyDeleteAll, Markup};
 
@@ -11,10 +9,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(dir: PathBuf) -> Self {
+    pub fn new(args: crate::cli::Args) -> Self {
         Self {
             frame: Framebuffer::new(),
-            markup: Markup::new(dir)
+            markup: Markup::new(args.assets.unwrap()) // TODO
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
             index: 0,
@@ -133,6 +131,39 @@ pub enum Action {
     Render,
     Clear,
     Quit,
+}
+
+#[derive(Debug)]
+pub struct AppError {
+    message: String,
+    source: Option<AppErrorSource>,
+}
+
+impl AppError {
+    pub const fn new(message: String, source: Option<AppErrorSource>) -> Self {
+        Self { message, source }
+    }
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message.as_str())
+    }
+}
+
+impl std::error::Error for AppError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source.as_ref().map(|source| match source {
+            AppErrorSource::Io(err) => err as _,
+            AppErrorSource::Config(err) => err as _,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub enum AppErrorSource {
+    Io(std::io::Error),
+    Config(crate::settings::ConfigError),
 }
 
 const LOREM: &str = r#"
