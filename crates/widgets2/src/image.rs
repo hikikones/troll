@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs::File,
     io::{BufRead, BufReader, Seek},
     path::Path,
@@ -7,6 +8,8 @@ use std::{
 use terminal::*;
 
 pub use image::{ImageFormat, imageops::FilterType};
+
+// TODO: CLEANUP.
 
 const KITTY_START: &str = "\x1b_G";
 const KITTY_END: &str = "\x1b\\";
@@ -120,6 +123,256 @@ impl Image {
 
         area
     }
+}
+
+pub struct ImageNEW {
+    id: u32,
+    dims: Dims,
+    encoded: Vec<u8>,
+    generation: i32,
+}
+
+impl ImageNEW {
+    pub const fn new(id: u32) -> Self {
+        Self {
+            id,
+            dims: Dims::ZERO,
+            encoded: Vec::new(),
+            generation: -1,
+        }
+    }
+
+    pub const fn id(&self) -> u32 {
+        self.id
+    }
+
+    pub const fn dims(&self) -> Dims {
+        self.dims
+    }
+
+    pub fn load_from_path(
+        &mut self,
+        path: impl AsRef<Path>,
+        opts: ImageLoadOptions,
+    ) -> Result<(), KittyError> {
+        let bytes = std::fs::read(path).map_err(|err| KittyLoadError::Read(err))?;
+        self.load_from_bytes(bytes, opts)
+    }
+
+    pub fn load_from_bytes(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        opts: ImageLoadOptions,
+    ) -> Result<(), KittyError> {
+        let mut frames = Vec::new();
+        load_image(std::io::Cursor::new(bytes), &mut frames, opts.format)?;
+
+        if let Some(resize) = opts.resize {
+            resize_image(&mut frames, resize);
+        }
+
+        let mut deflate = Deflate::new();
+        let mut base64 = Base64::new();
+
+        self.encoded.clear();
+        self.dims = encode_image(
+            self.id,
+            frames.iter(),
+            &mut deflate,
+            &mut base64,
+            &mut self.encoded,
+            KittyVerbosity::Silent,
+        )?;
+
+        Ok(())
+    }
+
+    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer, opts: ImageOptions) -> Rect {
+        // Resize
+        let ResizeResult { size, render } = opts.resize.calc(
+            self.id,
+            self.dims,
+            area.size,
+            frame.cell_dims().unwrap_or_default(),
+        );
+
+        // Alignment
+        let area = area
+            .with_size(size)
+            .align(area, opts.horizontal, opts.vertical);
+
+        // Retransmit image
+        let generation = frame.generation();
+        if self.generation != generation {
+            frame.print_str(self.base64());
+            self.generation = generation;
+        }
+
+        // Render
+        frame.cursor(area.pos);
+        frame.print_fmt(render);
+
+        area
+    }
+
+    const fn base64(&self) -> &str {
+        // SAFETY: Base64-encoded data, which is always valid UTF-8 (ASCII).
+        unsafe { std::str::from_utf8_unchecked(self.encoded.as_slice()) }
+    }
+}
+
+#[derive(Default)]
+struct Image2 {
+    dims: Dims,
+    encoded: Vec<u8>,
+    generation: u32,
+}
+
+impl Image2 {
+    const fn as_str(&self) -> &str {
+        // SAFETY: Base64-encoded data, which is always valid UTF-8 (ASCII).
+        unsafe { std::str::from_utf8_unchecked(self.encoded.as_slice()) }
+    }
+}
+
+pub struct Images {
+    frames: Vec<image::Frame>,
+    deflate: Deflate,
+    base64: Base64,
+    images: HashMap<u32, Image2>,
+    verbosity: KittyVerbosity,
+    generation: u32,
+}
+
+impl Images {
+    pub fn new() -> Self {
+        Self {
+            frames: Vec::new(),
+            deflate: Deflate::new(),
+            base64: Base64::new(),
+            images: HashMap::new(),
+            verbosity: KittyVerbosity::Silent,
+            generation: 1,
+        }
+    }
+
+    pub const fn increase_generation(&mut self) {
+        self.generation += 1;
+    }
+
+    pub fn load_from_path(
+        &mut self,
+        path: impl AsRef<Path>,
+        image_id: u32,
+        options: ImageLoadOptions,
+    ) -> Result<(), KittyError> {
+        let bytes = std::fs::read(path).map_err(|err| KittyLoadError::Read(err))?;
+        self.load_and_encode(bytes, image_id, options)
+    }
+
+    pub fn load_from_bytes(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        image_id: u32,
+        options: ImageLoadOptions,
+    ) -> Result<(), KittyError> {
+        self.load_and_encode(bytes, image_id, options)
+    }
+
+    fn load_and_encode(
+        &mut self,
+        bytes: impl AsRef<[u8]>,
+        image_id: u32,
+        options: ImageLoadOptions,
+    ) -> Result<(), KittyError> {
+        self.frames.clear();
+
+        load_image(
+            std::io::Cursor::new(bytes),
+            &mut self.frames,
+            options.format,
+        )?;
+
+        if let Some(resize) = options.resize {
+            resize_image(&mut self.frames, resize);
+        }
+
+        let image = self
+            .images
+            .entry(image_id)
+            .or_insert_with(|| Image2::default());
+
+        image.encoded.clear();
+
+        let dims = encode_image(
+            image_id,
+            self.frames.iter(),
+            &mut self.deflate,
+            &mut self.base64,
+            &mut image.encoded,
+            self.verbosity,
+        )?;
+
+        image.dims = dims;
+        image.generation = self.generation;
+
+        Ok(())
+    }
+
+    pub fn render(
+        &mut self,
+        area: Rect,
+        frame: &mut Framebuffer,
+        image_id: u32,
+        options: ImageOptions,
+    ) -> Rect {
+        let Some(image) = self.images.get_mut(&image_id) else {
+            return area;
+        };
+
+        let cell = frame.cell_dims().unwrap_or_default();
+        let ImageOptions {
+            resize,
+            horizontal,
+            vertical,
+        } = options;
+
+        // Resize
+        let ResizeResult { size, render } = resize.calc(image_id, image.dims, area.size, cell);
+
+        // Alignment
+        let area = area.with_size(size).align(area, horizontal, vertical);
+
+        // Retransmit image
+        if image.generation != self.generation {
+            frame.print_str(image.as_str());
+            image.generation = self.generation;
+        }
+
+        // Render
+        frame.cursor(area.pos);
+        frame.print_fmt(render);
+
+        area
+    }
+
+    // pub fn render(
+    //     &self,
+    //     image: &mut KittyImage,
+    //     frame: &mut Framebuffer,
+    //     pos: Pos,
+    //     kitty: KittyRender,
+    // ) {
+    //     // Retransmit image
+    //     if image.generation != self.generation {
+    //         frame.print_str(&image.encoded);
+    //         image.generation = self.generation;
+    //     }
+
+    //     // Render
+    //     frame.cursor(pos);
+    //     frame.print_fmt(kitty);
+    // }
 }
 
 #[derive(Debug)]

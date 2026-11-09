@@ -1,12 +1,11 @@
 use std::path::PathBuf;
 
 use terminal::*;
-use widgets2::{Block, KittyDeleteAll, KittyGraphics, Markup};
+use widgets2::{Block, KittyDeleteAll, Markup};
 
 pub struct App {
     frame: Framebuffer,
     markup: Markup,
-    kitty: KittyGraphics,
     index: usize,
     is_running: bool,
 }
@@ -18,7 +17,6 @@ impl App {
             markup: Markup::new(dir)
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
-            kitty: KittyGraphics::new(),
             index: 0,
             is_running: true,
         }
@@ -43,7 +41,7 @@ impl App {
     fn handle_event(
         &mut self,
         event: TerminalEvent,
-        _terminal: &mut Terminal,
+        terminal: &mut Terminal,
     ) -> std::io::Result<Action> {
         let action = match event {
             TerminalEvent::Key(key) => match key.code {
@@ -63,6 +61,10 @@ impl App {
                         self.index += 1;
                     }
                     Action::Render
+                }
+                KeyCode::Char('e') => {
+                    terminal.temp_leave(|| Ok(()))?;
+                    Action::Clear
                 }
                 _ => {
                     if self.markup.input(key.code) {
@@ -85,6 +87,10 @@ impl App {
         match action {
             Action::None => {}
             Action::Render => {
+                self.render(terminal)?;
+            }
+            Action::Clear => {
+                self.frame.increment_generation();
                 self.render(terminal)?;
             }
             Action::Quit => {
@@ -112,7 +118,7 @@ impl App {
             _ => unreachable!(),
         };
 
-        self.markup.render(inner, &mut frame, text, &mut self.kitty);
+        self.markup.render(inner, &mut frame, text);
 
         frame.flush(&mut terminal.lock())?;
         self.frame = frame;
@@ -125,6 +131,7 @@ impl App {
 pub enum Action {
     None,
     Render,
+    Clear,
     Quit,
 }
 

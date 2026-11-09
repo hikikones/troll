@@ -3,7 +3,7 @@ use terminal::*;
 use utils::StringExt;
 
 use crate::{
-    ImageOptions, KittyError, KittyGraphics, KittyImage, ResizeMode, Scroll, Scrollbar,
+    ImageLoadOptions, ImageNEW, ImageOptions, KittyError, ResizeMode, Scroll, Scrollbar,
     ScrollbarColors, ScrollbarData,
 };
 
@@ -160,13 +160,7 @@ impl Markup {
         self.desired_scroll = None;
     }
 
-    pub fn render(
-        &mut self,
-        area: Rect,
-        frame: &mut Framebuffer,
-        markup: &str,
-        kitty: &mut KittyGraphics,
-    ) {
+    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer, markup: &str) {
         let inner = area.inner(self.options.padding);
 
         if inner.is_empty() {
@@ -175,7 +169,7 @@ impl Markup {
 
         // Prepare markup
         let cell = frame.cell_dims().unwrap_or_default();
-        self.parse_and_load(markup, cell, kitty);
+        self.parse_and_load(markup, cell);
         self.process_markup(area, inner, cell, frame);
 
         // Scroll
@@ -184,16 +178,10 @@ impl Markup {
 
         // Render
         let render_area = inner.with_size(self.view);
-        self.render_markup(render_area, cell, frame, kitty);
+        self.render_markup(render_area, cell, frame);
     }
 
-    fn render_markup(
-        &mut self,
-        mut area: Rect,
-        cell: CellDims,
-        frame: &mut Framebuffer,
-        kitty: &mut KittyGraphics,
-    ) {
+    fn render_markup(&mut self, mut area: Rect, cell: CellDims, frame: &mut Framebuffer) {
         let top_row = area.row();
         let view_top = self.scroll;
         let view_bot = self.scroll + area.rows();
@@ -250,7 +238,7 @@ impl Markup {
                         let image_area = area.with_rows(image_rows);
 
                         self.images
-                            .render(index, image_area, rows_outside_top, frame, kitty);
+                            .render(index, image_area, rows_outside_top, frame);
 
                         area.shrink_down(image_rows);
                     }
@@ -293,7 +281,7 @@ impl Markup {
         self.hash = 0;
     }
 
-    fn parse_and_load(&mut self, markup: &str, cell: CellDims, kitty: &mut KittyGraphics) {
+    fn parse_and_load(&mut self, markup: &str, cell: CellDims) {
         let hash = utils::hash_fast(markup);
 
         if self.hash == hash {
@@ -344,10 +332,7 @@ impl Markup {
                     self.plain.push(MarkupPlain::EmptyLine);
                 }
                 MarkupBlock::Image { description, path } => {
-                    match self
-                        .images
-                        .load(image_index, ImageSource::Filename(path), kitty)
-                    {
+                    match self.images.load(image_index, ImageSource::Filename(path)) {
                         Ok(_) => {
                             self.plain.push(MarkupPlain::Image { index: image_index });
                         }
@@ -369,11 +354,10 @@ impl Markup {
                     self.plain.push(MarkupPlain::EmptyLine);
                 }
                 MarkupBlock::Math { text } => {
-                    match self.images.load(
-                        image_index,
-                        ImageSource::Math(text, self.colors.math, cell),
-                        kitty,
-                    ) {
+                    match self
+                        .images
+                        .load(image_index, ImageSource::Math(text, self.colors.math, cell))
+                    {
                         Ok(_) => {
                             self.plain.push(MarkupPlain::Image { index: image_index });
                         }
@@ -725,24 +709,18 @@ impl MarkupImages {
     const fn new(dir: PathBuf) -> Self {
         Self {
             images: Vec::new(),
-            id_start: 90,
+            id_start: 50,
             dir,
         }
     }
 
     fn dims(&self, index: u8) -> Dims {
-        self.images[index as usize].image.dims()
+        self.images[index as usize].dims()
     }
 
-    fn load(
-        &mut self,
-        index: u8,
-        source: ImageSource,
-        kitty: &mut KittyGraphics,
-    ) -> MarkupResult<()> {
+    fn load(&mut self, index: u8, source: ImageSource) -> MarkupResult<()> {
         if index == self.images.len() as u8 {
-            self.images
-                .push(MarkupImage::new((self.id_start + index) as u32));
+            self.images.push(MarkupImage::new(self.id_start + index));
         }
 
         match source {
@@ -760,8 +738,7 @@ impl MarkupImages {
                 }
 
                 image
-                    .image
-                    .load_from_path(&path, kitty)
+                    .load_from_path(&path, ImageLoadOptions::none())
                     .map_err(|err| MarkupError::Image(ImageError::Kitty(path, err)))?;
 
                 image.hash = hash;
@@ -776,8 +753,7 @@ impl MarkupImages {
 
                 let png = math_to_png(math, color, cell)?;
                 image
-                    .image
-                    .load_from_bytes(png, kitty)
+                    .load_from_bytes(png, ImageLoadOptions::none())
                     .map_err(|err| MarkupError::Math(MathError::Kitty(err)))?;
 
                 image.hash = hash;
@@ -787,18 +763,10 @@ impl MarkupImages {
         Ok(())
     }
 
-    fn render(
-        &mut self,
-        index: u8,
-        area: Rect,
-        rows_outside_top: u16,
-        frame: &mut Framebuffer,
-        kitty: &mut KittyGraphics,
-    ) {
-        self.images[index as usize].image.render(
+    fn render(&mut self, index: u8, area: Rect, rows_outside_top: u16, frame: &mut Framebuffer) {
+        self.images[index as usize].render(
             area,
             frame,
-            kitty,
             ImageOptions {
                 resize: ResizeMode::FitWidthCropHeight { rows_outside_top },
                 horizontal: HorizontalAlignment::Center,
@@ -810,15 +778,29 @@ impl MarkupImages {
 
 struct MarkupImage {
     hash: u64,
-    image: KittyImage,
+    image: ImageNEW,
 }
 
 impl MarkupImage {
-    const fn new(id: u32) -> Self {
+    const fn new(id: u8) -> Self {
         Self {
             hash: 0,
-            image: KittyImage::new(id),
+            image: ImageNEW::new(id as u32),
         }
+    }
+}
+
+impl std::ops::Deref for MarkupImage {
+    type Target = ImageNEW;
+
+    fn deref(&self) -> &Self::Target {
+        &self.image
+    }
+}
+
+impl std::ops::DerefMut for MarkupImage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.image
     }
 }
 

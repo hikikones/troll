@@ -21,6 +21,7 @@ pub struct Framebuffer {
     buffer: String,
     text: String,
     cursor_state: CursorState,
+    generation: i32,
 }
 
 impl Framebuffer {
@@ -30,6 +31,7 @@ impl Framebuffer {
             buffer: String::new(),
             text: String::new(),
             cursor_state: CursorState::new(),
+            generation: 0,
         }
     }
 
@@ -48,6 +50,14 @@ impl Framebuffer {
 
     pub const fn cell_dims(&self) -> Option<CellDims> {
         self.size.cell_dims()
+    }
+
+    pub const fn generation(&self) -> i32 {
+        self.generation
+    }
+
+    pub const fn increment_generation(&mut self) {
+        self.generation += 1;
     }
 
     pub const fn area(&self) -> Rect {
