@@ -86,6 +86,14 @@ impl Pages {
         }
     }
 
+    pub fn refresh(&self) {
+        match self.route {
+            Route::Review => self.review.refresh(),
+            Route::Editor => self.editor.refresh(),
+            Route::Settings => self.settings.refresh(),
+        }
+    }
+
     pub fn input(&mut self, key: Key) -> Action {
         match self.route {
             Route::Review => self.review.input(key),

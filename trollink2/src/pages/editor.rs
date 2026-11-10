@@ -13,6 +13,8 @@ impl EditorPage {
 
     pub fn exit(&self) {}
 
+    pub fn refresh(&self) {}
+
     pub fn input(&mut self, key: Key) -> Action {
         Action::None
     }

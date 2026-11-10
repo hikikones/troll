@@ -99,13 +99,10 @@ impl App {
                 }
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
                 KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
-                _ => {
-                    if self.markup.input(key.code) {
-                        Action::Render
-                    } else {
-                        Action::None
-                    }
-                }
+                _ => match self.modals.current() {
+                    Some(modal) => self.modals.input(modal, key),
+                    None => self.pages.input(key),
+                },
             },
             TerminalEvent::Resize => {
                 self.frame.query_size()?;
@@ -132,6 +129,10 @@ impl App {
             }
             Action::Modal(modal) => {
                 self.modals.set(modal);
+                self.render(terminal)?;
+            }
+            Action::Refresh => {
+                self.pages.refresh();
                 self.render(terminal)?;
             }
             Action::Clear => {
@@ -182,6 +183,7 @@ pub enum Action {
     Render,
     Route(Route),
     Modal(Option<Modal>),
+    Refresh,
     Clear,
     Quit,
 }
