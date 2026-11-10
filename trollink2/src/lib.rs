@@ -1,5 +1,7 @@
 pub mod app;
 pub mod cli;
+pub mod modals;
+pub mod pages;
 pub mod settings;
 
 pub const APP_NAME: &str = env!("CARGO_PKG_NAME");

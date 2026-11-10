@@ -1,23 +1,58 @@
 use terminal::*;
 use widgets2::{Block, KittyDeleteAll, Markup};
 
+use crate::{
+    modals::Modals,
+    pages::{Pages, Route},
+    settings::{Colors, Settings},
+};
+
+pub type AppResult<T> = Result<T, AppError>;
+
 pub struct App {
+    settings: Settings,
+    pages: Pages,
+    modals: Modals,
     frame: Framebuffer,
     markup: Markup,
-    index: usize,
     is_running: bool,
 }
 
 impl App {
-    pub fn new(args: crate::cli::Args) -> Self {
-        Self {
+    pub fn new(args: crate::cli::Args) -> AppResult<Self> {
+        let mut modals = Modals::new();
+
+        let settings = Settings::read_or_create(args.settings.as_deref()).unwrap_or_else(|error| {
+            match args.settings {
+                Some(path) => {
+                    modals.logs.push_err(AppError::new(
+                        format!("Failed to read of create settings at '{}'.", path.display()),
+                        Some(AppErrorSource::Config(error)),
+                    ));
+                    Settings::default().with_path(path)
+                }
+                None => {
+                    modals.logs.push_err(AppError::new(
+                        "Failed to read of create settings.",
+                        Some(AppErrorSource::Config(error)),
+                    ));
+                    Settings::default()
+                }
+            }
+        });
+
+        let pages = Pages::new(Route::Review);
+
+        Ok(Self {
+            settings,
+            pages,
+            modals,
             frame: Framebuffer::new(),
             markup: Markup::new(args.assets.unwrap()) // TODO
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
-            index: 0,
             is_running: true,
-        }
+        })
     }
 
     pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
@@ -44,20 +79,12 @@ impl App {
         let action = match event {
             TerminalEvent::Key(key) => match key.code {
                 KeyCode::Esc => Action::Quit,
-                KeyCode::Left => {
-                    if self.index == 0 {
-                        self.index = 3
-                    } else {
-                        self.index -= 1;
-                    }
+                KeyCode::Tab => {
+                    self.pages.route = self.pages.route.next();
                     Action::Render
                 }
-                KeyCode::Right => {
-                    if self.index == 3 {
-                        self.index = 0
-                    } else {
-                        self.index += 1;
-                    }
+                KeyCode::BackTab => {
+                    self.pages.route = self.pages.route.prev();
                     Action::Render
                 }
                 KeyCode::Char('e') => {
@@ -104,19 +131,18 @@ impl App {
 
         frame.print_fmt(KittyDeleteAll);
 
-        let area = frame.area().inner(Margin::proportional(3));
-        Block::rectangle().render(area, &mut frame);
-        let inner = area.inner(Margin::all(1));
+        let (top, body, bottom) = frame.area().split_ends(1, 2);
+        let colors = self.settings.colors();
 
-        let text = match self.index {
-            0 => MARKUP,
-            1 => LOREM,
-            2 => EMOJI_TAB,
-            3 => PICARD,
-            _ => unreachable!(),
-        };
+        // Navigation
+        self.pages.render_navigation(top, &mut frame, colors);
 
-        self.markup.render(inner, &mut frame, text);
+        // Page
+        self.pages
+            .render(body.inner(Margin::all(1)), &mut frame, colors);
+
+        // TODO
+        let [page_shortcuts_area, app_shortcuts_area] = bottom.split_lines();
 
         frame.flush(&mut terminal.lock())?;
         self.frame = frame;
@@ -140,8 +166,11 @@ pub struct AppError {
 }
 
 impl AppError {
-    pub const fn new(message: String, source: Option<AppErrorSource>) -> Self {
-        Self { message, source }
+    pub fn new(message: impl Into<String>, source: Option<AppErrorSource>) -> Self {
+        Self {
+            message: message.into(),
+            source,
+        }
     }
 }
 

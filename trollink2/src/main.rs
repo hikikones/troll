@@ -21,7 +21,7 @@ fn main() -> std::process::ExitCode {
 
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let terminal = Terminal::stdout();
-    let mut app = App::new(args);
+    let mut app = App::new(args)?;
     terminal.enter(|term| {
         app.run(term)?;
         Ok(())

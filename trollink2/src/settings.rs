@@ -3,7 +3,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use ecs::Resource;
 use serde::{Deserialize, Serialize};
 use terminal::Color;
 use widgets2::{ListColors, PromptColors, ScrollbarColors};
@@ -14,7 +13,7 @@ pub type SettingsResult<T> = Result<T, ConfigError>;
 
 const VERSION: u8 = 0;
 
-#[derive(Debug, Default, Resource)]
+#[derive(Debug, Default)]
 pub struct Settings {
     config: Config,
     path: Option<PathBuf>,
@@ -40,7 +39,7 @@ impl Settings {
             .map(|p| p.to_path_buf())
             .or_else(|| get_config_dir().map(|dir| dir.join("settings.toml")))
         else {
-            return Err("Failed to get a default settings file path from the operating system")?;
+            return Err("Unable to locate a standard directory for the settings file.")?;
         };
 
         if file.exists() {
@@ -72,6 +71,11 @@ impl Settings {
         })
     }
 
+    pub fn with_path(mut self, path: PathBuf) -> Self {
+        self.path = Some(path);
+        self
+    }
+
     pub const fn config(&self) -> &Config {
         &self.config
     }
@@ -101,7 +105,7 @@ impl Settings {
 
     pub fn save(&self) -> SettingsResult<()> {
         let Some(path) = self.path.as_ref() else {
-            return Err("No path to save settings to")?;
+            return Err("No path to save settings to.")?;
         };
 
         self.config.save(path)
@@ -142,7 +146,7 @@ impl Config {
 
         let config: Self = match version {
             VERSION => toml::from_slice(&bytes)?,
-            _ => Err("Unknown version")?,
+            _ => Err("Unknown version.")?,
         };
 
         Ok(config)
