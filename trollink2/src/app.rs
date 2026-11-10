@@ -24,7 +24,7 @@ pub struct App {
 impl App {
     pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
         let database = Database::open(args.database.as_deref(), app_dir.as_deref())
-            .map_err(|err| AppError::from_database(args.settings.as_deref(), err))?;
+            .map_err(|err| AppError::from_database(args.database.as_deref(), err))?;
 
         let mut modals = Modals::new();
         let settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
@@ -41,7 +41,7 @@ impl App {
             pages: Pages::new(Route::Review),
             modals,
             frame: Framebuffer::new(),
-            markup: Markup::new(args.assets.unwrap()) // TODO
+            markup: Markup::new(args.assets)
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
             is_running: true,

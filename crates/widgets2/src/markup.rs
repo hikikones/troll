@@ -27,6 +27,12 @@ pub struct Markup {
     colors: MarkupColors,
 }
 
+impl Default for Markup {
+    fn default() -> Self {
+        Self::new(None)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum MarkupScroll {
     Up,
@@ -88,14 +94,14 @@ impl Default for MarkupColors {
 }
 
 impl Markup {
-    pub fn new(assets: PathBuf) -> Self {
+    pub fn new(assets_dir: Option<PathBuf>) -> Self {
         Self {
             text: String::new(),
             scroll: 0,
             desired_scroll: None,
             plain: Vec::new(),
             rich: Vec::new(),
-            images: MarkupImages::new(assets),
+            images: MarkupImages::new(assets_dir),
             highlighter: CodeHighlighter::new(),
             view: Size::ZERO,
             size: Size::ZERO,
@@ -333,7 +339,7 @@ impl Markup {
                     self.plain.push(MarkupPlain::EmptyLine);
                 }
                 MarkupBlock::Image { description, path } => {
-                    match self.images.load(image_index, ImageSource::Filename(path)) {
+                    match self.images.load(image_index, ImageSource::Path(path)) {
                         Ok(_) => {
                             self.plain.push(MarkupPlain::Image { index: image_index });
                         }
@@ -703,11 +709,11 @@ impl CodeHighlighter {
 struct MarkupImages {
     images: Vec<MarkupImage>,
     id_start: u8,
-    dir: PathBuf,
+    dir: Option<PathBuf>,
 }
 
 impl MarkupImages {
-    const fn new(dir: PathBuf) -> Self {
+    const fn new(dir: Option<PathBuf>) -> Self {
         Self {
             images: Vec::new(),
             id_start: 50,
@@ -725,12 +731,16 @@ impl MarkupImages {
         }
 
         match source {
-            ImageSource::Filename(name) => {
-                if name.is_empty() {
-                    return Err(MarkupError::Image(ImageError::NoFilename));
+            ImageSource::Path(path) => {
+                if path.is_empty() {
+                    return Err(MarkupError::Image(ImageError::EmptyPath));
                 }
 
-                let path = self.dir.join(name);
+                let path = self
+                    .dir
+                    .as_deref()
+                    .map(|p| p.join(path))
+                    .unwrap_or_else(|| PathBuf::from(path));
                 let hash = utils::hash_fast(&path);
                 let image = &mut self.images[index as usize];
 
@@ -806,7 +816,7 @@ impl std::ops::DerefMut for MarkupImage {
 }
 
 enum ImageSource<'a> {
-    Filename(&'a str),
+    Path(&'a str),
     Math(&'a str, Rgb, CellDims),
 }
 
@@ -848,7 +858,7 @@ enum MarkupError {
 
 #[derive(Debug)]
 enum ImageError {
-    NoFilename,
+    EmptyPath,
     Kitty(PathBuf, KittyError),
 }
 
@@ -862,28 +872,28 @@ enum MathError {
 impl std::fmt::Display for MarkupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(ImageError::NoFilename) => f.write_str("No image filename found"),
+            Self::Image(ImageError::EmptyPath) => f.write_str("Empty image path."),
             Self::Image(ImageError::Kitty(path, err)) => match err {
                 KittyError::Load(err) => f.write_fmt(format_args!(
-                    "Failed to load image\n'{}'\ndue to\n\"{}\"",
+                    "Failed to load image\n'{}'\ndue to\n\"{}\".",
                     path.display(),
                     err
                 )),
                 KittyError::Encode(err) => f.write_fmt(format_args!(
-                    "Failed to encode image\n'{}'\ndue to\n\"{}\"",
+                    "Failed to encode image\n'{}'\ndue to\n\"{}\".",
                     path.display(),
                     err
                 )),
             },
             Self::Math(MathError::Parse(err)) => {
-                f.write_fmt(format_args!("Failed to parse math due to\n\"{}\"", err))
+                f.write_fmt(format_args!("Failed to parse math due to\n\"{}\".", err))
             }
             Self::Math(MathError::Render(msg)) => f.write_fmt(format_args!(
-                "Failed to render math as png due to\n\"{}\"",
+                "Failed to render math as png due to\n\"{}\".",
                 msg
             )),
             Self::Math(MathError::Kitty(err)) => f.write_fmt(format_args!(
-                "Failed to load or encode math image due to\n\"{}\"",
+                "Failed to load or encode math image due to\n\"{}\".",
                 err
             )),
         }
