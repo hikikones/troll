@@ -48,7 +48,7 @@ impl Route {
 }
 
 impl Pages {
-    pub const fn new(route: Route) -> Self {
+    pub fn new(route: Route) -> Self {
         Self {
             route,
             review: ReviewPage::new(),
@@ -78,7 +78,7 @@ impl Pages {
     pub fn enter(&mut self, db: &Database, markup: &mut Markup) {
         match self.route {
             Route::Review => self.review.enter(db, markup),
-            Route::Editor(id) => self.editor.enter(),
+            Route::Editor(id) => self.editor.enter(id, db),
             Route::Settings => self.settings.enter(),
         }
     }
@@ -105,27 +105,29 @@ impl Pages {
         db: &mut Database,
         markup: &mut Markup,
         settings: &Settings,
+        terminal: &mut Terminal,
     ) -> Action {
         match self.route {
             Route::Review => {
                 self.review
                     .input(key, db, markup, settings.desired_retention_as_fraction())
             }
-            Route::Editor(id) => self.editor.input(key),
+            Route::Editor(id) => self.editor.input(key, db, markup, terminal),
             Route::Settings => self.settings.input(key),
         }
     }
 
     pub fn render(
-        &self,
+        &mut self,
         area: Rect,
         frame: &mut Framebuffer,
         colors: &Colors,
+        db: &Database,
         markup: &mut Markup,
     ) {
         match self.route {
             Route::Review => self.review.render(area, frame, colors, markup),
-            Route::Editor(id) => self.editor.render(area, frame, colors),
+            Route::Editor(id) => self.editor.render(area, frame, colors, db, markup),
             Route::Settings => self.settings.render(area, frame, colors),
         }
     }

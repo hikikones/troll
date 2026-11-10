@@ -87,18 +87,17 @@ impl App {
                         Action::Route(self.pages.backward())
                     }
                 }
-                KeyCode::Char('e') => {
-                    terminal.temp_leave(|| Ok(()))?;
-                    Action::Clear
-                }
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
                 KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
                 _ => match self.modals.current() {
                     Some(modal) => self.modals.input(modal, key),
-                    None => {
-                        self.pages
-                            .input(key, &mut self.database, &mut self.markup, &self.settings)
-                    }
+                    None => self.pages.input(
+                        key,
+                        &mut self.database,
+                        &mut self.markup,
+                        &self.settings,
+                        terminal,
+                    ),
                 },
             },
             TerminalEvent::Resize => {
@@ -147,6 +146,7 @@ impl App {
     fn render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         let mut frame = std::mem::take(&mut self.frame);
 
+        frame.set_cursor_visibility(false);
         frame.print_fmt(KittyDeleteAll);
 
         let (top, body, bottom) = frame.area().split_ends(1, 2);
@@ -160,6 +160,7 @@ impl App {
             body.inner(Margin::all(1)),
             &mut frame,
             colors,
+            &self.database,
             &mut self.markup,
         );
 
