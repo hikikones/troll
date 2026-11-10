@@ -7,8 +7,13 @@ use review::*;
 use settings::*;
 
 use terminal::*;
+use widgets2::Markup;
 
-use crate::{app::Action, settings::Colors};
+use crate::{
+    app::Action,
+    database::{CardId, Database},
+    settings::{Colors, Settings},
+};
 
 pub struct Pages {
     route: Route,
@@ -20,15 +25,15 @@ pub struct Pages {
 #[derive(Debug, Clone, Copy)]
 pub enum Route {
     Review,
-    Editor,
+    Editor(Option<CardId>),
     Settings,
 }
 
 impl Route {
     pub const fn next(self) -> Self {
         match self {
-            Self::Review => Self::Editor,
-            Self::Editor => Self::Settings,
+            Self::Review => Self::Editor(None),
+            Self::Editor(_) => Self::Settings,
             Self::Settings => Self::Review,
         }
     }
@@ -36,8 +41,8 @@ impl Route {
     pub const fn prev(self) -> Self {
         match self {
             Self::Review => Self::Settings,
-            Self::Editor => Self::Review,
-            Self::Settings => Self::Editor,
+            Self::Editor(_) => Self::Review,
+            Self::Settings => Self::Editor(None),
         }
     }
 }
@@ -64,24 +69,24 @@ impl Pages {
         self.route.prev()
     }
 
-    pub fn set(&mut self, route: Route) {
+    pub fn set(&mut self, route: Route, db: &Database, markup: &mut Markup) {
         self.exit();
         self.route = route;
-        self.enter();
+        self.enter(db, markup);
     }
 
-    fn enter(&self) {
+    pub fn enter(&mut self, db: &Database, markup: &mut Markup) {
         match self.route {
-            Route::Review => self.review.enter(),
-            Route::Editor => self.editor.enter(),
+            Route::Review => self.review.enter(db, markup),
+            Route::Editor(id) => self.editor.enter(),
             Route::Settings => self.settings.enter(),
         }
     }
 
-    fn exit(&self) {
+    fn exit(&mut self) {
         match self.route {
             Route::Review => self.review.exit(),
-            Route::Editor => self.editor.exit(),
+            Route::Editor(id) => self.editor.exit(),
             Route::Settings => self.settings.exit(),
         }
     }
@@ -89,23 +94,38 @@ impl Pages {
     pub fn refresh(&self) {
         match self.route {
             Route::Review => self.review.refresh(),
-            Route::Editor => self.editor.refresh(),
+            Route::Editor(id) => self.editor.refresh(),
             Route::Settings => self.settings.refresh(),
         }
     }
 
-    pub fn input(&mut self, key: Key) -> Action {
+    pub fn input(
+        &mut self,
+        key: Key,
+        db: &mut Database,
+        markup: &mut Markup,
+        settings: &Settings,
+    ) -> Action {
         match self.route {
-            Route::Review => self.review.input(key),
-            Route::Editor => self.editor.input(key),
+            Route::Review => {
+                self.review
+                    .input(key, db, markup, settings.desired_retention_as_fraction())
+            }
+            Route::Editor(id) => self.editor.input(key),
             Route::Settings => self.settings.input(key),
         }
     }
 
-    pub fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render(
+        &self,
+        area: Rect,
+        frame: &mut Framebuffer,
+        colors: &Colors,
+        markup: &mut Markup,
+    ) {
         match self.route {
-            Route::Review => self.review.render(area, frame, colors),
-            Route::Editor => self.editor.render(area, frame, colors),
+            Route::Review => self.review.render(area, frame, colors, markup),
+            Route::Editor(id) => self.editor.render(area, frame, colors),
             Route::Settings => self.settings.render(area, frame, colors),
         }
     }
@@ -113,7 +133,7 @@ impl Pages {
     pub fn render_navigation(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         for (route, name, gap) in [
             (Route::Review, "Review", 3),
-            (Route::Editor, "Editor", 3),
+            (Route::Editor(None), "Editor", 3),
             (Route::Settings, "Settings", 0),
         ] {
             let is_current = std::mem::discriminant(&self.route) == std::mem::discriminant(&route);

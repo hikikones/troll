@@ -183,6 +183,7 @@ impl ImageNEW {
             &mut self.encoded,
             KittyVerbosity::Silent,
         )?;
+        self.generation = -1;
 
         Ok(())
     }

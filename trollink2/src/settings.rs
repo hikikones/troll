@@ -82,6 +82,10 @@ impl Settings {
         &mut self.config.general
     }
 
+    pub const fn desired_retention_as_fraction(&self) -> f32 {
+        self.config.general.desired_retention as f32 / 100.0
+    }
+
     pub const fn colors(&self) -> &Colors {
         &self.config.colors
     }

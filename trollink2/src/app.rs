@@ -14,9 +14,9 @@ pub type AppResult<T> = Result<T, AppError>;
 pub struct App {
     database: Database,
     settings: Settings,
+    frame: Framebuffer,
     pages: Pages,
     modals: Modals,
-    frame: Framebuffer,
     markup: Markup,
     is_running: bool,
 }
@@ -38,9 +38,9 @@ impl App {
         Ok(Self {
             database,
             settings,
+            frame: Framebuffer::new(),
             pages: Pages::new(Route::Review),
             modals,
-            frame: Framebuffer::new(),
             markup: Markup::new(args.assets)
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
@@ -50,6 +50,7 @@ impl App {
 
     pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.frame.query_size()?;
+        self.pages.enter(&self.database, &mut self.markup);
         self.render(terminal)?;
 
         while self.is_running {
@@ -94,7 +95,10 @@ impl App {
                 KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
                 _ => match self.modals.current() {
                     Some(modal) => self.modals.input(modal, key),
-                    None => self.pages.input(key),
+                    None => {
+                        self.pages
+                            .input(key, &mut self.database, &mut self.markup, &self.settings)
+                    }
                 },
             },
             TerminalEvent::Resize => {
@@ -117,7 +121,7 @@ impl App {
                     self.modals.set(None);
                 }
 
-                self.pages.set(route);
+                self.pages.set(route, &self.database, &mut self.markup);
                 self.render(terminal)?;
             }
             Action::Modal(modal) => {
@@ -152,8 +156,12 @@ impl App {
         self.pages.render_navigation(top, &mut frame, colors);
 
         // Page
-        self.pages
-            .render(body.inner(Margin::all(1)), &mut frame, colors);
+        self.pages.render(
+            body.inner(Margin::all(1)),
+            &mut frame,
+            colors,
+            &mut self.markup,
+        );
 
         // TODO
         let [page_shortcuts_area, app_shortcuts_area] = bottom.split_lines();
@@ -181,6 +189,7 @@ pub enum Action {
     Quit,
 }
 
+// TODO: Rework error to just an enum. Print message in impl Display.
 #[derive(Debug)]
 pub struct AppError {
     message: String,
