@@ -8,13 +8,13 @@ use settings::*;
 
 use terminal::*;
 
-use crate::settings::Colors;
+use crate::{app::Action, settings::Colors};
 
 pub struct Pages {
-    pub route: Route,
-    pub review: ReviewPage,
-    pub editor: EditorPage,
-    pub settings: SettingsPage,
+    route: Route,
+    review: ReviewPage,
+    editor: EditorPage,
+    settings: SettingsPage,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -54,6 +54,44 @@ impl Pages {
 
     pub const fn current(&self) -> Route {
         self.route
+    }
+
+    pub const fn forward(&self) -> Route {
+        self.route.next()
+    }
+
+    pub const fn backward(&self) -> Route {
+        self.route.prev()
+    }
+
+    pub fn set(&mut self, route: Route) {
+        self.exit();
+        self.route = route;
+        self.enter();
+    }
+
+    fn enter(&self) {
+        match self.route {
+            Route::Review => self.review.enter(),
+            Route::Editor => self.editor.enter(),
+            Route::Settings => self.settings.enter(),
+        }
+    }
+
+    fn exit(&self) {
+        match self.route {
+            Route::Review => self.review.exit(),
+            Route::Editor => self.editor.exit(),
+            Route::Settings => self.settings.exit(),
+        }
+    }
+
+    pub fn input(&mut self, key: Key) -> Action {
+        match self.route {
+            Route::Review => self.review.input(key),
+            Route::Editor => self.editor.input(key),
+            Route::Settings => self.settings.input(key),
+        }
     }
 
     pub fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {

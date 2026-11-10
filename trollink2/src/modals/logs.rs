@@ -73,13 +73,14 @@ impl LogsModal {
     }
 
     fn _iter(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.logs.iter().map(|range| &self.text[range.clone()])
+        self.logs.iter().copied().map(|range| &self.text[range])
     }
 
     fn current(&self) -> Option<&str> {
         self.logs
             .get(self.index)
-            .map(|range| &self.text[range.clone()])
+            .copied()
+            .map(|range| &self.text[range])
     }
 
     fn next(&mut self) {
@@ -109,6 +110,14 @@ impl LogsModal {
     fn clear(&mut self) {
         self.text.clear();
         self.logs.clear();
+    }
+
+    pub fn enter(&self) {}
+
+    pub fn exit(&self) {}
+
+    pub fn input(&mut self, key: Key) -> Action {
+        Action::None
     }
 
     pub fn render(&self, frame: &mut Framebuffer, colors: &Colors) {

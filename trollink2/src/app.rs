@@ -2,7 +2,7 @@ use terminal::*;
 use widgets2::{Block, KittyDeleteAll, Markup};
 
 use crate::{
-    modals::Modals,
+    modals::{Modal, Modals},
     pages::{Pages, Route},
     settings::{Colors, Settings},
 };
@@ -25,14 +25,14 @@ impl App {
         let settings = Settings::read_or_create(args.settings.as_deref()).unwrap_or_else(|error| {
             match args.settings {
                 Some(path) => {
-                    modals.logs.push_err(AppError::new(
+                    modals.logs_mut().push_err(AppError::new(
                         format!("Failed to read of create settings at '{}'.", path.display()),
                         Some(AppErrorSource::Config(error)),
                     ));
                     Settings::default().with_path(path)
                 }
                 None => {
-                    modals.logs.push_err(AppError::new(
+                    modals.logs_mut().push_err(AppError::new(
                         "Failed to read of create settings.",
                         Some(AppErrorSource::Config(error)),
                     ));
@@ -80,17 +80,25 @@ impl App {
             TerminalEvent::Key(key) => match key.code {
                 KeyCode::Esc => Action::Quit,
                 KeyCode::Tab => {
-                    self.pages.route = self.pages.route.next();
-                    Action::Render
+                    if self.modals.is_active() {
+                        Action::Modal(None)
+                    } else {
+                        Action::Route(self.pages.forward())
+                    }
                 }
                 KeyCode::BackTab => {
-                    self.pages.route = self.pages.route.prev();
-                    Action::Render
+                    if self.modals.is_active() {
+                        Action::Modal(None)
+                    } else {
+                        Action::Route(self.pages.backward())
+                    }
                 }
                 KeyCode::Char('e') => {
                     terminal.temp_leave(|| Ok(()))?;
                     Action::Clear
                 }
+                KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
+                KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
                 _ => {
                     if self.markup.input(key.code) {
                         Action::Render
@@ -112,6 +120,18 @@ impl App {
         match action {
             Action::None => {}
             Action::Render => {
+                self.render(terminal)?;
+            }
+            Action::Route(route) => {
+                if self.modals.is_active() {
+                    self.modals.set(None);
+                }
+
+                self.pages.set(route);
+                self.render(terminal)?;
+            }
+            Action::Modal(modal) => {
+                self.modals.set(modal);
                 self.render(terminal)?;
             }
             Action::Clear => {
@@ -144,6 +164,11 @@ impl App {
         // TODO
         let [page_shortcuts_area, app_shortcuts_area] = bottom.split_lines();
 
+        // Modal
+        if let Some(modal) = self.modals.current() {
+            self.modals.render(modal, &mut frame, colors);
+        }
+
         frame.flush(&mut terminal.lock())?;
         self.frame = frame;
 
@@ -155,6 +180,8 @@ impl App {
 pub enum Action {
     None,
     Render,
+    Route(Route),
+    Modal(Option<Modal>),
     Clear,
     Quit,
 }
