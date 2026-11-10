@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use terminal::Color;
 use widgets2::{ListColors, PromptColors, ScrollbarColors};
 
+use crate::AppDirRef;
+
 // TODO: Add show_scrollbars to config.
 
 pub type SettingsResult<T> = Result<T, ConfigError>;
@@ -20,26 +22,25 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn read_or_create(path: Option<&Path>) -> SettingsResult<Self> {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self {
+            config: Config::default(),
+            path,
+        }
+    }
+
+    pub fn read_or_create(path: Option<&Path>, app_dir: AppDirRef) -> SettingsResult<Self> {
         #[cfg(debug_assertions)]
         if path.is_none() {
             return Ok(Settings::default());
         }
 
-        fn get_config_dir() -> Option<PathBuf> {
-            directories::ProjectDirs::from(
-                crate::APP_QUALIFIER,
-                crate::APP_ORGANIZATION,
-                crate::APP_NAME,
-            )
-            .map(|dirs| dirs.config_dir().to_path_buf())
-        }
-
-        let Some(file) = path
-            .map(|p| p.to_path_buf())
-            .or_else(|| get_config_dir().map(|dir| dir.join("settings.toml")))
-        else {
-            return Err("Unable to locate a standard directory for the settings file.")?;
+        let file = match path {
+            Some(path) => path.to_path_buf(),
+            None => match app_dir {
+                Ok(dir) => dir.join("settings.toml"),
+                Err(err) => return Err(*err)?,
+            },
         };
 
         if file.exists() {
@@ -60,20 +61,6 @@ impl Settings {
             config,
             path: Some(file),
         })
-    }
-
-    pub fn read(path: impl AsRef<Path>) -> SettingsResult<Self> {
-        let path = path.as_ref();
-
-        Ok(Self {
-            config: Config::read(path)?,
-            path: Some(path.to_path_buf()),
-        })
-    }
-
-    pub fn with_path(mut self, path: PathBuf) -> Self {
-        self.path = Some(path);
-        self
     }
 
     pub const fn config(&self) -> &Config {

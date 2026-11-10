@@ -2,6 +2,8 @@ use terminal::*;
 use widgets2::{Block, KittyDeleteAll, Markup};
 
 use crate::{
+    AppDir,
+    database::Database,
     modals::{Modal, Modals},
     pages::{Pages, Route},
     settings::{Colors, Settings},
@@ -10,6 +12,7 @@ use crate::{
 pub type AppResult<T> = Result<T, AppError>;
 
 pub struct App {
+    database: Database,
     settings: Settings,
     pages: Pages,
     modals: Modals,
@@ -19,33 +22,23 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: crate::cli::Args) -> AppResult<Self> {
+    pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
+        let database = Database::open(args.database.as_deref(), app_dir.as_deref())
+            .map_err(|err| AppError::from_database(args.settings.as_deref(), err))?;
+
         let mut modals = Modals::new();
-
-        let settings = Settings::read_or_create(args.settings.as_deref()).unwrap_or_else(|error| {
-            match args.settings {
-                Some(path) => {
-                    modals.logs_mut().push_err(AppError::new(
-                        format!("Failed to read of create settings at '{}'.", path.display()),
-                        Some(AppErrorSource::Config(error)),
-                    ));
-                    Settings::default().with_path(path)
-                }
-                None => {
-                    modals.logs_mut().push_err(AppError::new(
-                        "Failed to read of create settings.",
-                        Some(AppErrorSource::Config(error)),
-                    ));
-                    Settings::default()
-                }
-            }
-        });
-
-        let pages = Pages::new(Route::Review);
+        let settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
+            .unwrap_or_else(|err| {
+                modals
+                    .logs_mut()
+                    .push_err(AppError::from_config(args.settings.as_deref(), err));
+                Settings::new(args.settings)
+            });
 
         Ok(Self {
+            database,
             settings,
-            pages,
+            pages: Pages::new(Route::Review),
             modals,
             frame: Framebuffer::new(),
             markup: Markup::new(args.assets.unwrap()) // TODO
@@ -201,6 +194,32 @@ impl AppError {
             source,
         }
     }
+
+    fn from_database(path: Option<&std::path::Path>, err: crate::database::DatabaseError) -> Self {
+        match path {
+            Some(path) => Self {
+                message: format!("Failed to open database at '{}'.", path.display()),
+                source: Some(AppErrorSource::Database(err)),
+            },
+            None => Self {
+                message: String::from("Failed to open database."),
+                source: Some(AppErrorSource::Database(err)),
+            },
+        }
+    }
+
+    fn from_config(path: Option<&std::path::Path>, err: crate::settings::ConfigError) -> Self {
+        match path {
+            Some(path) => Self {
+                message: format!("Failed to read of create settings at '{}'.", path.display()),
+                source: Some(AppErrorSource::Config(err)),
+            },
+            None => Self {
+                message: String::from("Failed to read of create settings."),
+                source: Some(AppErrorSource::Config(err)),
+            },
+        }
+    }
 }
 
 impl std::fmt::Display for AppError {
@@ -213,6 +232,7 @@ impl std::error::Error for AppError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         self.source.as_ref().map(|source| match source {
             AppErrorSource::Io(err) => err as _,
+            AppErrorSource::Database(err) => err as _,
             AppErrorSource::Config(err) => err as _,
         })
     }
@@ -221,107 +241,6 @@ impl std::error::Error for AppError {
 #[derive(Debug)]
 pub enum AppErrorSource {
     Io(std::io::Error),
+    Database(crate::database::DatabaseError),
     Config(crate::settings::ConfigError),
 }
-
-const LOREM: &str = r#"
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec fermentum ipsum nec sagittis feugiat. Curabitur pulvinar et orci luctus faucibus. In erat justo, placerat et risus quis, cursus elementum mi. Donec non leo est. Etiam consectetur, lectus nec auctor sodales, velit arcu tincidunt justo, mattis dictum odio libero ac enim. Morbi maximus, tortor id ornare tristique, purus mi pulvinar urna, vel accumsan ante nunc vel urna. Maecenas ligula elit, tempor eget augue ut, auctor blandit ligula. Mauris maximus condimentum aliquam. Nam purus enim, ornare ut suscipit et, bibendum a ex. Donec euismod velit quis nisi convallis, rhoncus lacinia sapien aliquam. Ut dolor magna, imperdiet eu arcu vitae, consectetur feugiat velit. Donec eu dolor eu tortor rutrum egestas quis in orci. Maecenas pulvinar, massa eget fringilla convallis, dolor tellus luctus elit, in tempus nibh dolor at dolor. Nulla viverra et justo sit amet rhoncus. Fusce porttitor odio in lectus ullamcorper vehicula.
-
-Nullam pharetra augue non leo maximus convallis a sit amet risus. Integer congue laoreet efficitur. Interdum et malesuada fames ac ante ipsum primis in faucibus. Quisque vestibulum, nisl vitae porttitor maximus, nulla mauris cursus ligula, vel consectetur magna dolor ac nulla. Integer at pharetra nisi, quis congue ante. Nam et varius purus. Maecenas placerat sapien at ante cursus, at volutpat felis facilisis. Fusce id metus vel urna molestie tincidunt. Phasellus sed dapibus ligula.
-
-Vivamus nec dui pellentesque, interdum dui vitae, egestas ex. Morbi malesuada porta vehicula. Donec dapibus mattis arcu, vel bibendum diam lobortis et. Curabitur sit amet felis aliquet enim mollis semper. Mauris diam orci, rutrum sed neque vel, malesuada sollicitudin augue. Integer vehicula dolor consectetur tincidunt imperdiet. Donec at dui urna. Duis et turpis in diam ornare volutpat.
-
-Mauris suscipit imperdiet mi et semper. Nam nec lorem sagittis, lobortis ligula convallis, hendrerit tortor. Morbi dapibus magna ut sollicitudin placerat. Etiam sodales varius ante convallis hendrerit. Duis varius quam et tincidunt vestibulum. Fusce facilisis elit eu ligula consequat, dignissim elementum diam aliquet. Maecenas ipsum tellus, condimentum sit amet ultrices et, semper id nibh. Fusce varius porttitor dui vitae fermentum. Nam placerat, nunc eget tempus egestas, enim nisl scelerisque erat, in venenatis leo leo a leo. Nam quis nibh vitae turpis efficitur lobortis id a metus.
-
-In aliquet dui sapien, ut semper elit sodales sed. Proin quis libero luctus libero scelerisque ornare eget id mi. Cras accumsan arcu ut ante pharetra fringilla. Sed feugiat placerat dolor, et feugiat lorem iaculis id. Cras interdum est nec elit molestie, sed aliquam quam hendrerit. Proin sit amet pellentesque enim. Nam bibendum, mauris vel eleifend ultricies, orci sapien hendrerit sem, a tristique lectus nulla a ligula.
-"#;
-
-const MARKUP: &str = r#"
-=== Heading
-# this is a comment
-*left* paragraph with *bold*, _italic_ and maybe `verbatim text` that *should wrap* when line becomes _*tooooooooo*_ long..*.*
-
-- item 1
-- item 2 with *lots of text* that can wrap to next line but also keeping the indent so it looks nice ohhh yeah
-- item 3
-
-; right paragraph
-
-: center paragraph
-
-![ image description text ]( wallpaper.jpg2 )
-
-```rust
-fn main() {
-    println!("Hello, world!");
-}
-```
-
----
-
-=; Heading 2
-![  ]( meow.png )
-
----
-
-=: Heading 3
-
-
-
-Lorem ipsum dolor sit amet,
-consectetur adipiscing elit.
-Donec fermentum ipsum nec sagittis feugiat.
-Curabitur pulvinar et orci luctus faucibus.
-In erat justo, placerat et risus quis, cursus elementum mi.
-
-$$
-\begin{aligned}
-\int_{0}^{\infty}
-\left(
-\sum_{n=1}^{\infty}
-\frac{(-1)^{n-1}x^{n}}{n!}
-\right)
-e^{-x}\,dx
-&=
-\sum_{n=1}^{\infty}
-\frac{(-1)^{n-1}}{n!}
-\int_{0}^{\infty}
-x^{n}e^{-x}\,dx
-\\[1em]
-&=
-\sum_{n=1}^{\infty}
-(-1)^{n-1}
-\frac{\Gamma(n+1)}{n!}
-\\[1em]
-&=
-\sum_{n=1}^{\infty}
-(-1)^{n-1}
-\\[1em]
-&=
-\frac{1}{2}.
-\end{aligned}
-$$
-
----
-
-![ image description text ]( tall2.jpg )
-
----
-
-another one
-
----
-
-and another one
-
-![ image description text ]( tall.gif )
-
-= Final Heading
-"#;
-
-const EMOJI_TAB: &str = "👻 oijwqwu qwdiowhq  i hio h qiowhqwheqw👻👻 wwq \
-qiuwhdidwh👻👻👻❤️\n\nauhui ❤️awudhia\n🧑‍🌾❤️👨‍🦰jfpkw huiw wjwioj ijf \
-weoijwioejfiowejfiowjfiowej\n\nthis\tis\ta\tparagraph\twith\ttabs\n\n\
-```rust\nfn main() {\n\tprintln!(\"Hello, world!\");\n}\n```";
-
-const PICARD: &str = ":❝_It is possible to commit no mistakes and still lose.\nThat is not a weakness. That is life._❞\n\nWho is this quote from?\n\n---\n\n![Jean-Luc Picard](picard2.jpg)";
