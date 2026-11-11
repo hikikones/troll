@@ -6,7 +6,7 @@ use search::*;
 
 use terminal::*;
 
-use crate::{app::Action, settings::Colors};
+use crate::{app::Action, database::Database, settings::Colors};
 
 pub struct Modals {
     current: Option<Modal>,
@@ -45,10 +45,10 @@ impl Modals {
         &mut self.logs
     }
 
-    pub fn set(&mut self, modal: Option<Modal>) {
+    pub fn set(&mut self, modal: Option<Modal>, db: &Database) {
         match (self.current, modal) {
             (None, Some(modal)) => {
-                self.enter(modal);
+                self.enter(modal, db);
             }
             (Some(current), None) => {
                 self.exit(current);
@@ -62,18 +62,18 @@ impl Modals {
                 }
                 (_, _) => {
                     self.exit(current);
-                    self.enter(next);
+                    self.enter(next, db);
                 }
             },
             (None, None) => {}
         }
     }
 
-    fn enter(&mut self, modal: Modal) {
+    fn enter(&mut self, modal: Modal, db: &Database) {
         self.current = Some(modal);
 
         match modal {
-            Modal::Search => self.search.enter(),
+            Modal::Search => self.search.enter(db),
             Modal::Logs => self.logs.enter(),
         }
     }
@@ -87,14 +87,14 @@ impl Modals {
         }
     }
 
-    pub fn input(&mut self, modal: Modal, key: Key) -> Action {
+    pub fn input(&mut self, modal: Modal, key: Key, db: &Database, colors: &Colors) -> Action {
         match modal {
-            Modal::Search => self.search.input(key),
+            Modal::Search => self.search.input(key, db, colors),
             Modal::Logs => self.logs.input(key),
         }
     }
 
-    pub fn render(&self, modal: Modal, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render(&mut self, modal: Modal, frame: &mut Framebuffer, colors: &Colors) {
         match modal {
             Modal::Search => self.search.render(frame, colors),
             Modal::Logs => self.logs.render(frame, colors),

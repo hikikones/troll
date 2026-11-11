@@ -90,7 +90,10 @@ impl App {
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
                 KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
                 _ => match self.modals.current() {
-                    Some(modal) => self.modals.input(modal, key),
+                    Some(modal) => {
+                        self.modals
+                            .input(modal, key, &self.database, self.settings.colors())
+                    }
                     None => self.pages.input(
                         key,
                         &mut self.database,
@@ -117,14 +120,14 @@ impl App {
             }
             Action::Route(route) => {
                 if self.modals.is_active() {
-                    self.modals.set(None);
+                    self.modals.set(None, &self.database);
                 }
 
                 self.pages.set(route, &mut self.database, &mut self.markup);
                 self.render(terminal)?;
             }
             Action::Modal(modal) => {
-                self.modals.set(modal);
+                self.modals.set(modal, &self.database);
                 self.render(terminal)?;
             }
             Action::Refresh => {

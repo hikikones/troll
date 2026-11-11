@@ -121,6 +121,10 @@ impl AnsiViewer {
         self
     }
 
+    pub const fn current_scroll(&self) -> u16 {
+        self.scroll
+    }
+
     pub const fn input(&mut self, key: KeyCode) -> bool {
         match key {
             KeyCode::Down => self.move_down(1),
