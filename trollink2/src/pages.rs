@@ -1,7 +1,9 @@
+mod cards;
 mod editor;
 mod review;
 mod settings;
 
+use cards::*;
 use editor::*;
 use review::*;
 use settings::*;
@@ -11,7 +13,7 @@ use widgets2::Markup;
 
 use crate::{
     app::Action,
-    database::{CardId, Database},
+    database::{CardId, Database, TagId},
     settings::{Colors, Settings},
 };
 
@@ -19,6 +21,7 @@ pub struct Pages {
     route: Route,
     review: ReviewPage,
     editor: EditorPage,
+    cards: CardsPage,
     settings: SettingsPage,
 }
 
@@ -26,14 +29,22 @@ pub struct Pages {
 pub enum Route {
     Review,
     Editor(Option<CardId>),
+    Cards(Option<CardsParam>),
     Settings,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CardsParam {
+    Card(CardId),
+    Tag(TagId),
 }
 
 impl Route {
     pub const fn next(self) -> Self {
         match self {
             Self::Review => Self::Editor(None),
-            Self::Editor(_) => Self::Settings,
+            Self::Editor(_) => Self::Cards(None),
+            Self::Cards(_) => Self::Settings,
             Self::Settings => Self::Review,
         }
     }
@@ -42,7 +53,8 @@ impl Route {
         match self {
             Self::Review => Self::Settings,
             Self::Editor(_) => Self::Review,
-            Self::Settings => Self::Editor(None),
+            Self::Cards(_) => Self::Editor(None),
+            Self::Settings => Self::Cards(None),
         }
     }
 }
@@ -53,6 +65,7 @@ impl Pages {
             route,
             review: ReviewPage::new(),
             editor: EditorPage::new(),
+            cards: CardsPage::new(),
             settings: SettingsPage::new(),
         }
     }
@@ -69,16 +82,17 @@ impl Pages {
         self.route.prev()
     }
 
-    pub fn set(&mut self, route: Route, db: &Database, markup: &mut Markup) {
+    pub fn set(&mut self, route: Route, db: &mut Database, markup: &mut Markup) {
         self.exit();
         self.route = route;
         self.enter(db, markup);
     }
 
-    pub fn enter(&mut self, db: &Database, markup: &mut Markup) {
+    pub fn enter(&mut self, db: &mut Database, markup: &mut Markup) {
         match self.route {
             Route::Review => self.review.enter(db, markup),
             Route::Editor(id) => self.editor.enter(id, db),
+            Route::Cards(param) => self.cards.enter(db, param),
             Route::Settings => self.settings.enter(),
         }
     }
@@ -87,6 +101,7 @@ impl Pages {
         match self.route {
             Route::Review => self.review.exit(),
             Route::Editor(id) => self.editor.exit(),
+            Route::Cards(param) => self.cards.exit(),
             Route::Settings => self.settings.exit(),
         }
     }
@@ -95,6 +110,7 @@ impl Pages {
         match self.route {
             Route::Review => self.review.refresh(),
             Route::Editor(id) => self.editor.refresh(),
+            Route::Cards(param) => self.cards.refresh(),
             Route::Settings => self.settings.refresh(),
         }
     }
@@ -113,6 +129,7 @@ impl Pages {
                     .input(key, db, markup, settings.desired_retention_as_fraction())
             }
             Route::Editor(id) => self.editor.input(key, db, markup, terminal),
+            Route::Cards(param) => self.cards.input(key, db, markup),
             Route::Settings => self.settings.input(key),
         }
     }
@@ -128,6 +145,7 @@ impl Pages {
         match self.route {
             Route::Review => self.review.render(area, frame, colors, markup),
             Route::Editor(id) => self.editor.render(area, frame, colors, db, markup),
+            Route::Cards(param) => self.cards.render(area, frame, db, colors, markup),
             Route::Settings => self.settings.render(area, frame, colors),
         }
     }
@@ -136,6 +154,7 @@ impl Pages {
         for (route, name, gap) in [
             (Route::Review, "Review", 3),
             (Route::Editor(None), "Editor", 3),
+            (Route::Cards(None), "Cards", 3),
             (Route::Settings, "Settings", 0),
         ] {
             let is_current = std::mem::discriminant(&self.route) == std::mem::discriminant(&route);

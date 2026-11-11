@@ -50,7 +50,7 @@ impl App {
 
     pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.frame.query_size()?;
-        self.pages.enter(&self.database, &mut self.markup);
+        self.pages.enter(&mut self.database, &mut self.markup);
         self.render(terminal)?;
 
         while self.is_running {
@@ -120,7 +120,7 @@ impl App {
                     self.modals.set(None);
                 }
 
-                self.pages.set(route, &self.database, &mut self.markup);
+                self.pages.set(route, &mut self.database, &mut self.markup);
                 self.render(terminal)?;
             }
             Action::Modal(modal) => {

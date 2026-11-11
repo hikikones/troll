@@ -285,7 +285,8 @@ impl TagsSidebar {
         frame.print_span_with(area, "Tags", SpanOptions::center_top());
 
         if self.tags.is_empty() {
-            frame.print_span_with(area, "No tags", SpanOptions::center());
+            frame.push_str_fg("No tags", colors.neutral);
+            frame.render(area, TextOptions::span_center());
             return;
         }
 
