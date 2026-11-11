@@ -3,10 +3,7 @@ use std::range::Range;
 use terminal::*;
 use widgets2::Block;
 
-use crate::{
-    app::Action,
-    settings::{Colors, Settings},
-};
+use crate::{app::Action, settings::Colors};
 
 pub struct LogsModal {
     text: String,
@@ -64,6 +61,80 @@ impl LogsModal {
         self.add_log(start);
     }
 
+    pub fn enter(&mut self) {
+        if self.len_new > 0 {
+            self.len_new = 0;
+            self.index = self.len().saturating_sub(1);
+        }
+    }
+
+    pub fn exit(&self) {}
+
+    pub fn input(&mut self, key: Key) -> Action {
+        match key.code {
+            KeyCode::Right => {
+                self.next();
+                Action::Render
+            }
+            KeyCode::Left => {
+                self.prev();
+                Action::Render
+            }
+            KeyCode::Delete => {
+                if key.ctrl() {
+                    self.clear();
+                    Action::Modal(None)
+                } else {
+                    self.remove_current();
+                    if self.is_empty() {
+                        Action::Modal(None)
+                    } else {
+                        Action::Render
+                    }
+                }
+            }
+            KeyCode::Char('c') => {
+                // TODO: copy log to clipboard
+                Action::None
+            }
+            _ => Action::None,
+        }
+    }
+
+    pub fn render(&self, frame: &mut Framebuffer, colors: &Colors) {
+        let area = frame.area().scale_and_center(0.7);
+
+        frame.fill(area, colors.background, false);
+
+        let (top, body, bottom) = area.split_ends(1, 1);
+
+        frame.print_fmt(Sgr::Fg(colors.secondary));
+        Block::rectangle().render(area, frame);
+
+        frame.print_fmt(Sgr::Fg(colors.normal));
+        frame.push_fmt(format_args!(
+            " Logs: {} / {} ",
+            self.index + 1,
+            self.logs.len()
+        ));
+        frame.render(top, TextOptions::span_center_top());
+
+        let Some(log) = self.current() else {
+            return;
+        };
+
+        frame.push_str(log);
+        frame.render(
+            body.inner(Margin::proportional(1)),
+            TextOptions::paragraph_center(),
+        );
+
+        // todo
+        // render_shortcuts(bottom, &mut frame, colors);
+
+        frame.print_fmt(Sgr::Reset);
+    }
+
     fn add_log(&mut self, start: usize) {
         self.logs.push(Range {
             start,
@@ -111,141 +182,4 @@ impl LogsModal {
         self.text.clear();
         self.logs.clear();
     }
-
-    pub fn enter(&self) {}
-
-    pub fn exit(&self) {}
-
-    pub fn input(&mut self, key: Key) -> Action {
-        Action::None
-    }
-
-    pub fn render(&self, frame: &mut Framebuffer, colors: &Colors) {
-        let area = frame.area().scale_and_center(0.7);
-
-        frame.fill(area, colors.background, false);
-
-        let (top, body, bottom) = area.split_ends(1, 1);
-
-        frame.print_fmt(Sgr::Fg(colors.secondary));
-        Block::rectangle().render(area, frame);
-
-        frame.print_fmt(Sgr::Fg(colors.normal));
-        frame.push_fmt(format_args!(
-            " Logs: {} / {} ",
-            self.index + 1,
-            self.logs.len()
-        ));
-        frame.render(top, TextOptions::span_center_top());
-
-        let Some(log) = self.current() else {
-            return;
-        };
-
-        frame.push_str(log);
-        frame.render(
-            body.inner(Margin::proportional(1)),
-            TextOptions::paragraph_center(),
-        );
-
-        // todo
-        // render_shortcuts(bottom, &mut frame, colors);
-
-        frame.print_fmt(Sgr::Reset);
-    }
 }
-
-// fn input_logs(input: Res<Input>, mut logs: ResMut<LogsPage>, mut actions: ResMut<Actions>) {
-//     let Some(key) = input.get() else {
-//         return;
-//     };
-
-//     match key.code {
-//         KeyCode::Right => {
-//             logs.next();
-//             actions.push(Action::Render);
-//         }
-//         KeyCode::Left => {
-//             logs.prev();
-//             actions.push(Action::Render);
-//         }
-//         KeyCode::Delete => {
-//             if key.ctrl() {
-//                 logs.clear();
-//                 actions.push(Action::Modal(Modal::None));
-//             } else {
-//                 logs.remove_current();
-//                 if logs.is_empty() {
-//                     actions.push(Action::Modal(Modal::None));
-//                 } else {
-//                     actions.push(Action::Render);
-//                 }
-//             }
-//         }
-//         KeyCode::Char('c') => {
-//             // TODO: copy log to clipboard
-//         }
-//         _ => {}
-//     }
-// }
-
-// fn enter_logs(mut logs: ResMut<LogsPage>) {
-//     if logs.len_new > 0 {
-//         logs.len_new = 0;
-//         logs.index = logs.len().saturating_sub(1);
-//     }
-// }
-
-// fn render_logs(mut frame: ResMut<Framebuffer>, settings: Res<Settings>, logs: Res<LogsPage>) {
-//     let area = frame.area().scale_and_center(0.7);
-//     let colors = settings.colors();
-
-//     frame.fill(area, colors.background, false);
-
-//     let (top, body, bottom) = area.split_ends(1, 1);
-
-//     frame.print_fmt(Sgr::Fg(colors.secondary));
-//     Block::rectangle().render(area, &mut frame);
-
-//     frame.print_fmt(Sgr::Fg(colors.normal));
-//     frame.push_fmt(format_args!(" Logs: {} / {} ", logs.index + 1, logs.len()));
-//     frame.render(top, TextOptions::span_center_top());
-
-//     let Some(log) = logs.current() else {
-//         return;
-//     };
-
-//     frame.push_str(log);
-//     frame.render(
-//         body.inner(Margin::proportional(1)),
-//         TextOptions::paragraph_center(),
-//     );
-
-//     render_shortcuts(bottom, &mut frame, colors);
-
-//     frame.print_fmt(Sgr::Reset);
-// }
-
-// fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-//     let key_color = colors.secondary;
-//     let name_color = colors.normal;
-//     let gap = 1;
-
-//     frame.push_ch(' ');
-
-//     for (key, name, gap) in [
-//         ("⇄", "Next/Prev", gap),
-//         ("c", "Copy (todo)", gap),
-//         ("(^)Del", "Delete (all)", 0),
-//     ] {
-//         frame.push_fmt(Sgr::Fg(key_color));
-//         frame.push_str(key);
-//         frame.push_fmt(Sgr::Fg(name_color));
-//         frame.push_ch(' ');
-//         frame.push_str(name);
-//         frame.push_ch_repeat(' ', gap);
-//     }
-
-//     frame.push_ch(' ');
-//     frame.render(area, TextOptions::span_center_top());
-// }
