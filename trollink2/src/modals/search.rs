@@ -218,8 +218,41 @@ impl SearchModal {
             self.writer.as_str(),
         );
 
-        // todo
-        // render_shortcuts(bottom, &mut frame, colors);
+        self.render_shortcuts(shortcuts_area, frame, colors);
+
+        frame.print_fmt(Sgr::Reset);
+    }
+
+    fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        let key_color = colors.secondary;
+        let name_color = colors.normal;
+
+        match self.state {
+            State::Search => {
+                frame.push_fmt(format_args!(
+                    " {}↵{} Confirm ",
+                    Sgr::Fg(key_color),
+                    Sgr::Fg(name_color),
+                ));
+                frame.render(area, TextOptions::span_center_top());
+            }
+            State::Browse => {
+                if self.current_card().is_some() {
+                    frame.push_fmt(format_args!(
+                        " {}e{} Edit",
+                        Sgr::Fg(key_color),
+                        Sgr::Fg(name_color),
+                    ));
+                }
+
+                frame.push_fmt(format_args!(
+                    " {}s{} Search ",
+                    Sgr::Fg(key_color),
+                    Sgr::Fg(name_color),
+                ));
+                frame.render(area, TextOptions::span_center_top());
+            }
+        }
     }
 
     fn current_card(&self) -> Option<CardId> {

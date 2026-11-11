@@ -150,6 +150,15 @@ impl Pages {
         }
     }
 
+    pub fn render_shortcuts(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        match self.route {
+            Route::Review => self.review.render_shortcuts(area, frame, colors),
+            Route::Editor(id) => self.editor.render_shortcuts(area, frame, colors),
+            Route::Cards(param) => self.cards.render_shortcuts(area, frame, colors),
+            Route::Settings => self.settings.render_shortcuts(area, frame, colors),
+        }
+    }
+
     pub fn render_navigation(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         for (route, name, gap) in [
             (Route::Review, "Review", 3),

@@ -63,6 +63,7 @@ impl CardsPage {
     pub fn refresh(&self) {}
 
     pub fn input(&mut self, key: Key, db: &mut Database, markup: &mut Markup) -> Action {
+        // TODO: impl remaining shortcut actions for tags
         match key.code {
             KeyCode::Right => {
                 return self.next_card(markup);
@@ -149,7 +150,30 @@ impl CardsPage {
     }
 
     pub fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        // todo
+        let gap = 1;
+        let has_tags = self.show_tags && !self.tags.is_empty();
+
+        for (key, name, gap, _show) in [
+            ("n", "New", gap, self.show_tags),
+            ("e", "Edit", gap, true),
+            ("Space", "Toggle", gap, has_tags),
+            ("r", "Reset", gap, has_tags),
+            ("t", "Tags", gap, true),
+            ("Del", "Delete", 0, true),
+        ]
+        .into_iter()
+        .filter(|s| s.3)
+        {
+            frame.push_fmt(Sgr::Fg(colors.secondary));
+            frame.push_str(key);
+            frame.push_fmt(Sgr::Fg(colors.normal));
+            frame.push_ch(' ');
+            frame.push_str(name);
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(area, TextOptions::span_center_top());
     }
 
     fn current_card(&self) -> Option<CardId> {

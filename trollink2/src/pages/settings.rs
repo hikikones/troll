@@ -22,4 +22,8 @@ impl SettingsPage {
     pub fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         frame.print_span_with(area, "SETTINGS", SpanOptions::center());
     }
+
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        // todo
+    }
 }

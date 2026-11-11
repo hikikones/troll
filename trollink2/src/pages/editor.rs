@@ -60,6 +60,7 @@ impl EditorPage {
         markup: &mut Markup,
         terminal: &mut Terminal,
     ) -> Action {
+        // TODO: impl remaining shortcut actions for tags
         match key.code {
             KeyCode::Char('e') if key.ctrl() => {
                 match terminal.temp_leave(|| {
@@ -151,13 +152,40 @@ impl EditorPage {
             markup.render(area, frame, self.editor.as_str());
         } else {
             self.editor
+                .set_disabled(self.show_tags)
                 // .set_colors(colors.text_editor()) // TODO
                 .render(area, frame);
         }
     }
 
     pub fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        // todo
+        let gap = 1;
+        let has_tags = self.show_tags && !self.tags.is_empty();
+
+        for (key, name, gap, _show) in [
+            ("n", "New", gap, self.show_tags),
+            ("e", "Edit", gap, has_tags),
+            ("Space", "Toggle", gap, has_tags),
+            ("r", "Reset", gap, has_tags),
+            ("^t", "Tags", gap, true),
+            ("^s", "Save", gap, true),
+            ("^p", "Preview", gap, true),
+            ("^e", "$EDITOR", gap, true),
+            ("Del", "Delete", 0, has_tags),
+        ]
+        .into_iter()
+        .filter(|s| s.3)
+        {
+            frame.push_fmt(Sgr::Fg(colors.secondary));
+            frame.push_str(key);
+            frame.push_fmt(Sgr::Fg(colors.normal));
+            frame.push_ch(' ');
+            frame.push_str(name);
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(area, TextOptions::span_center_top());
     }
 
     fn save(&mut self, db: &Database) {

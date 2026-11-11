@@ -170,6 +170,9 @@ impl App {
         // TODO
         let [page_shortcuts_area, app_shortcuts_area] = bottom.split_lines();
 
+        self.pages
+            .render_shortcuts(page_shortcuts_area, &mut frame, colors);
+
         // Modal
         if let Some(modal) = self.modals.current() {
             self.modals.render(modal, &mut frame, colors);

@@ -131,7 +131,33 @@ impl ReviewPage {
     }
 
     pub fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        // todo
+        if let ReviewState::Done = self.state {
+            return;
+        }
+
+        let gap = 1;
+
+        for (key, name, gap, _show) in [
+            ("y", "Yes", gap, self.review.is_fully_revealed()),
+            ("n", "No", gap, self.review.is_fully_revealed()),
+            ("Space", "Show", gap, !self.review.is_fully_revealed()),
+            ("➔", "Skip", gap, self.has_more_cards()),
+            ("e", "Edit", gap, true),
+            ("Del", "Delete", 0, true),
+        ]
+        .into_iter()
+        .filter(|s| s.3)
+        {
+            frame.push_fmt(Sgr::Fg(colors.secondary));
+            frame.push_str(key);
+            frame.push_fmt(Sgr::Fg(colors.normal));
+            frame.push_ch(' ');
+            frame.push_str(name);
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(area, TextOptions::span_center_top());
     }
 
     fn next_card(&mut self, db: &Database, markup: &mut Markup) {

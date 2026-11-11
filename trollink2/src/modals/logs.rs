@@ -106,6 +106,21 @@ impl LogsModal {
 
         frame.fill(area, colors.background, false);
 
+        let Some(log) = self.current() else {
+            frame.print_fmt(Sgr::Fg(colors.secondary));
+            Block::rectangle().render(area, frame);
+            frame.print_fmt(Sgr::Fg(colors.normal));
+            frame.print_span_with(area, " Logs ", SpanOptions::center_top());
+            frame.print_fmt(Sgr::Fg(colors.neutral));
+            frame.print_span_with(
+                area.inner(Margin::proportional(1)),
+                "No logs",
+                SpanOptions::center(),
+            );
+            frame.print_fmt(Sgr::reset_fg());
+            return;
+        };
+
         let (top, body, bottom) = area.split_ends(1, 1);
 
         frame.print_fmt(Sgr::Fg(colors.secondary));
@@ -119,18 +134,13 @@ impl LogsModal {
         ));
         frame.render(top, TextOptions::span_center_top());
 
-        let Some(log) = self.current() else {
-            return;
-        };
-
         frame.push_str(log);
         frame.render(
             body.inner(Margin::proportional(1)),
             TextOptions::paragraph_center(),
         );
 
-        // todo
-        // render_shortcuts(bottom, &mut frame, colors);
+        render_shortcuts(bottom, frame, colors);
 
         frame.print_fmt(Sgr::Reset);
     }
@@ -182,4 +192,28 @@ impl LogsModal {
         self.text.clear();
         self.logs.clear();
     }
+}
+
+fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    let key_color = colors.secondary;
+    let name_color = colors.normal;
+    let gap = 1;
+
+    frame.push_ch(' ');
+
+    for (key, name, gap) in [
+        ("⇄", "Next/Prev", gap),
+        ("c", "Copy (todo)", gap),
+        ("(^)Del", "Delete (all)", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
+
+    frame.push_ch(' ');
+    frame.render(area, TextOptions::span_center_top());
 }
