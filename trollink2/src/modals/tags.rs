@@ -5,24 +5,45 @@ use crate::{app::Action, database::Database, settings::Colors};
 
 pub struct NewTagModal {
     prompt: Prompt,
+    message: Message,
+}
+
+enum Message {
+    None,
+    Empty,
+    Taken,
 }
 
 impl NewTagModal {
     pub const fn new() -> Self {
         Self {
             prompt: Prompt::new().with_placeholder("Enter a tag name..."),
+            message: Message::None,
         }
     }
 
     pub fn enter(&self) {}
 
-    pub fn exit(&self) {}
+    pub fn exit(&mut self) {
+        self.message = Message::None;
+    }
 
     pub fn input(&mut self, key: Key, db: &mut Database) -> Action {
         match key.code {
             KeyCode::Enter => {
-                // todo: save
-                return Action::Refresh;
+                let name = self.prompt.as_str_trim();
+
+                if name.is_empty() {
+                    self.message = Message::Empty;
+                    return Action::Render;
+                }
+
+                if db.add_tag(name).is_some() {
+                    return Action::Refresh;
+                }
+
+                self.message = Message::Taken;
+                return Action::Render;
             }
             _ => {
                 if self.prompt.input(key) {
@@ -54,7 +75,12 @@ impl NewTagModal {
             .render(prompt_area.inner(Margin::horizontal(1)), frame);
 
         // Message
-        frame.push_str_fg("Please enter a tag name.", colors.neutral);
+        let (msg, color) = match self.message {
+            Message::None => ("Please enter a tag name.", colors.neutral),
+            Message::Empty => ("Empty tag name.", colors.red),
+            Message::Taken => ("Tag name is already taken.", colors.red),
+        };
+        frame.push_str_fg(msg, color);
         frame.render(body, TextOptions::paragraph_center());
 
         self.render_shortcuts(bottom, frame, colors);
