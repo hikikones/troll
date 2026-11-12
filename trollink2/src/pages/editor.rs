@@ -52,7 +52,9 @@ impl EditorPage {
         }
     }
 
-    pub fn refresh(&self) {}
+    pub fn refresh(&mut self, db: &Database) {
+        self.tags.update(db);
+    }
 
     pub fn input(
         &mut self,

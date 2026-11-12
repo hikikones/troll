@@ -61,7 +61,10 @@ impl CardsPage {
 
     pub fn exit(&self) {}
 
-    pub fn refresh(&self) {}
+    pub fn refresh(&mut self, db: &mut Database) {
+        self.tags.refresh(db);
+        self.update_cards(db);
+    }
 
     pub fn input(&mut self, key: Key, db: &mut Database, markup: &mut Markup) -> Action {
         // TODO: impl remaining shortcut actions for tags

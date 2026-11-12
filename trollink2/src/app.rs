@@ -133,7 +133,7 @@ impl App {
             }
             Action::Refresh => {
                 self.modals.set(None, &self.database);
-                self.pages.refresh();
+                self.pages.refresh(&mut self.database);
                 self.render(terminal)?;
             }
             Action::Clear => {

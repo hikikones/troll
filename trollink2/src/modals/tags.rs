@@ -25,6 +25,7 @@ impl NewTagModal {
     pub fn enter(&self) {}
 
     pub fn exit(&mut self) {
+        self.prompt.clear();
         self.message = Message::None;
     }
 

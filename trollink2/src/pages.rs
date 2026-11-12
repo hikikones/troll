@@ -107,11 +107,11 @@ impl Pages {
         }
     }
 
-    pub fn refresh(&self) {
+    pub fn refresh(&mut self, db: &mut Database) {
         match self.route {
             Route::Review => self.review.refresh(),
-            Route::Editor(_) => self.editor.refresh(),
-            Route::Cards(_) => self.cards.refresh(),
+            Route::Editor(_) => self.editor.refresh(db),
+            Route::Cards(_) => self.cards.refresh(db),
             Route::Settings => self.settings.refresh(),
         }
     }
