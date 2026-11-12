@@ -1,8 +1,10 @@
 mod logs;
 mod search;
+mod tags;
 
 pub use logs::*;
 use search::*;
+use tags::*;
 
 use terminal::*;
 
@@ -12,12 +14,14 @@ pub struct Modals {
     current: Option<Modal>,
     search: SearchModal,
     logs: LogsModal,
+    tag_new: NewTagModal,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Modal {
     Search,
     Logs,
+    TagNew,
 }
 
 impl Modals {
@@ -26,6 +30,7 @@ impl Modals {
             current: None,
             search: SearchModal::new(),
             logs: LogsModal::new(),
+            tag_new: NewTagModal::new(),
         }
     }
 
@@ -75,6 +80,7 @@ impl Modals {
         match modal {
             Modal::Search => self.search.enter(db),
             Modal::Logs => self.logs.enter(),
+            Modal::TagNew => self.tag_new.enter(),
         }
     }
 
@@ -84,13 +90,15 @@ impl Modals {
         match modal {
             Modal::Search => self.search.exit(),
             Modal::Logs => self.logs.exit(),
+            Modal::TagNew => self.tag_new.exit(),
         }
     }
 
-    pub fn input(&mut self, modal: Modal, key: Key, db: &Database, colors: &Colors) -> Action {
+    pub fn input(&mut self, modal: Modal, key: Key, db: &mut Database, colors: &Colors) -> Action {
         match modal {
             Modal::Search => self.search.input(key, db, colors),
             Modal::Logs => self.logs.input(key),
+            Modal::TagNew => self.tag_new.input(key, db),
         }
     }
 
@@ -98,6 +106,7 @@ impl Modals {
         match modal {
             Modal::Search => self.search.render(frame, colors),
             Modal::Logs => self.logs.render(frame, colors),
+            Modal::TagNew => self.tag_new.render(frame, colors),
         }
     }
 }

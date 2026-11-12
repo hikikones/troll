@@ -92,7 +92,7 @@ impl App {
                 _ => match self.modals.current() {
                     Some(modal) => {
                         self.modals
-                            .input(modal, key, &self.database, self.settings.colors())
+                            .input(modal, key, &mut self.database, self.settings.colors())
                     }
                     None => self.pages.input(
                         key,
@@ -132,6 +132,7 @@ impl App {
                 self.render(terminal)?;
             }
             Action::Refresh => {
+                self.modals.set(None, &self.database);
                 self.pages.refresh();
                 self.render(terminal)?;
             }

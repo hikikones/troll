@@ -6,7 +6,7 @@ use widgets2::{Editor, List, Markup};
 use crate::{
     app::Action,
     database::{CardId, Database, TagId},
-    modals::LogsModal,
+    modals::{LogsModal, Modal},
     settings::Colors,
 };
 
@@ -82,6 +82,7 @@ impl EditorPage {
                 }
                 return Action::Clear;
             }
+            KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::TagNew)),
             KeyCode::Char('p') if key.ctrl() => {
                 self.preview = !self.preview;
                 return Action::Render;

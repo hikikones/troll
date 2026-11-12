@@ -7,6 +7,7 @@ use widgets2::{List, Markup, MarkupScroll};
 use crate::{
     app::Action,
     database::{CardId, Database, TagId},
+    modals::Modal,
     pages::{CardsParam, Route},
     settings::Colors,
 };
@@ -79,6 +80,7 @@ impl CardsPage {
                     return Action::Route(Route::Editor(Some(id)));
                 }
             }
+            KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::TagNew)),
             KeyCode::Char('t') => {
                 return self.toggle_show_tags();
             }
