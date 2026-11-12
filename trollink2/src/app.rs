@@ -1,5 +1,5 @@
 use terminal::*;
-use widgets2::{Block, KittyDeleteAll, Markup};
+use widgets2::{KittyDeleteAll, Markup};
 
 use crate::{
     AppDir,
@@ -100,6 +100,7 @@ impl App {
                         &mut self.markup,
                         &self.settings,
                         terminal,
+                        self.modals.logs_mut(),
                     ),
                 },
             },
@@ -153,6 +154,8 @@ impl App {
         frame.print_fmt(KittyDeleteAll);
 
         let (top, body, bottom) = frame.area().split_ends(1, 2);
+
+        // TODO: swap modal colors
         let colors = self.settings.colors();
 
         // Navigation
@@ -172,9 +175,11 @@ impl App {
 
         self.pages
             .render_shortcuts(page_shortcuts_area, &mut frame, colors);
+        self.render_shortcuts(app_shortcuts_area, &mut frame, colors);
 
         // Modal
         if let Some(modal) = self.modals.current() {
+            frame.set_cursor_visibility(false);
             self.modals.render(modal, &mut frame, colors);
         }
 
@@ -182,6 +187,43 @@ impl App {
         self.frame = frame;
 
         Ok(())
+    }
+
+    fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        let key_color = colors.primary;
+        let name_color = colors.normal;
+        let gap = 1;
+
+        for (key, name, gap) in [
+            ("Esc", "Quit", gap),
+            ("(⇧)Tab", "Navigate", gap),
+            ("^f", "Find", 0),
+        ] {
+            frame.push_fmt(Sgr::Fg(key_color));
+            frame.push_str(key);
+            frame.push_fmt(Sgr::Fg(name_color));
+            frame.push_ch(' ');
+            frame.push_str(name);
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        if !self.modals.logs().is_empty() {
+            frame.push_ch_repeat(' ', gap);
+            frame.push_fmt(Sgr::Fg(key_color));
+            frame.push_str("^l");
+            frame.push_fmt(Sgr::Fg(name_color));
+            frame.push_ch(' ');
+            frame.push_str("Logs");
+
+            let len = self.modals.logs().len_new();
+            if len > 0 {
+                let mut buf = std::fmt::NumBuffer::new();
+                frame.push_iter(["(", len.format_into(&mut buf), ")"]);
+            }
+        }
+
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(area, TextOptions::span_center_top());
     }
 }
 

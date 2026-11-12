@@ -14,6 +14,7 @@ use widgets2::Markup;
 use crate::{
     app::Action,
     database::{CardId, Database, TagId},
+    modals::LogsModal,
     settings::{Colors, Settings},
 };
 
@@ -100,8 +101,8 @@ impl Pages {
     fn exit(&mut self) {
         match self.route {
             Route::Review => self.review.exit(),
-            Route::Editor(id) => self.editor.exit(),
-            Route::Cards(param) => self.cards.exit(),
+            Route::Editor(_) => self.editor.exit(),
+            Route::Cards(_) => self.cards.exit(),
             Route::Settings => self.settings.exit(),
         }
     }
@@ -109,8 +110,8 @@ impl Pages {
     pub fn refresh(&self) {
         match self.route {
             Route::Review => self.review.refresh(),
-            Route::Editor(id) => self.editor.refresh(),
-            Route::Cards(param) => self.cards.refresh(),
+            Route::Editor(_) => self.editor.refresh(),
+            Route::Cards(_) => self.cards.refresh(),
             Route::Settings => self.settings.refresh(),
         }
     }
@@ -122,14 +123,15 @@ impl Pages {
         markup: &mut Markup,
         settings: &Settings,
         terminal: &mut Terminal,
+        logs: &mut LogsModal,
     ) -> Action {
         match self.route {
             Route::Review => {
                 self.review
                     .input(key, db, markup, settings.desired_retention_as_fraction())
             }
-            Route::Editor(id) => self.editor.input(key, db, markup, terminal),
-            Route::Cards(param) => self.cards.input(key, db, markup),
+            Route::Editor(_) => self.editor.input(key, db, markup, terminal, logs),
+            Route::Cards(_) => self.cards.input(key, db, markup),
             Route::Settings => self.settings.input(key),
         }
     }
@@ -144,8 +146,8 @@ impl Pages {
     ) {
         match self.route {
             Route::Review => self.review.render(area, frame, colors, markup),
-            Route::Editor(id) => self.editor.render(area, frame, colors, db, markup),
-            Route::Cards(param) => self.cards.render(area, frame, db, colors, markup),
+            Route::Editor(_) => self.editor.render(area, frame, colors, db, markup),
+            Route::Cards(_) => self.cards.render(area, frame, db, colors, markup),
             Route::Settings => self.settings.render(area, frame, colors),
         }
     }
@@ -153,8 +155,8 @@ impl Pages {
     pub fn render_shortcuts(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
         match self.route {
             Route::Review => self.review.render_shortcuts(area, frame, colors),
-            Route::Editor(id) => self.editor.render_shortcuts(area, frame, colors),
-            Route::Cards(param) => self.cards.render_shortcuts(area, frame, colors),
+            Route::Editor(_) => self.editor.render_shortcuts(area, frame, colors),
+            Route::Cards(_) => self.cards.render_shortcuts(area, frame, colors),
             Route::Settings => self.settings.render_shortcuts(area, frame, colors),
         }
     }

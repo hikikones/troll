@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use terminal::Color;
-use widgets2::{ListColors, PromptColors, ScrollbarColors};
+use widgets2::{EditorColors, ListColors, PromptColors, ScrollbarColors};
 
 use crate::AppDirRef;
 
@@ -180,6 +180,7 @@ pub struct Colors {
     pub secondary: Color,
     pub neutral: Color,
 
+    // TODO: query bg and fg
     #[serde(skip)]
     pub normal: Color,
     #[serde(skip)]
@@ -208,6 +209,14 @@ impl Colors {
 
     pub const fn prompt(&self) -> PromptColors {
         PromptColors {
+            normal: self.normal,
+            placeholder: self.neutral,
+            disabled: self.neutral,
+        }
+    }
+
+    pub const fn editor(&self) -> EditorColors {
+        EditorColors {
             normal: self.normal,
             placeholder: self.neutral,
             disabled: self.neutral,

@@ -759,7 +759,7 @@ fn render_shortcuts(
     }
 
     if logs.len() > 0 {
-        frame.push_ch(' ');
+        frame.push_ch_repeat(' ', gap);
         frame.push_fmt(Sgr::Fg(key_color));
         frame.push_str("^l");
         frame.push_fmt(Sgr::Fg(name_color));

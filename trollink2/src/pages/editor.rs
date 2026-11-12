@@ -6,6 +6,7 @@ use widgets2::{Editor, List, Markup};
 use crate::{
     app::Action,
     database::{CardId, Database, TagId},
+    modals::LogsModal,
     settings::Colors,
 };
 
@@ -59,6 +60,7 @@ impl EditorPage {
         db: &mut Database,
         markup: &mut Markup,
         terminal: &mut Terminal,
+        logs: &mut LogsModal,
     ) -> Action {
         // TODO: impl remaining shortcut actions for tags
         match key.code {
@@ -73,13 +75,12 @@ impl EditorPage {
                         self.editor.clear();
                         self.editor.push_str(&content);
                         self.editor.move_to_start(false);
-                        return Action::Clear;
                     }
                     Err(err) => {
-                        // TODO: Have AppError as action. Also, clear?
-                        // return Action::EnqueueLog(Log::new(err));
+                        logs.push_fmt(format_args!("Failed to launch $EDITOR: {err}"));
                     }
                 }
+                return Action::Clear;
             }
             KeyCode::Char('p') if key.ctrl() => {
                 self.preview = !self.preview;
@@ -87,7 +88,6 @@ impl EditorPage {
             }
             KeyCode::Char('s') if key.ctrl() && !self.editor.is_empty() => {
                 self.save(db);
-                // markup.clear(); todo?
                 return Action::Render;
             }
             KeyCode::Char('t') if key.ctrl() => {
@@ -153,7 +153,7 @@ impl EditorPage {
         } else {
             self.editor
                 .set_disabled(self.show_tags)
-                // .set_colors(colors.text_editor()) // TODO
+                .set_colors(colors.editor())
                 .render(area, frame);
         }
     }

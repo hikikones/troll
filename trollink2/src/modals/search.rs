@@ -17,7 +17,7 @@ pub struct SearchModal {
     query: String,
     writer: String,
     viewer: AnsiViewer,
-    is_empty: bool,
+    no_cards: bool,
 }
 
 enum State {
@@ -34,21 +34,21 @@ impl SearchModal {
             index: 0,
             query: String::new(),
             writer: String::new(),
-            viewer: AnsiViewer::new(),
-            is_empty: false,
+            viewer: AnsiViewer::new().with_padding(Margin::horizontal(2)),
+            no_cards: false,
         }
     }
 
     pub fn enter(&mut self, db: &Database) {
         self.state = State::Search;
-        self.is_empty = db.is_cards_empty();
+        self.no_cards = db.is_cards_empty();
         self.refresh(db);
     }
 
     pub fn exit(&self) {}
 
     pub fn input(&mut self, key: Key, db: &Database, colors: &Colors) -> Action {
-        if self.is_empty {
+        if self.no_cards {
             return Action::None;
         }
 
@@ -168,57 +168,47 @@ impl SearchModal {
 
     pub fn render(&mut self, frame: &mut Framebuffer, colors: &Colors) {
         let area = frame.area().scale_and_center(0.7);
-        let bg = colors.background;
 
-        frame.fill(area, bg, false);
+        frame.fill(area, colors.background, false);
 
-        let (prompt_area, results_area, shortcuts_area) = area.split_ends(1, 1);
+        frame.print_fmt(Sgr::Fg(colors.secondary));
+        Block::rectangle().render(area, frame);
+
+        let (top, body, bottom) = area.split_ends(1, 1);
+        let (top_left, top_right) = top.split_vertically();
 
         // Prompt
-        let prompt_area = prompt_area.scale_cols_and_center(0.5);
+        let prompt_area = top_left.with_col(top_left.col() + top_left.cols() / 4);
         frame.cursor(prompt_area.pos);
         frame.print_ch_repeat(' ', prompt_area.cols());
         self.search
             .set_colors(colors.prompt())
-            .set_disabled(matches!(self.state, State::Browse) || self.is_empty)
+            .set_disabled(matches!(self.state, State::Browse) || self.no_cards)
             .render(prompt_area.inner(Margin::horizontal(1)), frame);
 
-        if self.is_empty {
+        // Results
+        if self.no_cards {
             frame.print_fmt(Sgr::Fg(colors.neutral));
-            Block::rectangle().render(results_area, frame);
             frame.push_str("No cards to search for");
             frame.render(
-                results_area.inner(Margin::proportional(1)),
+                body.inner(Margin::proportional(1)),
                 TextOptions::paragraph_center(),
             );
             frame.print_fmt(Sgr::Reset);
             return;
         }
 
-        // Results
-        let border_color = match self.state {
-            State::Search => colors.neutral,
-            State::Browse => colors.secondary,
-        };
-        frame.print_fmt(Sgr::Fg(border_color));
-        Block::rectangle().render(results_area, frame);
-        frame.print_fmt(Sgr::reset_fg());
-
         if !self.results.is_empty() {
             frame.push_fmt_fg(
                 format_args!(" {} / {} ", self.index + 1, self.results.len()),
                 colors.neutral,
             );
-            frame.render(results_area, TextOptions::span_center_top());
+            frame.render(top_right, TextOptions::span_center_top());
         }
 
-        self.viewer.render(
-            results_area.inner(Margin::proportional(1)),
-            frame,
-            self.writer.as_str(),
-        );
+        self.viewer.render(body, frame, self.writer.as_str());
 
-        self.render_shortcuts(shortcuts_area, frame, colors);
+        self.render_shortcuts(bottom, frame, colors);
 
         frame.print_fmt(Sgr::Reset);
     }
@@ -268,7 +258,7 @@ impl SearchModal {
     }
 
     fn refresh(&mut self, db: &Database) {
-        if self.is_empty || self.query.is_empty() {
+        if self.no_cards || self.query.is_empty() {
             self.results.clear();
             self.index = 0;
             return;
