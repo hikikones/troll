@@ -29,6 +29,16 @@ impl Rect {
         self
     }
 
+    pub const fn with_col_add(mut self, v: u16) -> Self {
+        self.add_col(v);
+        self
+    }
+
+    pub const fn with_row_add(mut self, v: u16) -> Self {
+        self.add_row(v);
+        self
+    }
+
     pub const fn with_size(mut self, size: Size) -> Self {
         self.size = size;
         self
@@ -41,6 +51,13 @@ impl Rect {
 
     pub const fn with_rows(mut self, rows: u16) -> Self {
         self.size.rows = rows;
+        self
+    }
+
+    pub const fn with_cols_min(mut self, min: u16) -> Self {
+        if self.size.cols > min {
+            self.size.cols = min;
+        }
         self
     }
 

@@ -64,8 +64,12 @@ impl EditorPage {
         terminal: &mut Terminal,
         logs: &mut LogsModal,
     ) -> Action {
-        // TODO: impl remaining shortcut actions for tags
         match key.code {
+            KeyCode::Delete if self.show_tags => {
+                if let Some(id) = self.tags.current() {
+                    return Action::Modal(Some(Modal::DeleteTag(id)));
+                }
+            }
             KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::AddTag)),
             KeyCode::Char('e') if self.show_tags => {
                 if let Some(id) = self.tags.current() {

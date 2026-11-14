@@ -178,7 +178,7 @@ impl SearchModal {
         let (top_left, top_right) = top.split_vertically();
 
         // Prompt
-        let prompt_area = top_left.with_col(top_left.col() + top_left.cols() / 4);
+        let prompt_area = top_left.with_col_add(top_left.cols() / 4);
         frame.cursor(prompt_area.pos);
         frame.print_ch_repeat(' ', prompt_area.cols());
         self.search
@@ -199,6 +199,7 @@ impl SearchModal {
         }
 
         if !self.results.is_empty() {
+            // TODO: swap with prompt?
             frame.push_fmt_fg(
                 format_args!(" {} / {} ", self.index + 1, self.results.len()),
                 colors.neutral,

@@ -32,7 +32,7 @@ impl TagOp {
     const fn rows(self) -> u16 {
         match self {
             Self::Add | Self::Edit(_) => 3,
-            Self::Delete(_) => 12,
+            Self::Delete(_) => 10,
         }
     }
 }
@@ -123,7 +123,17 @@ impl TagsModal {
                 }
             },
             TagOp::Delete(id) => {
-                //todo
+                // TODO: Add option for also deleting related cards.
+                match key.code {
+                    KeyCode::Char('y') => {
+                        db.delete_tag(id);
+                        return Action::Refresh;
+                    }
+                    KeyCode::Char('n') => {
+                        return Action::Modal(None);
+                    }
+                    _ => {}
+                }
             }
         }
 
@@ -166,7 +176,23 @@ impl TagsModal {
                 frame.render(bottom, TextOptions::span_center_top());
             }
             TagOp::Delete(id) => {
-                //todo
+                frame.push_str("You are about to delete the following tag:\n\n");
+                db.get_tag_name(id, |name| {
+                    frame.push_fmt(Sgrs([Sgr::Bold, Sgr::Fg(colors.secondary)]));
+                    frame.push_str(name);
+                    frame.push_fmt(Sgr::Reset);
+                });
+                frame.push_str("\n\nAre you sure you want to continue?");
+                frame.render(body, TextOptions::paragraph_center());
+
+                frame.push_fmt(format_args!(
+                    " {}y{} Yes {}n{} No ",
+                    Sgr::Fg(colors.secondary),
+                    Sgr::Fg(colors.normal),
+                    Sgr::Fg(colors.secondary),
+                    Sgr::Fg(colors.normal),
+                ));
+                frame.render(bottom, TextOptions::span_center_top());
             }
         }
 

@@ -67,7 +67,6 @@ impl CardsPage {
     }
 
     pub fn input(&mut self, key: Key, db: &mut Database, markup: &mut Markup) -> Action {
-        // TODO: impl remaining shortcut actions for tags
         match key.code {
             KeyCode::Right => {
                 return self.next_card(markup);
@@ -76,7 +75,14 @@ impl CardsPage {
                 return self.previous_card(markup);
             }
             KeyCode::Delete => {
-                return self.delete_card(db, markup);
+                if self.show_tags {
+                    if let Some(id) = self.tags.current() {
+                        return Action::Modal(Some(Modal::DeleteTag(id)));
+                    }
+                } else {
+                    // TODO: Delete card modal
+                    return self.delete_card(db, markup);
+                }
             }
             KeyCode::Char('e') => {
                 if self.show_tags {
@@ -389,6 +395,7 @@ impl TagsSidebar {
         for (index, tag) in lines.zip(self.tags.iter().skip(self.list.scroll())) {
             let id = tag.id;
 
+            // TODO: use &colors
             let color = if self.includes.contains(&id) {
                 Color::Green
             } else if self.excludes.contains(&id) {
