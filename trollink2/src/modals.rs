@@ -102,9 +102,9 @@ impl Modals {
         }
     }
 
-    pub fn input(&mut self, modal: Modal, key: Key, db: &mut Database, colors: &Colors) -> Action {
+    pub fn input(&mut self, modal: Modal, key: Key, db: &mut Database) -> Action {
         match modal {
-            Modal::Search => self.search.input(key, db, colors),
+            Modal::Search => self.search.input(key, db),
             Modal::Logs => self.logs.input(key),
             Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) => self.tags.input(key, db),
         }

@@ -1,5 +1,5 @@
+use shared::sqlite::SqliteError;
 use terminal::*;
-use utils::StringExt;
 use widgets2::{AnsiViewer, Block, Prompt};
 
 use crate::{
@@ -13,16 +13,23 @@ pub struct SearchModal {
     state: State,
     search: Prompt,
     results: Vec<CardId>,
-    index: usize,
-    query: String,
     writer: String,
     viewer: AnsiViewer,
+    message: Option<Message>,
     no_cards: bool,
+    index: usize,
 }
 
 enum State {
     Search,
     Browse,
+}
+
+enum Message {
+    Help,
+    Empty,
+    NoCardsFound,
+    Error(SqliteError),
 }
 
 impl SearchModal {
@@ -31,23 +38,29 @@ impl SearchModal {
             state: State::Search,
             search: Prompt::new().with_placeholder("Search..."),
             results: Vec::new(),
-            index: 0,
-            query: String::new(),
             writer: String::new(),
-            viewer: AnsiViewer::new().with_padding(Margin::horizontal(2)),
+            viewer: AnsiViewer::new(),
+            message: None,
             no_cards: false,
+            index: 0,
         }
     }
 
     pub fn enter(&mut self, db: &Database) {
-        self.state = State::Search;
+        self.message = Some(Message::Help);
         self.no_cards = db.is_cards_empty();
-        self.refresh(db);
     }
 
-    pub fn exit(&self) {}
+    pub fn exit(&mut self) {
+        self.state = State::Search;
+        self.search.clear();
+        self.results.clear();
+        self.writer.clear();
+        self.message = None;
+        self.index = 0;
+    }
 
-    pub fn input(&mut self, key: Key, db: &Database, colors: &Colors) -> Action {
+    pub fn input(&mut self, key: Key, db: &Database) -> Action {
         if self.no_cards {
             return Action::None;
         }
@@ -56,41 +69,29 @@ impl SearchModal {
             State::Search => match key.code {
                 KeyCode::Enter => {
                     let input = self.search.as_str_trim();
+
                     if input.is_empty() {
-                        return Action::None;
+                        self.message = Some(Message::Help);
+                        return Action::Render;
                     }
 
                     self.index = 0;
+                    self.message = None;
                     self.results.clear();
                     self.writer.clear();
-                    self.query.clear();
-                    self.query.push_str(input);
 
                     if let Err(err) = db.search(input, |id| self.results.push(id)) {
-                        self.writer.write(format_args!(
-                            "{}{err}{}",
-                            Sgr::Fg(colors.red),
-                            Sgr::reset_fg()
-                        ));
+                        self.message = Some(Message::Error(err));
                         return Action::Render;
                     }
 
                     if input.chars().count() < 3 {
-                        self.writer.write(format_args!(
-                            "{}Search query must be at least 3 characters{}",
-                            Sgr::Fg(colors.primary),
-                            Sgr::reset_fg()
-                        ));
+                        self.message = Some(Message::Empty);
                         return Action::Render;
                     }
 
                     if self.results.is_empty() {
-                        self.writer.write(format_args!(
-                            "{}No cards found from query\n{}'{input}'{}",
-                            Sgr::Fg(colors.neutral),
-                            Sgr::Italic,
-                            Sgr::Reset,
-                        ));
+                        self.message = Some(Message::NoCardsFound);
                         return Action::Render;
                     }
 
@@ -167,47 +168,71 @@ impl SearchModal {
     }
 
     pub fn render(&mut self, frame: &mut Framebuffer, colors: &Colors) {
-        let area = frame.area().scale_and_center(0.7);
+        let area = frame.area().scale_and_center(0.8);
 
         frame.fill(area, colors.background, false);
 
         frame.print_fmt(Sgr::Fg(colors.secondary));
         Block::rectangle().render(area, frame);
+        frame.print_fmt(Sgr::reset_fg());
 
-        let (top, body, bottom) = area.split_ends(1, 1);
-        let (top_left, top_right) = top.split_vertically();
+        let (top, body, bottom) = area.inner(Margin::horizontal(2)).split_ends(1, 1);
 
         // Prompt
-        let prompt_area = top_left.with_col_add(top_left.cols() / 4);
-        frame.cursor(prompt_area.pos);
-        frame.print_ch_repeat(' ', prompt_area.cols());
-        self.search
-            .set_colors(colors.prompt())
-            .set_disabled(matches!(self.state, State::Browse) || self.no_cards)
-            .render(prompt_area.inner(Margin::horizontal(1)), frame);
+        match self.state {
+            State::Search => {
+                let prompt_area = top.scale_cols_and_center(0.5);
+                frame.cursor(prompt_area.pos);
+                frame.print_ch_repeat(' ', prompt_area.cols());
+                self.search
+                    .set_colors(colors.prompt())
+                    .set_disabled(self.no_cards)
+                    .render(prompt_area.inner(Margin::horizontal(1)), frame);
+            }
+            State::Browse => {
+                frame.push_fmt_fg(
+                    format_args!(" {} / {} ", self.index + 1, self.results.len()),
+                    colors.normal,
+                );
+                frame.render(top, TextOptions::span_center_top());
+            }
+        }
 
         // Results
         if self.no_cards {
             frame.print_fmt(Sgr::Fg(colors.neutral));
             frame.push_str("No cards to search for");
-            frame.render(
-                body.inner(Margin::proportional(1)),
-                TextOptions::paragraph_center(),
-            );
+            frame.render(body, TextOptions::paragraph_center());
             frame.print_fmt(Sgr::Reset);
             return;
         }
 
-        if !self.results.is_empty() {
-            // TODO: swap with prompt?
-            frame.push_fmt_fg(
-                format_args!(" {} / {} ", self.index + 1, self.results.len()),
-                colors.neutral,
-            );
-            frame.render(top_right, TextOptions::span_center_top());
+        match self.message.as_ref() {
+            Some(msg) => {
+                match msg {
+                    Message::Help => {
+                        frame.push_str("TODO: Show some help text for searching");
+                    }
+                    Message::Empty => {
+                        frame.push_str_fg(
+                            "Search query must be at least 3 characters",
+                            colors.neutral,
+                        );
+                    }
+                    Message::NoCardsFound => {
+                        frame.push_str_fg("No cards found from search query", colors.neutral);
+                    }
+                    Message::Error(error) => {
+                        frame.push_str("Failed to search:\n\n");
+                        frame.push_fmt_fg(error, colors.red);
+                    }
+                }
+                frame.render(body, TextOptions::paragraph_center());
+            }
+            None => {
+                self.viewer.render(body, frame, self.writer.as_str());
+            }
         }
-
-        self.viewer.render(body, frame, self.writer.as_str());
 
         self.render_shortcuts(bottom, frame, colors);
 
@@ -251,26 +276,10 @@ impl SearchModal {
     }
 
     fn highlight(&mut self, id: CardId, db: &Database) {
-        db.search_highlight(id, &self.query, |content| {
+        db.search_highlight(id, self.search.as_str_trim(), |content| {
             self.writer.clear();
             self.writer.push_str(content);
         })
         .unwrap();
-    }
-
-    fn refresh(&mut self, db: &Database) {
-        if self.no_cards || self.query.is_empty() {
-            self.results.clear();
-            self.index = 0;
-            return;
-        }
-
-        self.results.clear();
-        let _ = db.search(self.query.as_str(), |id| self.results.push(id));
-        self.index = self.index.min(self.results.len().saturating_sub(1));
-
-        if let Some(id) = self.current_card() {
-            self.highlight(id, db);
-        }
     }
 }

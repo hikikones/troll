@@ -90,10 +90,7 @@ impl App {
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
                 KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
                 _ => match self.modals.current() {
-                    Some(modal) => {
-                        self.modals
-                            .input(modal, key, &mut self.database, self.settings.colors())
-                    }
+                    Some(modal) => self.modals.input(modal, key, &mut self.database),
                     None => self.pages.input(
                         key,
                         &mut self.database,

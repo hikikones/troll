@@ -2,6 +2,8 @@ use terminal::*;
 
 use crate::{Scroll, Scrollbar, ScrollbarColors, ScrollbarData};
 
+// TODO: Add writer. No need to pass immutable &ansi.
+
 #[derive(Debug)]
 pub struct AnsiViewer {
     ansi: String,
@@ -27,6 +29,7 @@ pub struct AnsiViewerOptions {
     pub scrollbar: bool,
     pub scrollbar_margin: u16,
     pub alignment: HorizontalAlignment,
+    // pub disabled: bool, TODO
 }
 
 impl AnsiViewerOptions {
@@ -49,6 +52,7 @@ impl Default for AnsiViewerOptions {
 #[derive(Debug, Clone, Copy)]
 pub struct AnsiViewerColors {
     pub scrollbar: ScrollbarColors,
+    // pub disabled: Color, TODO
 }
 
 impl AnsiViewerColors {
