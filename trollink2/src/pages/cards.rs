@@ -79,11 +79,17 @@ impl CardsPage {
                 return self.delete_card(db, markup);
             }
             KeyCode::Char('e') => {
-                if let Some(id) = self.current_card() {
-                    return Action::Route(Route::Editor(Some(id)));
+                if self.show_tags {
+                    if let Some(id) = self.tags.current() {
+                        return Action::Modal(Some(Modal::EditTag(id)));
+                    }
+                } else {
+                    if let Some(id) = self.current_card() {
+                        return Action::Route(Route::Editor(Some(id)));
+                    }
                 }
             }
-            KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::TagNew)),
+            KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::AddTag)),
             KeyCode::Char('t') => {
                 return self.toggle_show_tags();
             }
@@ -267,6 +273,10 @@ impl TagsSidebar {
             excludes: HashSet::new(),
             list: List::new(),
         }
+    }
+
+    fn current(&self) -> Option<TagId> {
+        self.tags.get(self.list.index()).map(|tag| tag.id)
     }
 
     fn refresh(&mut self, db: &Database) {

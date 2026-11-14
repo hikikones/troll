@@ -8,20 +8,26 @@ use tags::*;
 
 use terminal::*;
 
-use crate::{app::Action, database::Database, settings::Colors};
+use crate::{
+    app::Action,
+    database::{Database, TagId},
+    settings::Colors,
+};
 
 pub struct Modals {
     current: Option<Modal>,
     search: SearchModal,
     logs: LogsModal,
-    tag_new: NewTagModal,
+    tags: TagsModal,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum Modal {
     Search,
     Logs,
-    TagNew,
+    AddTag,
+    EditTag(TagId),
+    DeleteTag(TagId),
 }
 
 impl Modals {
@@ -30,7 +36,7 @@ impl Modals {
             current: None,
             search: SearchModal::new(),
             logs: LogsModal::new(),
-            tag_new: NewTagModal::new(),
+            tags: TagsModal::new(),
         }
     }
 
@@ -80,7 +86,9 @@ impl Modals {
         match modal {
             Modal::Search => self.search.enter(db),
             Modal::Logs => self.logs.enter(),
-            Modal::TagNew => self.tag_new.enter(),
+            Modal::AddTag => self.tags.enter(TagOp::Add, db),
+            Modal::EditTag(id) => self.tags.enter(TagOp::Edit(id), db),
+            Modal::DeleteTag(id) => self.tags.enter(TagOp::Delete(id), db),
         }
     }
 
@@ -90,7 +98,7 @@ impl Modals {
         match modal {
             Modal::Search => self.search.exit(),
             Modal::Logs => self.logs.exit(),
-            Modal::TagNew => self.tag_new.exit(),
+            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) => self.tags.exit(),
         }
     }
 
@@ -98,15 +106,23 @@ impl Modals {
         match modal {
             Modal::Search => self.search.input(key, db, colors),
             Modal::Logs => self.logs.input(key),
-            Modal::TagNew => self.tag_new.input(key, db),
+            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) => self.tags.input(key, db),
         }
     }
 
-    pub fn render(&mut self, modal: Modal, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render(
+        &mut self,
+        modal: Modal,
+        frame: &mut Framebuffer,
+        colors: &Colors,
+        db: &Database,
+    ) {
         match modal {
             Modal::Search => self.search.render(frame, colors),
             Modal::Logs => self.logs.render(frame, colors),
-            Modal::TagNew => self.tag_new.render(frame, colors),
+            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) => {
+                self.tags.render(frame, colors, db)
+            }
         }
     }
 }

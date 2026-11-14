@@ -181,7 +181,8 @@ impl App {
         // Modal
         if let Some(modal) = self.modals.current() {
             frame.set_cursor_visibility(false);
-            self.modals.render(modal, &mut frame, colors);
+            self.modals
+                .render(modal, &mut frame, colors, &self.database);
         }
 
         frame.flush(&mut terminal.lock())?;

@@ -66,6 +66,12 @@ impl EditorPage {
     ) -> Action {
         // TODO: impl remaining shortcut actions for tags
         match key.code {
+            KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::AddTag)),
+            KeyCode::Char('e') if self.show_tags => {
+                if let Some(id) = self.tags.current() {
+                    return Action::Modal(Some(Modal::EditTag(id)));
+                }
+            }
             KeyCode::Char('e') if key.ctrl() => {
                 match terminal.temp_leave(|| {
                     edit::edit_with_builder(
@@ -84,7 +90,6 @@ impl EditorPage {
                 }
                 return Action::Clear;
             }
-            KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::TagNew)),
             KeyCode::Char('p') if key.ctrl() => {
                 self.preview = !self.preview;
                 return Action::Render;
@@ -116,8 +121,10 @@ impl EditorPage {
                     if markup.input(key.code) {
                         return Action::Render;
                     }
-                } else if self.editor.input(key) {
-                    return Action::Render;
+                } else {
+                    if self.editor.input(key) {
+                        return Action::Render;
+                    }
                 }
             }
         }
@@ -238,6 +245,10 @@ impl TagsSidebar {
             toggles: HashMap::new(),
             list: List::new(),
         }
+    }
+
+    fn current(&self) -> Option<TagId> {
+        self.tags.get(self.list.index()).copied()
     }
 
     fn update(&mut self, db: &Database) {

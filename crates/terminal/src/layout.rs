@@ -44,6 +44,13 @@ impl Rect {
         self
     }
 
+    pub const fn with_rows_min(mut self, min: u16) -> Self {
+        if self.size.rows > min {
+            self.size.rows = min;
+        }
+        self
+    }
+
     pub const fn is_empty(&self) -> bool {
         self.size.is_empty()
     }
