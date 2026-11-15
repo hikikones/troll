@@ -416,7 +416,7 @@ impl TagItem {
     fn new(id: TagId, name: &str, cards_count: u32, writer: &mut String) -> Self {
         Self {
             id,
-            name: writer.write_get_range(format_args!("{name} ({cards_count})")),
+            name: writer.push_fmt_get_range(format_args!("{name} ({cards_count})")),
         }
     }
 }

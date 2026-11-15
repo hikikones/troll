@@ -345,7 +345,7 @@ impl Markup {
                         }
                         Err(err) => {
                             self.plain.push(MarkupPlain::ImageError {
-                                text: self.text.write_get_range(format_args!("ERROR\n{err}")),
+                                text: self.text.push_fmt_get_range(format_args!("ERROR\n{err}")),
                             });
                         }
                     }
@@ -370,7 +370,7 @@ impl Markup {
                         }
                         Err(err) => {
                             self.plain.push(MarkupPlain::ImageError {
-                                text: self.text.write_get_range(format_args!("ERROR\n{err}")),
+                                text: self.text.push_fmt_get_range(format_args!("ERROR\n{err}")),
                             });
                         }
                     }
@@ -427,7 +427,7 @@ impl Markup {
         fn markup_to_ansi<'a>(markup: &str, width: u16, writer: &'a mut String) -> &'a str {
             InlineParser::new(markup).for_each(|event| match event {
                 InlineEvent::Text(text) => writer.push_str(text),
-                InlineEvent::Tag(tag) => writer.write(tag.as_sgr()),
+                InlineEvent::Tag(tag) => writer.push_fmt(tag.as_sgr()),
             });
             utils::text_wrap(writer, width);
             writer.as_str()
@@ -443,7 +443,7 @@ impl Markup {
                 }
                 MarkupPlain::Heading { text, alignment } => {
                     let markup = self.text.slice(text);
-                    writer.write(format_args!(
+                    writer.push_fmt(format_args!(
                         "{}{markup}{}",
                         Sgrs([Sgr::Bold, Sgr::Fg(self.colors.heading)]),
                         Sgr::Reset
@@ -478,9 +478,9 @@ impl Markup {
                         self.colors.syntax_theme,
                         |span, color| match color {
                             Some(Rgb(r, g, b)) => {
-                                writer.write(Sgr::Fg(Color::Rgb(r, g, b)));
+                                writer.push_fmt(Sgr::Fg(Color::Rgb(r, g, b)));
                                 writer.push_str(span);
-                                writer.write(Sgr::Reset);
+                                writer.push_fmt(Sgr::Reset);
                             }
                             None => {
                                 writer.push_str(span);
@@ -496,7 +496,7 @@ impl Markup {
                 MarkupPlain::Image { index } => MarkupRich::Image { index },
                 MarkupPlain::ImageError { text } => {
                     let error = self.text.slice(text);
-                    writer.write(format_args!(
+                    writer.push_fmt(format_args!(
                         "{}{error}{}",
                         Sgr::Fg(Color::Red),
                         Sgr::reset_fg()

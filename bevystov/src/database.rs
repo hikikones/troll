@@ -188,7 +188,7 @@ impl Database {
                 "GROUP_CONCAT(ar.name, ', ')"
             }
         };
-        self.sql.write(format_args!(
+        self.sql.push_fmt(format_args!(
             "SELECT t.title, {artists}, al.name, t.duration, t.rating FROM tracks t \
             JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
             JOIN artists ar ON ar.id = ar_t.artist_id \
@@ -293,7 +293,7 @@ impl Database {
     ) -> SqliteResult<()> {
         self.sql.clear();
 
-        self.sql.write(format_args!(
+        self.sql.push_fmt(format_args!(
             "SELECT
                 rowid, \
                 highlight(track_fts, 0, '{markup_start}', '{markup_end}') || ' ' || \
@@ -481,7 +481,7 @@ impl Database {
                 format_args!("SELECT id FROM tracks ORDER BY rating {order}, id {order}")
             }
         };
-        self.sql.write(query);
+        self.sql.push_fmt(query);
 
         self.sqlite
             .transaction(|tx| {
