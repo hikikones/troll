@@ -113,9 +113,11 @@ impl SettingsPage {
                 self.primary.clear();
                 self.secondary.clear();
                 self.neutral.clear();
-                self.primary.push_fmt(settings.colors().primary);
-                self.secondary.push_fmt(settings.colors().secondary);
-                self.neutral.push_fmt(settings.colors().neutral);
+
+                let colors = settings.colors();
+                self.primary.push_fmt(colors.primary);
+                self.secondary.push_fmt(colors.secondary);
+                self.neutral.push_fmt(colors.neutral);
 
                 return Action::Render;
             }
