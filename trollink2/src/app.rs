@@ -131,7 +131,7 @@ impl App {
             }
             Action::Refresh => {
                 self.modals.set(None, &self.database);
-                self.pages.refresh(&mut self.database);
+                self.pages.refresh(&mut self.database, &mut self.markup);
                 self.render(terminal)?;
             }
             Action::Clear => {
@@ -147,6 +147,7 @@ impl App {
     }
 
     fn render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+        // TODO: no need to take?
         let mut frame = std::mem::take(&mut self.frame);
 
         frame.set_cursor_visibility(false);

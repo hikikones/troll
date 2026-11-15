@@ -39,7 +39,7 @@ impl CardsPage {
                         db.get_tags_for_card(cid, |tid| {
                             self.tags.includes.insert(tid);
                         });
-                        self.update_cards(db);
+                        self.update_cards(db, true);
                         self.select_card(cid);
                     }
                     CardsParam::Tag(tid) => {
@@ -47,14 +47,13 @@ impl CardsPage {
                         self.tags.refresh(db);
                         self.tags.includes.insert(tid);
                         self.tags.select(tid);
-                        self.update_cards(db);
+                        self.update_cards(db, true);
                     }
                 }
                 self.show_tags = true;
             }
             None => {
-                self.tags.refresh(db);
-                self.update_cards(db);
+                self.refresh(db);
             }
         }
     }
@@ -63,7 +62,7 @@ impl CardsPage {
 
     pub fn refresh(&mut self, db: &mut Database) {
         self.tags.refresh(db);
-        self.update_cards(db);
+        self.update_cards(db, false);
     }
 
     pub fn input(&mut self, key: Key, db: &mut Database, markup: &mut Markup) -> Action {
@@ -80,8 +79,9 @@ impl CardsPage {
                         return Action::Modal(Some(Modal::DeleteTag(id)));
                     }
                 } else {
-                    // TODO: Delete card modal
-                    return self.delete_card(db, markup);
+                    if let Some(id) = self.current_card() {
+                        return Action::Modal(Some(Modal::DeleteCard(id)));
+                    }
                 }
             }
             KeyCode::Char('e') => {
@@ -97,12 +97,13 @@ impl CardsPage {
             }
             KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::AddTag)),
             KeyCode::Char('t') => {
-                return self.toggle_show_tags();
+                self.show_tags = !self.show_tags;
+                return Action::Render;
             }
             KeyCode::Char(' ') => {
                 if self.show_tags {
                     if self.tags.toggle_selection() {
-                        self.update_cards(db);
+                        self.update_cards(db, true);
                         return Action::Render;
                     }
                 }
@@ -110,7 +111,7 @@ impl CardsPage {
             KeyCode::Char('r') => {
                 if self.show_tags && !self.tags.is_empty() {
                     if self.tags.reset() {
-                        self.update_cards(db);
+                        self.update_cards(db, true);
                         return Action::Render;
                     }
                 }
@@ -232,33 +233,18 @@ impl CardsPage {
         }
     }
 
-    fn delete_card(&mut self, db: &Database, markup: &mut Markup) -> Action {
-        if self.index < self.cards.len() {
-            let id = self.cards.remove(self.index);
-            db.delete_card(id);
-
-            if !self.cards.is_empty() {
-                self.index = self.index.min(self.cards.len() - 1);
-                markup.scroll(MarkupScroll::Start);
-            }
-
-            return Action::Render;
-        }
-        Action::None
-    }
-
-    fn update_cards(&mut self, db: &mut Database) {
+    fn update_cards(&mut self, db: &mut Database, reset_index: bool) {
         self.cards.clear();
-        self.index = 0;
 
         db.get_cards_with_tags(self.tags.includes(), self.tags.excludes(), |id| {
             self.cards.push(id);
         });
-    }
 
-    fn toggle_show_tags(&mut self) -> Action {
-        self.show_tags = !self.show_tags;
-        return Action::Render;
+        if reset_index {
+            self.index = 0;
+        } else if self.index >= self.cards.len() {
+            self.index = self.cards.len().saturating_sub(1);
+        }
     }
 }
 

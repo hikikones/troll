@@ -1,16 +1,16 @@
+mod action;
 mod logs;
 mod search;
-mod tags;
 
+use action::*;
 pub use logs::*;
 use search::*;
-use tags::*;
 
 use terminal::*;
 
 use crate::{
     app::Action,
-    database::{Database, TagId},
+    database::{CardId, Database, TagId},
     settings::Colors,
 };
 
@@ -18,7 +18,7 @@ pub struct Modals {
     current: Option<Modal>,
     search: SearchModal,
     logs: LogsModal,
-    tags: TagsModal,
+    action: ActionModal,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +28,7 @@ pub enum Modal {
     AddTag,
     EditTag(TagId),
     DeleteTag(TagId),
+    DeleteCard(CardId),
 }
 
 impl Modals {
@@ -36,7 +37,7 @@ impl Modals {
             current: None,
             search: SearchModal::new(),
             logs: LogsModal::new(),
-            tags: TagsModal::new(),
+            action: ActionModal::new(),
         }
     }
 
@@ -86,9 +87,10 @@ impl Modals {
         match modal {
             Modal::Search => self.search.enter(db),
             Modal::Logs => self.logs.enter(),
-            Modal::AddTag => self.tags.enter(TagOp::Add, db),
-            Modal::EditTag(id) => self.tags.enter(TagOp::Edit(id), db),
-            Modal::DeleteTag(id) => self.tags.enter(TagOp::Delete(id), db),
+            Modal::AddTag => self.action.enter(ModalAction::AddTag, db),
+            Modal::EditTag(id) => self.action.enter(ModalAction::EditTag(id), db),
+            Modal::DeleteTag(id) => self.action.enter(ModalAction::DeleteTag(id), db),
+            Modal::DeleteCard(id) => self.action.enter(ModalAction::DeleteCard(id), db),
         }
     }
 
@@ -98,7 +100,9 @@ impl Modals {
         match modal {
             Modal::Search => self.search.exit(),
             Modal::Logs => self.logs.exit(),
-            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) => self.tags.exit(),
+            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) | Modal::DeleteCard(_) => {
+                self.action.exit()
+            }
         }
     }
 
@@ -106,7 +110,9 @@ impl Modals {
         match modal {
             Modal::Search => self.search.input(key, db),
             Modal::Logs => self.logs.input(key),
-            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) => self.tags.input(key, db),
+            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) | Modal::DeleteCard(_) => {
+                self.action.input(key, db)
+            }
         }
     }
 
@@ -120,8 +126,8 @@ impl Modals {
         match modal {
             Modal::Search => self.search.render(frame, colors),
             Modal::Logs => self.logs.render(frame, colors),
-            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) => {
-                self.tags.render(frame, colors, db)
+            Modal::AddTag | Modal::EditTag(_) | Modal::DeleteTag(_) | Modal::DeleteCard(_) => {
+                self.action.render(frame, colors, db)
             }
         }
     }

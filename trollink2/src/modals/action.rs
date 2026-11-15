@@ -3,36 +3,39 @@ use widgets2::{Block, Prompt};
 
 use crate::{
     app::Action,
-    database::{Database, TagId},
+    database::{CardId, Database, TagId},
     settings::Colors,
 };
 
-pub struct TagsModal {
-    op: TagOp,
+pub struct ActionModal {
+    action: ModalAction,
     prompt: Prompt,
     message: Option<Message>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum TagOp {
-    Add,
-    Edit(TagId),
-    Delete(TagId),
+pub enum ModalAction {
+    AddTag,
+    EditTag(TagId),
+    DeleteTag(TagId),
+    DeleteCard(CardId),
 }
 
-impl TagOp {
-    const fn modal_title(self) -> &'static str {
+impl ModalAction {
+    const fn title(self) -> &'static str {
         match self {
-            Self::Add => " New Tag ",
-            Self::Edit(_) => " Edit Tag ",
-            Self::Delete(_) => " Delete Tag ",
+            Self::AddTag => " New Tag ",
+            Self::EditTag(_) => " Edit Tag ",
+            Self::DeleteTag(_) => " Delete Tag ",
+            Self::DeleteCard(_) => " Delete Card ",
         }
     }
 
     const fn rows(self) -> u16 {
         match self {
-            Self::Add | Self::Edit(_) => 3,
-            Self::Delete(_) => 10,
+            Self::AddTag | Self::EditTag(_) => 3,
+            Self::DeleteTag(_) => 10,
+            Self::DeleteCard(_) => 5,
         }
     }
 }
@@ -52,19 +55,19 @@ impl Message {
     }
 }
 
-impl TagsModal {
+impl ActionModal {
     pub const fn new() -> Self {
         Self {
-            op: TagOp::Add,
+            action: ModalAction::AddTag,
             prompt: Prompt::new().with_placeholder("Tag name..."),
             message: None,
         }
     }
 
-    pub fn enter(&mut self, op: TagOp, db: &Database) {
-        self.op = op;
+    pub fn enter(&mut self, op: ModalAction, db: &Database) {
+        self.action = op;
 
-        if let TagOp::Edit(id) = op {
+        if let ModalAction::EditTag(id) = op {
             db.get_tag_name(id, |name| self.prompt.push_str(name));
         }
     }
@@ -75,8 +78,8 @@ impl TagsModal {
     }
 
     pub fn input(&mut self, key: Key, db: &mut Database) -> Action {
-        match self.op {
-            TagOp::Add => match key.code {
+        match self.action {
+            ModalAction::AddTag => match key.code {
                 KeyCode::Enter => {
                     let name = self.prompt.as_str_trim();
 
@@ -99,7 +102,7 @@ impl TagsModal {
                     }
                 }
             },
-            TagOp::Edit(id) => match key.code {
+            ModalAction::EditTag(id) => match key.code {
                 KeyCode::Enter => {
                     let name = self.prompt.as_str_trim();
 
@@ -122,7 +125,7 @@ impl TagsModal {
                     }
                 }
             },
-            TagOp::Delete(id) => {
+            ModalAction::DeleteTag(id) => {
                 // TODO: Add option for also deleting related cards.
                 match key.code {
                     KeyCode::Char('y') => {
@@ -135,6 +138,16 @@ impl TagsModal {
                     _ => {}
                 }
             }
+            ModalAction::DeleteCard(id) => match key.code {
+                KeyCode::Char('y') => {
+                    db.delete_card(id);
+                    return Action::Refresh;
+                }
+                KeyCode::Char('n') => {
+                    return Action::Modal(None);
+                }
+                _ => {}
+            },
         }
 
         Action::None
@@ -143,7 +156,7 @@ impl TagsModal {
     pub fn render(&mut self, frame: &mut Framebuffer, colors: &Colors, db: &Database) {
         let area = frame
             .area()
-            .with_rows_min(self.op.rows())
+            .with_rows_min(self.action.rows())
             .scale_cols(0.5)
             .center(frame.area());
 
@@ -155,10 +168,10 @@ impl TagsModal {
 
         let (top, mut body, bottom) = area.inner(Margin::horizontal(2)).split_ends(1, 1);
 
-        frame.print_span_with(top, self.op.modal_title(), SpanOptions::center_top());
+        frame.print_span_with(top, self.action.title(), SpanOptions::center_top());
 
-        match self.op {
-            TagOp::Add | TagOp::Edit(_) => {
+        match self.action {
+            ModalAction::AddTag | ModalAction::EditTag(_) => {
                 if let Some(msg) = self.message {
                     let (left, right) = body.split_vertically_with_gap(0);
                     frame.push_str_fg(msg.get(), colors.red);
@@ -175,7 +188,7 @@ impl TagsModal {
                 ));
                 frame.render(bottom, TextOptions::span_center_top());
             }
-            TagOp::Delete(id) => {
+            ModalAction::DeleteTag(id) => {
                 frame.push_str("You are about to delete the following tag:\n\n");
                 db.get_tag_name(id, |name| {
                     frame.push_fmt(Sgrs([Sgr::Bold, Sgr::Fg(colors.secondary)]));
@@ -183,6 +196,19 @@ impl TagsModal {
                     frame.push_fmt(Sgr::Reset);
                 });
                 frame.push_str("\n\nAre you sure you want to continue?");
+                frame.render(body, TextOptions::paragraph_center());
+
+                frame.push_fmt(format_args!(
+                    " {}y{} Yes {}n{} No ",
+                    Sgr::Fg(colors.secondary),
+                    Sgr::Fg(colors.normal),
+                    Sgr::Fg(colors.secondary),
+                    Sgr::Fg(colors.normal),
+                ));
+                frame.render(bottom, TextOptions::span_center_top());
+            }
+            ModalAction::DeleteCard(_) => {
+                frame.push_str("Are you sure you want to delete this card?");
                 frame.render(body, TextOptions::paragraph_center());
 
                 frame.push_fmt(format_args!(

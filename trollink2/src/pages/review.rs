@@ -4,6 +4,7 @@ use widgets2::{Markup, MarkupScroll};
 use crate::{
     app::Action,
     database::{CardId, Database},
+    modals::Modal,
     pages::Route,
     settings::Colors,
 };
@@ -46,7 +47,10 @@ impl ReviewPage {
         self.review.clear();
     }
 
-    pub fn refresh(&self) {}
+    pub fn refresh(&mut self, db: &Database, markup: &mut Markup) {
+        self.total = self.total.saturating_sub(1);
+        self.next_card(db, markup);
+    }
 
     pub fn input(
         &mut self,
@@ -59,10 +63,7 @@ impl ReviewPage {
             ReviewState::Review(id) => match key.code {
                 KeyCode::Char('e') => return Action::Route(Route::Editor(Some(id))),
                 KeyCode::Delete => {
-                    db.delete_card(id);
-                    self.total = self.total.saturating_sub(1);
-                    self.next_card(db, markup);
-                    return Action::Render;
+                    return Action::Modal(Some(Modal::DeleteCard(id)));
                 }
                 KeyCode::Char(' ') => {
                     if !self.review.is_fully_revealed() {
@@ -111,7 +112,9 @@ impl ReviewPage {
     ) {
         match self.state {
             ReviewState::None => {
+                frame.print_fmt(Sgr::Fg(colors.neutral));
                 frame.print_span_with(area, "No cards to review", SpanOptions::center());
+                frame.print_fmt(Sgr::reset_fg());
             }
             ReviewState::Review(_id) => {
                 frame.push_fmt_fg(
@@ -125,7 +128,9 @@ impl ReviewPage {
                 markup.render(area, frame, self.review.content());
             }
             ReviewState::Done => {
+                frame.print_fmt(Sgr::Fg(colors.neutral));
                 frame.print_span_with(area, "Good job!", SpanOptions::center());
+                frame.print_fmt(Sgr::reset_fg());
             }
         }
     }
@@ -186,7 +191,8 @@ impl ReviewPage {
     }
 
     const fn has_more_cards(&self) -> bool {
-        (self.total - self.progress) > 1
+        let remaining = self.total - self.progress;
+        remaining > 1
     }
 }
 
