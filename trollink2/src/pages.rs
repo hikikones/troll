@@ -61,13 +61,13 @@ impl Route {
 }
 
 impl Pages {
-    pub fn new(route: Route) -> Self {
+    pub fn new(route: Route, settings: &Settings) -> Self {
         Self {
             route,
             review: ReviewPage::new(),
             editor: EditorPage::new(),
             cards: CardsPage::new(),
-            settings: SettingsPage::new(),
+            settings: SettingsPage::new(settings),
         }
     }
 
@@ -121,7 +121,7 @@ impl Pages {
         key: Key,
         db: &mut Database,
         markup: &mut Markup,
-        settings: &Settings,
+        settings: &mut Settings,
         terminal: &mut Terminal,
         logs: &mut LogsModal,
     ) -> Action {
@@ -132,7 +132,7 @@ impl Pages {
             }
             Route::Editor(_) => self.editor.input(key, db, markup, terminal, logs),
             Route::Cards(_) => self.cards.input(key, db, markup),
-            Route::Settings => self.settings.input(key),
+            Route::Settings => self.settings.input(key, settings, logs),
         }
     }
 
@@ -140,24 +140,30 @@ impl Pages {
         &mut self,
         area: Rect,
         frame: &mut Framebuffer,
-        colors: &Colors,
+        settings: &Settings,
         db: &Database,
         markup: &mut Markup,
     ) {
         match self.route {
-            Route::Review => self.review.render(area, frame, colors, markup),
-            Route::Editor(_) => self.editor.render(area, frame, colors, db, markup),
-            Route::Cards(_) => self.cards.render(area, frame, db, colors, markup),
-            Route::Settings => self.settings.render(area, frame, colors),
+            Route::Review => self.review.render(area, frame, settings.colors(), markup),
+            Route::Editor(_) => self
+                .editor
+                .render(area, frame, settings.colors(), db, markup),
+            Route::Cards(_) => self
+                .cards
+                .render(area, frame, db, settings.colors(), markup),
+            Route::Settings => self
+                .settings
+                .render(area, frame, settings.colors(), settings),
         }
     }
 
-    pub fn render_shortcuts(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render_shortcuts(&mut self, area: Rect, frame: &mut Framebuffer, settings: &Settings) {
         match self.route {
-            Route::Review => self.review.render_shortcuts(area, frame, colors),
-            Route::Editor(_) => self.editor.render_shortcuts(area, frame, colors),
-            Route::Cards(_) => self.cards.render_shortcuts(area, frame, colors),
-            Route::Settings => self.settings.render_shortcuts(area, frame, colors),
+            Route::Review => self.review.render_shortcuts(area, frame, settings.colors()),
+            Route::Editor(_) => self.editor.render_shortcuts(area, frame, settings.colors()),
+            Route::Cards(_) => self.cards.render_shortcuts(area, frame, settings.colors()),
+            Route::Settings => self.settings.render_shortcuts(area, frame, settings),
         }
     }
 

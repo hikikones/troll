@@ -323,11 +323,11 @@ fn render_settings(
 
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
+    frame.print_fmt(Sgr::Fg(colors.normal));
 
     let (top, body, bottom) = area.inner(Margin::horizontal(1)).split_ends(1, 1);
 
     frame.print_span_with(top, " Settings ", SpanOptions::center_top());
-    frame.print_fmt(Sgr::reset_fg());
 
     let Some((list_area, lines)) = list
         .set_len(SETTINGS.len())

@@ -34,12 +34,13 @@ impl App {
                     .push_err(AppError::from_config(args.settings.as_deref(), err));
                 Settings::new(args.settings)
             });
+        let pages = Pages::new(Route::Review, &settings);
 
         Ok(Self {
             database,
             settings,
             frame: Framebuffer::new(),
-            pages: Pages::new(Route::Review),
+            pages,
             modals,
             markup: Markup::new(args.assets)
                 .with_scrollbar(0)
@@ -95,7 +96,7 @@ impl App {
                         key,
                         &mut self.database,
                         &mut self.markup,
-                        &self.settings,
+                        &mut self.settings,
                         terminal,
                         self.modals.logs_mut(),
                     ),
@@ -163,7 +164,7 @@ impl App {
         self.pages.render(
             body.inner(Margin::all(1)),
             &mut frame,
-            colors,
+            &self.settings,
             &self.database,
             &mut self.markup,
         );
@@ -172,7 +173,7 @@ impl App {
         let [page_shortcuts_area, app_shortcuts_area] = bottom.split_lines();
 
         self.pages
-            .render_shortcuts(page_shortcuts_area, &mut frame, colors);
+            .render_shortcuts(page_shortcuts_area, &mut frame, &self.settings);
         self.render_shortcuts(app_shortcuts_area, &mut frame, colors);
 
         // Modal

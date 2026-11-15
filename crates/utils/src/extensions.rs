@@ -1,9 +1,12 @@
 use std::{fmt::Display, range::Range};
 
+// TODO: Make ext for error context.
+
 pub trait StringExt {
     fn slice(&self, range: Range<usize>) -> &str;
     fn push_str_get_range(&mut self, s: &str) -> Range<usize>;
     fn push_str_get_range2(&mut self, s1: &str, s2: &str) -> (Range<usize>, Range<usize>);
+    // TODO: copy String signature.
     fn extend_get_range<'a>(&mut self, iter: impl IntoIterator<Item = &'a str>) -> Range<usize>;
     fn write(&mut self, content: impl Display);
     fn write_get_range(&mut self, content: impl Display) -> Range<usize>;

@@ -148,6 +148,7 @@ const COLOR_NAMES: &[(&str, Color)] = &[
     ("reset", Color::Default),
 ];
 
+// TODO: Use enum error. No message String.
 #[derive(Debug)]
 pub struct ParseColorError {
     message: String,
