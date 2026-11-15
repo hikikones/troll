@@ -129,13 +129,9 @@ impl SettingsPage {
         Action::None
     }
 
-    pub fn render(
-        &mut self,
-        area: Rect,
-        frame: &mut Framebuffer,
-        colors: &Colors,
-        settings: &Settings,
-    ) {
+    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer, settings: &Settings) {
+        let colors = settings.colors();
+
         frame.print_fmt(Sgr::Fg(colors.secondary));
         Block::rectangle().render(area, frame);
         frame.print_fmt(Sgr::Fg(colors.normal));

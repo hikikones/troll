@@ -152,9 +152,7 @@ impl Pages {
             Route::Cards(_) => self
                 .cards
                 .render(area, frame, db, settings.colors(), markup),
-            Route::Settings => self
-                .settings
-                .render(area, frame, settings.colors(), settings),
+            Route::Settings => self.settings.render(area, frame, settings),
         }
     }
 
