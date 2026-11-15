@@ -16,8 +16,7 @@ CREATE TABLE reviews (
     time INTEGER DEFAULT (unixepoch('now')) NOT NULL,
     success INTEGER NOT NULL,
     card_id INTEGER NOT NULL,
-    FOREIGN KEY (card_id) REFERENCES cards (id)
-        ON UPDATE CASCADE ON DELETE CASCADE
+    FOREIGN KEY (card_id) REFERENCES cards (id) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
 CREATE TABLE tags (
@@ -28,11 +27,9 @@ CREATE TABLE tags (
 CREATE TABLE card_tags (
     card_id INTEGER NOT NULL,
     tag_id INTEGER NOT NULL,
-    PRIMARY KEY (card_id, tag_id)
-    FOREIGN KEY (card_id) REFERENCES cards (id)
-        ON UPDATE CASCADE ON DELETE CASCADE
-    FOREIGN KEY (tag_id) REFERENCES tags (id)
-        ON UPDATE CASCADE ON DELETE CASCADE
+    PRIMARY KEY (card_id, tag_id),
+    FOREIGN KEY (card_id) REFERENCES cards (id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (tag_id) REFERENCES tags (id) ON UPDATE CASCADE ON DELETE CASCADE
 );
 
 CREATE VIRTUAL TABLE cards_fts USING fts5 (

@@ -67,11 +67,11 @@ impl Default for MarkupOptions {
     }
 }
 
-// TODO: Add text color?
-
 pub struct MarkupColors {
     pub syntax_theme: MarkupCodeTheme,
     pub scrollbar: ScrollbarColors,
+    pub text: Color,
+    pub error: Color,
     pub heading: Color,
     pub break_char: Color,
     pub math: Rgb,
@@ -82,6 +82,8 @@ impl MarkupColors {
         Self {
             syntax_theme: MarkupCodeTheme::Base16EightiesDark,
             scrollbar: ScrollbarColors::DEFAULT,
+            text: Color::Default,
+            error: Color::Red,
             heading: Color::Yellow,
             break_char: Color::Indexed(240),
             math: Rgb::WHITE,
@@ -201,7 +203,24 @@ impl Markup {
 
         for markup in self.rich.iter().copied() {
             match markup {
-                MarkupRich::Text { range, alignment } => {
+                MarkupRich::Text {
+                    range,
+                    alignment,
+                    kind,
+                } => {
+                    match kind {
+                        TextKind::Heading => {
+                            frame.push_fmt(Sgrs([Sgr::Bold, Sgr::Fg(self.colors.heading)]));
+                        }
+                        TextKind::Paragraph => {
+                            frame.push_fmt(Sgr::Fg(self.colors.text));
+                        }
+                        TextKind::Error => {
+                            frame.push_fmt(Sgr::Fg(self.colors.error));
+                        }
+                        TextKind::Code => {}
+                    }
+
                     for line in self.text.slice(range).lines() {
                         let is_in_view = is_in_view(curr_line, view_top, view_bot);
 
@@ -224,6 +243,8 @@ impl Markup {
 
                         curr_line += 1;
                     }
+
+                    frame.push_fmt(Sgr::Reset);
                 }
                 MarkupRich::Image { index } => {
                     let dims = self.images.dims(index);
@@ -440,18 +461,22 @@ impl Markup {
                     let markup = self.text.slice(text);
                     let ansi = markup_to_ansi(markup, width, writer);
                     let range = self.text.push_str_get_range(ansi);
-                    MarkupRich::Text { range, alignment }
+                    MarkupRich::Text {
+                        range,
+                        alignment,
+                        kind: TextKind::Paragraph,
+                    }
                 }
                 MarkupPlain::Heading { text, alignment } => {
                     let markup = self.text.slice(text);
-                    writer.push_fmt(format_args!(
-                        "{}{markup}{}",
-                        Sgrs([Sgr::Bold, Sgr::Fg(self.colors.heading)]),
-                        Sgr::Reset
-                    ));
+                    writer.push_str(markup);
                     utils::text_wrap(writer, width);
                     let range = self.text.push_str_get_range(writer.as_str());
-                    MarkupRich::Text { range, alignment }
+                    MarkupRich::Text {
+                        range,
+                        alignment,
+                        kind: TextKind::Heading,
+                    }
                 }
                 MarkupPlain::ListItem { text } => {
                     let markup = self.text.slice(text);
@@ -467,6 +492,7 @@ impl Markup {
                     MarkupRich::Text {
                         range: Range { start, end },
                         alignment: HorizontalAlignment::Left,
+                        kind: TextKind::Paragraph,
                     }
                 }
                 MarkupPlain::Code { text, _language } => {
@@ -492,21 +518,19 @@ impl Markup {
                     MarkupRich::Text {
                         range: self.text.push_str_get_range(writer.as_str()),
                         alignment: HorizontalAlignment::Left,
+                        kind: TextKind::Code,
                     }
                 }
                 MarkupPlain::Image { index } => MarkupRich::Image { index },
                 MarkupPlain::ImageError { text } => {
                     let error = self.text.slice(text);
-                    writer.push_fmt(format_args!(
-                        "{}{error}{}",
-                        Sgr::Fg(Color::Red),
-                        Sgr::reset_fg()
-                    ));
+                    writer.push_str(error);
                     utils::text_wrap(writer, width);
                     let range = self.text.push_str_get_range(writer.as_str());
                     MarkupRich::Text {
                         range,
                         alignment: HorizontalAlignment::Center,
+                        kind: TextKind::Error,
                     }
                 }
                 MarkupPlain::ImageDescription { text } => {
@@ -516,6 +540,7 @@ impl Markup {
                     MarkupRich::Text {
                         range,
                         alignment: HorizontalAlignment::Center,
+                        kind: TextKind::Paragraph,
                     }
                 }
                 MarkupPlain::Break => MarkupRich::Break,
@@ -628,12 +653,21 @@ enum MarkupRich {
     Text {
         range: Range<usize>,
         alignment: HorizontalAlignment,
+        kind: TextKind,
     },
     Image {
         index: u8,
     },
     Break,
     EmptyLine,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TextKind {
+    Heading,
+    Paragraph,
+    Code,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy)]

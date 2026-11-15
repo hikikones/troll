@@ -330,6 +330,7 @@ impl TagsSidebar {
     }
 
     fn render(&mut self, mut area: Rect, frame: &mut Framebuffer, db: &Database, colors: &Colors) {
+        frame.print_fmt(Sgr::Fg(colors.normal));
         frame.print_span_with(area, "Tags", SpanOptions::center_top());
 
         if self.tags.is_empty() {
@@ -359,10 +360,10 @@ impl TagsSidebar {
                 .toggles
                 .get(&tid)
                 .map(|state| match state {
-                    TagState::Add | TagState::Keep => Color::Green,
-                    TagState::Remove => Color::Red,
+                    TagState::Add | TagState::Keep => colors.green,
+                    TagState::Remove => colors.red,
                 })
-                .unwrap_or(Color::Default);
+                .unwrap_or(colors.normal);
 
             frame.push_fmt(Sgr::Fg(color));
 

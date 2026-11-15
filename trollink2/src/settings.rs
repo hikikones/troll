@@ -217,6 +217,8 @@ impl Colors {
         MarkupColors {
             syntax_theme: MarkupCodeTheme::Base16EightiesDark,
             scrollbar: self.scrollbar(),
+            text: self.normal,
+            error: self.red,
             heading: self.secondary,
             break_char: self.neutral,
             math: self.foreground,

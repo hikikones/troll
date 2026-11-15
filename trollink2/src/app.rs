@@ -39,7 +39,7 @@ impl App {
         settings.colors_mut().background = Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
             .map(|rgb| rgb.slight_offset().as_color())
             .context(
-                "Failed to query background color. Using default instead, meaning images will not be blocked in modals.",
+                "Failed to query background color. Using default instead. Images will not be blocked in modals.",
             )
             .unwrap_or_else(|err| {
                 modals.logs_mut().push_err(err);

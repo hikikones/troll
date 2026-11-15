@@ -356,6 +356,7 @@ impl TagsSidebar {
     }
 
     fn render(&mut self, mut area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+        frame.print_fmt(Sgr::Fg(colors.normal));
         frame.print_span_with(area, "Tags", SpanOptions::center_top());
 
         if self.tags.is_empty() {
@@ -383,13 +384,12 @@ impl TagsSidebar {
         for (index, tag) in lines.zip(self.tags.iter().skip(self.list.scroll())) {
             let id = tag.id;
 
-            // TODO: use &colors
             let color = if self.includes.contains(&id) {
-                Color::Green
+                colors.green
             } else if self.excludes.contains(&id) {
-                Color::Red
+                colors.red
             } else {
-                Color::Default
+                colors.normal
             };
 
             frame.push_fmt(Sgr::Fg(color));
