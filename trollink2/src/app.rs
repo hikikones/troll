@@ -1,4 +1,5 @@
 use terminal::*;
+use utils::ResultExt;
 use widgets2::{KittyDeleteAll, Markup};
 
 use crate::{
@@ -27,14 +28,36 @@ impl App {
             .map_err(|err| AppError::from_database(args.database.as_deref(), err))?;
 
         let mut modals = Modals::new();
-        let settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
+
+        let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
             .unwrap_or_else(|err| {
                 modals
                     .logs_mut()
                     .push_err(AppError::from_config(args.settings.as_deref(), err));
                 Settings::new(args.settings)
             });
+        settings.colors_mut().background = Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+            .map(|rgb| rgb.slight_offset().as_color())
+            .context(
+                "Failed to query background color. Using default instead, meaning images will not be blocked in modals.",
+            )
+            .unwrap_or_else(|err| {
+                modals.logs_mut().push_err(err);
+                Color::Default
+            });
+        settings.colors_mut().foreground =
+            Rgb::query_fg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+                .context("Failed to query foreground color. Using white color instead for math.")
+                .unwrap_or_else(|err| {
+                    modals.logs_mut().push_err(err);
+                    Rgb::WHITE
+                });
+
         let pages = Pages::new(Route::Review, &settings);
+        let markup = Markup::new(args.assets)
+            .with_colors(settings.colors().markup())
+            .with_scrollbar(0)
+            .with_padding(Margin::horizontal(1));
 
         Ok(Self {
             database,
@@ -42,9 +65,7 @@ impl App {
             frame: Framebuffer::new(),
             pages,
             modals,
-            markup: Markup::new(args.assets)
-                .with_scrollbar(0)
-                .with_padding(Margin::horizontal(1)),
+            markup,
             is_running: true,
         })
     }
@@ -89,7 +110,13 @@ impl App {
                     }
                 }
                 KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
-                KeyCode::Char('l') if key.ctrl() => Action::Modal(Some(Modal::Logs)),
+                KeyCode::Char('l') if key.ctrl() => {
+                    if self.modals.logs().is_empty() {
+                        Action::None
+                    } else {
+                        Action::Modal(Some(Modal::Logs))
+                    }
+                }
                 _ => match self.modals.current() {
                     Some(modal) => self.modals.input(modal, key, &mut self.database),
                     None => self.pages.input(
@@ -155,11 +182,18 @@ impl App {
 
         let (top, body, bottom) = frame.area().split_ends(1, 2);
 
-        // TODO: swap modal colors
-        let colors = self.settings.colors();
+        // Swap colors for modal
+        let colors = if self.modals.is_active() {
+            let colors = self.settings.colors().clone();
+            self.settings.colors_mut().set_all(colors.neutral);
+            Some(colors)
+        } else {
+            None
+        };
 
         // Navigation
-        self.pages.render_navigation(top, &mut frame, colors);
+        self.pages
+            .render_navigation(top, &mut frame, self.settings.colors());
 
         // Page
         self.pages.render(
@@ -170,18 +204,17 @@ impl App {
             &mut self.markup,
         );
 
-        // TODO
         let [page_shortcuts_area, app_shortcuts_area] = bottom.split_lines();
-
         self.pages
             .render_shortcuts(page_shortcuts_area, &mut frame, &self.settings);
-        self.render_shortcuts(app_shortcuts_area, &mut frame, colors);
+        self.render_shortcuts(app_shortcuts_area, &mut frame, self.settings.colors());
 
         // Modal
-        if let Some(modal) = self.modals.current() {
+        if let Some((modal, colors)) = self.modals.current().zip(colors) {
             frame.set_cursor_visibility(false);
+            *self.settings.colors_mut() = colors;
             self.modals
-                .render(modal, &mut frame, colors, &self.database);
+                .render(modal, &mut frame, self.settings.colors(), &self.database);
         }
 
         frame.flush(&mut terminal.lock())?;

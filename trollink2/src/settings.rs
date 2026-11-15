@@ -4,8 +4,10 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use terminal::Color;
-use widgets2::{EditorColors, ListColors, PromptColors, ScrollbarColors};
+use terminal::{Color, Rgb};
+use widgets2::{
+    EditorColors, ListColors, MarkupCodeTheme, MarkupColors, PromptColors, ScrollbarColors,
+};
 
 use crate::AppDirRef;
 
@@ -188,24 +190,36 @@ pub struct Colors {
     pub secondary: Color,
     pub neutral: Color,
 
-    // TODO: query bg and fg
     #[serde(skip)]
     pub normal: Color,
     #[serde(skip)]
     pub background: Color,
     #[serde(skip)]
+    pub foreground: Rgb,
+    #[serde(skip)]
     pub red: Color,
+    #[serde(skip)]
+    pub green: Color,
 }
 
 impl Colors {
-    pub const fn all(color: Color) -> Self {
-        Self {
-            primary: color,
-            secondary: color,
-            neutral: color,
-            normal: color,
-            background: color,
-            red: color,
+    pub const fn set_all(&mut self, color: Color) {
+        self.primary = color;
+        self.secondary = color;
+        self.neutral = color;
+        self.normal = color;
+        self.background = color;
+        self.red = color;
+        self.green = color;
+    }
+
+    pub const fn markup(&self) -> MarkupColors {
+        MarkupColors {
+            syntax_theme: MarkupCodeTheme::Base16EightiesDark,
+            scrollbar: self.scrollbar(),
+            heading: self.secondary,
+            break_char: self.neutral,
+            math: self.foreground,
         }
     }
 
@@ -247,7 +261,9 @@ impl Default for Colors {
             neutral: Color::Indexed(240),
             normal: Color::Default,
             background: Color::Default,
+            foreground: Rgb::WHITE,
             red: Color::Red,
+            green: Color::Green,
         }
     }
 }

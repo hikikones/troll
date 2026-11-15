@@ -163,7 +163,9 @@ impl EditorPage {
         area.shrink_down(2);
 
         if self.preview {
-            markup.render(area, frame, self.editor.as_str());
+            markup
+                .set_colors(colors.markup())
+                .render(area, frame, self.editor.as_str());
         } else {
             self.editor
                 .set_disabled(self.show_tags)

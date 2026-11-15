@@ -458,27 +458,18 @@ impl Rgb {
     ) -> Result<Self, RgbQueryError> {
         let mut buffer = [0; 32];
 
-        let n = Self::do_query(osc, &mut buffer, writer, reader).map_err(|err| RgbQueryError {
-            message: format!("Failed to run OSC color query '{osc}'."),
-            source: Some(RgbQueryErrorSource::Io(err)),
-        })?;
+        let n = Self::do_query(osc, &mut buffer, writer, reader)
+            .map_err(|err| RgbQueryError::Io(err))?;
 
         let response = String::from_utf8_lossy(&buffer[..n]);
 
-        let Some(rgb) = Self::get_hex_parts(&response) else {
-            return Err(RgbQueryError {
-                message: format!(
-                    "Failed to find hex color parts of response '{response}' from OSC color query '{osc}'."
-                ),
-                source: None,
-            });
-        };
+        let hex = Self::get_hex_parts(&response).ok_or_else(|| RgbQueryError::ParseResponse {
+            response: format!("{response}"),
+        })?;
 
-        let rgb = Self::parse_hex_parts(rgb).map_err(|err| RgbQueryError {
-            message: format!(
-                "Failed to parse hex colors from parts '{rgb:?}' obtained by the OSC color query '{osc}'."
-            ),
-            source: Some(RgbQueryErrorSource::Parse(err)),
+        let rgb = Self::parse_hex_parts(hex).map_err(|err| RgbQueryError::ParseRgb {
+            hex_parts: format!("{hex:?}"),
+            error: err,
         })?;
 
         Ok(rgb)
@@ -521,46 +512,61 @@ impl Rgb {
         }
     }
 
-    fn parse_hex_parts((r, g, b): (&str, &str, &str)) -> Result<Self, std::num::ParseIntError> {
+    fn parse_hex_parts(hex: (&str, &str, &str)) -> Result<Self, std::num::ParseIntError> {
         fn parse_channel(hex: &str) -> Result<u8, std::num::ParseIntError> {
             let value = u32::from_str_radix(hex, 16)?;
             let max = (1u32 << (hex.len() * 4)) - 1;
             Ok(((value * 255 + max / 2) / max) as u8)
         }
 
-        let r = parse_channel(r)?;
-        let g = parse_channel(g)?;
-        let b = parse_channel(b)?;
+        let r = parse_channel(hex.0)?;
+        let g = parse_channel(hex.1)?;
+        let b = parse_channel(hex.2)?;
 
         Ok(Self(r, g, b))
     }
 }
 
+impl Default for Rgb {
+    fn default() -> Self {
+        Self::WHITE
+    }
+}
+
 #[derive(Debug)]
-pub struct RgbQueryError {
-    message: String,
-    source: Option<RgbQueryErrorSource>,
+pub enum RgbQueryError {
+    Io(std::io::Error),
+    ParseResponse {
+        response: String,
+    },
+    ParseRgb {
+        hex_parts: String,
+        error: std::num::ParseIntError,
+    },
 }
 
 impl std::fmt::Display for RgbQueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message.as_str())
+        match self {
+            Self::Io(err) => err.fmt(f),
+            Self::ParseResponse { response: resp } => f.write_fmt(format_args!(
+                "unable to extract hex parts from query response: '{resp}'"
+            )),
+            Self::ParseRgb { hex_parts: hex, .. } => {
+                f.write_fmt(format_args!("unable to parse hex parts from {hex}"))
+            }
+        }
     }
 }
 
 impl std::error::Error for RgbQueryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|source| match source {
-            RgbQueryErrorSource::Io(err) => err as _,
-            RgbQueryErrorSource::Parse(err) => err as _,
-        })
+        match self {
+            Self::Io(err) => Some(err as _),
+            Self::ParseResponse { .. } => None,
+            Self::ParseRgb { error: err, .. } => Some(err as _),
+        }
     }
-}
-
-#[derive(Debug)]
-enum RgbQueryErrorSource {
-    Io(std::io::Error),
-    Parse(std::num::ParseIntError),
 }
 
 #[derive(Debug, Clone)]

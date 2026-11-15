@@ -67,6 +67,8 @@ impl Default for MarkupOptions {
     }
 }
 
+// TODO: Add text color?
+
 pub struct MarkupColors {
     pub syntax_theme: MarkupCodeTheme,
     pub scrollbar: ScrollbarColors,
@@ -184,8 +186,7 @@ impl Markup {
         self.render_scrollbar(frame);
 
         // Render
-        let render_area = inner.with_size(self.view);
-        self.render_markup(render_area, cell, frame);
+        self.render_markup(inner.with_size(self.view), cell, frame);
     }
 
     fn render_markup(&mut self, mut area: Rect, cell: CellDims, frame: &mut Framebuffer) {

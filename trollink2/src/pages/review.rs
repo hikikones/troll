@@ -125,7 +125,9 @@ impl ReviewPage {
 
                 area.shrink_down(2);
 
-                markup.render(area, frame, self.review.content());
+                markup
+                    .set_colors(colors.markup())
+                    .render(area, frame, self.review.content());
             }
             ReviewState::Done => {
                 frame.print_fmt(Sgr::Fg(colors.neutral));

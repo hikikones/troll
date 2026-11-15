@@ -157,7 +157,9 @@ impl CardsPage {
                 area.shrink_down(2);
 
                 db.get_card_content(id, |content| {
-                    markup.render(area, frame, content);
+                    markup
+                        .set_colors(colors.markup())
+                        .render(area, frame, content);
                 });
             }
             None => {
