@@ -60,8 +60,8 @@ impl Terminal<Stdout> {
     }
 
     fn leave_alternate_screen(backend: &mut impl std::io::Write) -> std::io::Result<()> {
-        crossterm::terminal::disable_raw_mode()?;
-        execute!(backend, LeaveAlternateScreen)
+        execute!(backend, LeaveAlternateScreen)?;
+        crossterm::terminal::disable_raw_mode()
     }
 
     fn set_panic_hook() {

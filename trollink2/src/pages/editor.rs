@@ -71,11 +71,6 @@ impl EditorPage {
                 }
             }
             KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::AddTag)),
-            KeyCode::Char('e') if self.show_tags => {
-                if let Some(id) = self.tags.current() {
-                    return Action::Modal(Some(Modal::EditTag(id)));
-                }
-            }
             KeyCode::Char('e') if key.ctrl() => {
                 match terminal.temp_leave(|| {
                     edit::edit_with_builder(
@@ -93,6 +88,11 @@ impl EditorPage {
                     }
                 }
                 return Action::Clear;
+            }
+            KeyCode::Char('e') if self.show_tags => {
+                if let Some(id) = self.tags.current() {
+                    return Action::Modal(Some(Modal::EditTag(id)));
+                }
             }
             KeyCode::Char('p') if key.ctrl() => {
                 self.preview = !self.preview;

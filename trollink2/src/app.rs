@@ -163,6 +163,7 @@ impl App {
             }
             Action::Clear => {
                 self.frame.increment_generation();
+                self.frame.reset_cursor_visibility();
                 self.render(terminal)?;
             }
             Action::Quit => {

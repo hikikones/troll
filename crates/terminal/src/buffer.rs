@@ -68,6 +68,10 @@ impl Framebuffer {
         self.cursor_state.set_visible(value);
     }
 
+    pub const fn reset_cursor_visibility(&mut self) {
+        self.cursor_state.current_visibility = false;
+    }
+
     pub const fn set_cursor_pos_at_end(&mut self, pos: Pos) {
         self.cursor_state.set_pos(pos);
     }

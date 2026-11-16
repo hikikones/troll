@@ -117,7 +117,7 @@ impl LogsModal {
                 "No logs",
                 SpanOptions::center(),
             );
-            frame.print_fmt(Sgr::reset_fg());
+            frame.print_fmt(Sgr::Reset);
             return;
         };
 
