@@ -211,7 +211,7 @@ impl SearchModal {
             Some(msg) => {
                 match msg {
                     Message::Help => {
-                        frame.push_str("TODO: Show some help text for searching");
+                        frame.push_str_fg(USAGE, colors.neutral);
                     }
                     Message::Empty => {
                         frame.push_str_fg(
@@ -283,3 +283,16 @@ impl SearchModal {
         .unwrap();
     }
 }
+
+const USAGE: &str = "Usage
+
+Search for words and phrases across your cards. \
+The word or phrase in a query must be at least 3 characters long.
+
+Enclose your query in double quotes for exact matches, \
+and exclude a word with NOT such as \"apple NOT green\".
+
+The available operators are AND, NOT, OR, * (prefix) and ^ (start-of-column).
+
+Special symbols such as \"#\" must also be enclosed in double quotes. \
+If something is wrong with the query, an error will be displayed.";
