@@ -1,6 +1,37 @@
+use std::{
+    sync::mpsc::{Receiver, Sender, channel},
+    time::Duration,
+};
+
 use crossterm::event::{
     Event as CrosstermEvent, KeyCode, KeyEvent as CrosstermKeyEvent, KeyModifiers,
 };
+
+pub struct EventThread;
+
+impl EventThread {
+    pub fn spawn() -> Events {
+        let (sender, receiver) = channel();
+        std::thread::spawn(|| Self::read(sender));
+        Events(receiver)
+    }
+
+    fn read(sender: Sender<TerminalEvent>) -> std::io::Result<()> {
+        loop {
+            if let Some(event) = TerminalEvent::read()? {
+                let _ = sender.send(event);
+            }
+        }
+    }
+}
+
+pub struct Events(Receiver<TerminalEvent>);
+
+impl Events {
+    pub fn recv(&self, timeout: Duration) -> Option<TerminalEvent> {
+        self.0.recv_timeout(timeout).ok()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TerminalEvent {
