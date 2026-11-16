@@ -10,7 +10,6 @@ use crate::AppDirRef;
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
-// TODO: When searching, also include tag names?
 // TODO: Add tests.
 
 pub struct Database {
