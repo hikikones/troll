@@ -9,7 +9,27 @@ pub enum TerminalEvent {
 }
 
 impl TerminalEvent {
-    pub(crate) fn from(event: CrosstermEvent) -> Option<Self> {
+    /// Reads a terminal event in a blocking manner.
+    pub fn read() -> std::io::Result<Option<TerminalEvent>> {
+        let event = crossterm::event::read()?;
+        Ok(Self::from(event))
+    }
+
+    // TODO: The first poll sometimes blocks forever even with a valid timeout.
+    // Seems to be a bug in crossterm, as any manual input when blocked will make it work again.
+    // Reading crossterm event from another thread also triggers this bug.
+
+    /// Polls and reads a terminal event in a non-blocking manner.
+    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TerminalEvent>> {
+        if crossterm::event::poll(timeout)? {
+            let event = crossterm::event::read()?;
+            return Ok(Self::from(event));
+        }
+
+        Ok(None)
+    }
+
+    fn from(event: CrosstermEvent) -> Option<Self> {
         match event {
             CrosstermEvent::Key(key) if key.is_press() => Some(Self::Key(Key::from(key))),
             CrosstermEvent::Resize(_, _) => Some(Self::Resize),

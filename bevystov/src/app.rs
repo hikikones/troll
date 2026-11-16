@@ -163,7 +163,7 @@ impl App {
                 }
             }
 
-            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+            if let Some(event) = TerminalEvent::poll(self.timers.update.timeout)? {
                 match event {
                     TerminalEvent::Key(key) => {
                         if let KeyCode::Esc = key.code {
@@ -198,7 +198,7 @@ impl App {
                 }
             }
 
-            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+            if let Some(event) = TerminalEvent::poll(self.timers.update.timeout)? {
                 match event {
                     TerminalEvent::Key(key) => {
                         self.insert_resource(Input(Some(key)));

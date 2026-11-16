@@ -82,7 +82,7 @@ impl App {
         self.render(terminal)?;
 
         while self.is_running {
-            let Some(event) = Terminal::read().map_err(|err| AppError::Event(err))? else {
+            let Some(event) = TerminalEvent::read().map_err(|err| AppError::Event(err))? else {
                 continue;
             };
 

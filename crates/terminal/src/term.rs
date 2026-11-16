@@ -6,7 +6,7 @@ use crossterm::{
     terminal::{DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{Color, Size, TerminalEvent};
+use crate::{Color, Size};
 
 pub struct Terminal<W: std::io::Write = Stdout>(W);
 
@@ -26,24 +26,6 @@ impl Terminal<Stdout> {
         Self::leave_alternate_screen(&mut self.0)?;
 
         res
-    }
-
-    /// Reads a terminal event in a blocking manner.
-    pub fn read() -> std::io::Result<Option<TerminalEvent>> {
-        crossterm::event::read().map(|ev| TerminalEvent::from(ev))
-    }
-
-    // TODO: The first poll sometimes blocks forever even with a valid timeout.
-    // Seems to be a bug in crossterm, as any manual input when blocked will make it work again.
-    // Reading crossterm event from another thread also triggers this bug.
-
-    /// Polls and reads a terminal event in a non-blocking manner.
-    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TerminalEvent>> {
-        match crossterm::event::poll(timeout) {
-            Ok(true) => Self::read(),
-            Ok(false) => Ok(None),
-            Err(err) => Err(err),
-        }
     }
 
     pub fn temp_leave<T>(&mut self, f: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
