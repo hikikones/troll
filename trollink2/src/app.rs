@@ -1,5 +1,6 @@
+use std::path::PathBuf;
+
 use terminal::*;
-use utils::ResultExt;
 use widgets2::{KittyDeleteAll, Markup};
 
 use crate::{
@@ -24,32 +25,35 @@ pub struct App {
 
 impl App {
     pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
-        let database = Database::open(args.database.as_deref(), app_dir.as_deref())
-            .map_err(|err| AppError::from_database(args.database.as_deref(), err))?;
+        let database =
+            Database::open(args.database.as_deref(), app_dir.as_deref()).map_err(|error| {
+                AppError::Database {
+                    path: args.database,
+                    error,
+                }
+            })?;
 
         let mut modals = Modals::new();
 
         let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
-            .unwrap_or_else(|err| {
-                modals
-                    .logs_mut()
-                    .push_err(AppError::from_config(args.settings.as_deref(), err));
+            .unwrap_or_else(|error| {
+                modals.logs_mut().push_err(AppError::Config {
+                    path: args.settings.clone(),
+                    error,
+                });
                 Settings::new(args.settings)
             });
-        settings.colors_mut().background = Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
-            .map(|rgb| rgb.slight_offset().as_color())
-            .context(
-                "Failed to query background color. Using default instead. Images will not be blocked in modals.",
-            )
-            .unwrap_or_else(|err| {
-                modals.logs_mut().push_err(err);
-                Color::Default
-            });
+        settings.colors_mut().background =
+            Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+                .map(|rgb| rgb.slight_offset().as_color())
+                .unwrap_or_else(|error| {
+                    modals.logs_mut().push_err(AppError::QueryBg(error));
+                    Color::Default
+                });
         settings.colors_mut().foreground =
             Rgb::query_fg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
-                .context("Failed to query foreground color. Using white color instead for math.")
-                .unwrap_or_else(|err| {
-                    modals.logs_mut().push_err(err);
+                .unwrap_or_else(|error| {
+                    modals.logs_mut().push_err(AppError::QueryFg(error));
                     Rgb::WHITE
                 });
 
@@ -70,13 +74,15 @@ impl App {
         })
     }
 
-    pub fn run(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
-        self.frame.query_size()?;
+    pub fn run(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        self.frame
+            .query_size()
+            .map_err(|err| AppError::QuerySize(err))?;
         self.pages.enter(&mut self.database, &mut self.markup);
         self.render(terminal)?;
 
         while self.is_running {
-            let Some(event) = Terminal::read()? else {
+            let Some(event) = Terminal::read().map_err(|err| AppError::Event(err))? else {
                 continue;
             };
 
@@ -87,11 +93,7 @@ impl App {
         Ok(())
     }
 
-    fn handle_event(
-        &mut self,
-        event: TerminalEvent,
-        terminal: &mut Terminal,
-    ) -> std::io::Result<Action> {
+    fn handle_event(&mut self, event: TerminalEvent, terminal: &mut Terminal) -> AppResult<Action> {
         let action = match event {
             TerminalEvent::Key(key) => match key.code {
                 KeyCode::Esc => Action::Quit,
@@ -130,7 +132,9 @@ impl App {
                 },
             },
             TerminalEvent::Resize => {
-                self.frame.query_size()?;
+                self.frame
+                    .query_size()
+                    .map_err(|err| AppError::QuerySize(err))?;
                 Action::Render
             }
         };
@@ -138,7 +142,7 @@ impl App {
         Ok(action)
     }
 
-    fn apply_action(&mut self, action: Action, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn apply_action(&mut self, action: Action, terminal: &mut Terminal) -> AppResult<()> {
         match action {
             Action::None => {}
             Action::Render => {
@@ -174,7 +178,7 @@ impl App {
         Ok(())
     }
 
-    fn render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn render(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.frame.set_cursor_visibility(false);
         self.frame.print_fmt(KittyDeleteAll);
 
@@ -219,9 +223,9 @@ impl App {
             );
         }
 
-        self.frame.flush(&mut terminal.lock())?;
-
-        Ok(())
+        self.frame
+            .flush(&mut terminal.lock())
+            .map_err(|err| AppError::Render(err))
     }
 
     fn render_shortcuts(&mut self, area: Rect) {
@@ -275,67 +279,55 @@ pub enum Action {
     Quit,
 }
 
-// TODO: Rework error to just an enum. Print message in impl Display.
 #[derive(Debug)]
-pub struct AppError {
-    message: String,
-    source: Option<AppErrorSource>,
-}
-
-impl AppError {
-    pub fn new(message: impl Into<String>, source: Option<AppErrorSource>) -> Self {
-        Self {
-            message: message.into(),
-            source,
-        }
-    }
-
-    fn from_database(path: Option<&std::path::Path>, err: crate::database::DatabaseError) -> Self {
-        match path {
-            Some(path) => Self {
-                message: format!("Failed to open database at '{}'.", path.display()),
-                source: Some(AppErrorSource::Database(err)),
-            },
-            None => Self {
-                message: String::from("Failed to open database."),
-                source: Some(AppErrorSource::Database(err)),
-            },
-        }
-    }
-
-    fn from_config(path: Option<&std::path::Path>, err: crate::settings::ConfigError) -> Self {
-        match path {
-            Some(path) => Self {
-                message: format!("Failed to read of create settings at '{}'.", path.display()),
-                source: Some(AppErrorSource::Config(err)),
-            },
-            None => Self {
-                message: String::from("Failed to read of create settings."),
-                source: Some(AppErrorSource::Config(err)),
-            },
-        }
-    }
+pub enum AppError {
+    Database {
+        path: Option<PathBuf>,
+        error: crate::database::DatabaseError,
+    },
+    Config {
+        path: Option<PathBuf>,
+        error: crate::settings::ConfigError,
+    },
+    QueryBg(RgbQueryError),
+    QueryFg(RgbQueryError),
+    QuerySize(std::io::Error),
+    Render(std::io::Error),
+    Event(std::io::Error),
 }
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message.as_str())
+        match self {
+            Self::Database { path, .. } => {
+                f.write_fmt(format_args!("Failed to open database at {path:?}."))
+            }
+            Self::Config { path, .. } => f.write_fmt(format_args!(
+                "Failed to read or create settings at {path:?}."
+            )),
+            Self::QueryBg(_) => f.write_str(
+                "Failed to query background color. Using default instead. Images will not be blocked in modals.",
+            ),
+            Self::QueryFg(_) => f.write_str(
+                "Failed to query foreground color. Using white color instead for math.",
+            ),
+            Self::QuerySize(_) => f.write_str("Failed to query terminal for window size."),
+            Self::Render(_) => f.write_str("Failed to render/flush to stdout."),
+            Self::Event(_) => f.write_str("Failed to read event from stdin."),
+        }
     }
 }
 
 impl std::error::Error for AppError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|source| match source {
-            AppErrorSource::Io(err) => err as _,
-            AppErrorSource::Database(err) => err as _,
-            AppErrorSource::Config(err) => err as _,
-        })
+        match self {
+            Self::Database { error, .. } => Some(error),
+            Self::Config { error, .. } => Some(error),
+            Self::QueryBg(error) => Some(error),
+            Self::QueryFg(error) => Some(error),
+            Self::QuerySize(error) => Some(error),
+            Self::Render(error) => Some(error),
+            Self::Event(error) => Some(error),
+        }
     }
-}
-
-#[derive(Debug)]
-pub enum AppErrorSource {
-    Io(std::io::Error),
-    Database(crate::database::DatabaseError),
-    Config(crate::settings::ConfigError),
 }
