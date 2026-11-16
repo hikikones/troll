@@ -104,6 +104,10 @@ impl Settings {
         &mut self.config.colors
     }
 
+    pub const fn set_colors(&mut self, colors: Colors) {
+        self.config.colors = colors;
+    }
+
     pub fn save(&self) -> SettingsResult<()> {
         let Some(path) = self.path.as_ref() else {
             return Err("No path to save settings to.")?;

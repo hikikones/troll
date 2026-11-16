@@ -7,7 +7,7 @@ use crate::{
     database::Database,
     modals::{Modal, Modals},
     pages::{Pages, Route},
-    settings::{Colors, Settings},
+    settings::Settings,
 };
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -174,13 +174,10 @@ impl App {
     }
 
     fn render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
-        // TODO: no need to take?
-        let mut frame = std::mem::take(&mut self.frame);
+        self.frame.set_cursor_visibility(false);
+        self.frame.print_fmt(KittyDeleteAll);
 
-        frame.set_cursor_visibility(false);
-        frame.print_fmt(KittyDeleteAll);
-
-        let (top, body, bottom) = frame.area().split_ends(1, 2);
+        let (top, body, bottom) = self.frame.area().split_ends(1, 2);
 
         // Swap colors for modal
         let colors = if self.modals.is_active() {
@@ -193,12 +190,12 @@ impl App {
 
         // Navigation
         self.pages
-            .render_navigation(top, &mut frame, self.settings.colors());
+            .render_navigation(top, &mut self.frame, self.settings.colors());
 
         // Page
         self.pages.render(
             body.inner(Margin::all(1)),
-            &mut frame,
+            &mut self.frame,
             &self.settings,
             &self.database,
             &mut self.markup,
@@ -206,26 +203,31 @@ impl App {
 
         let [page_shortcuts_area, app_shortcuts_area] = bottom.split_lines();
         self.pages
-            .render_shortcuts(page_shortcuts_area, &mut frame, &self.settings);
-        self.render_shortcuts(app_shortcuts_area, &mut frame, self.settings.colors());
+            .render_shortcuts(page_shortcuts_area, &mut self.frame, &self.settings);
+        self.render_shortcuts(app_shortcuts_area);
 
         // Modal
         if let Some((modal, colors)) = self.modals.current().zip(colors) {
-            frame.set_cursor_visibility(false);
-            *self.settings.colors_mut() = colors;
-            self.modals
-                .render(modal, &mut frame, self.settings.colors(), &self.database);
+            self.frame.set_cursor_visibility(false);
+            self.settings.set_colors(colors);
+            self.modals.render(
+                modal,
+                &mut self.frame,
+                self.settings.colors(),
+                &self.database,
+            );
         }
 
-        frame.flush(&mut terminal.lock())?;
-        self.frame = frame;
+        self.frame.flush(&mut terminal.lock())?;
 
         Ok(())
     }
 
-    fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
-        let key_color = colors.primary;
-        let name_color = colors.normal;
+    fn render_shortcuts(&mut self, area: Rect) {
+        let (key_color, name_color) = {
+            let colors = self.settings.colors();
+            (colors.primary, colors.normal)
+        };
         let gap = 1;
 
         for (key, name, gap) in [
@@ -233,31 +235,31 @@ impl App {
             ("(⇧)Tab", "Navigate", gap),
             ("^f", "Find", 0),
         ] {
-            frame.push_fmt(Sgr::Fg(key_color));
-            frame.push_str(key);
-            frame.push_fmt(Sgr::Fg(name_color));
-            frame.push_ch(' ');
-            frame.push_str(name);
-            frame.push_ch_repeat(' ', gap);
+            self.frame.push_fmt(Sgr::Fg(key_color));
+            self.frame.push_str(key);
+            self.frame.push_fmt(Sgr::Fg(name_color));
+            self.frame.push_ch(' ');
+            self.frame.push_str(name);
+            self.frame.push_ch_repeat(' ', gap);
         }
 
         if !self.modals.logs().is_empty() {
-            frame.push_ch_repeat(' ', gap);
-            frame.push_fmt(Sgr::Fg(key_color));
-            frame.push_str("^l");
-            frame.push_fmt(Sgr::Fg(name_color));
-            frame.push_ch(' ');
-            frame.push_str("Logs");
+            self.frame.push_ch_repeat(' ', gap);
+            self.frame.push_fmt(Sgr::Fg(key_color));
+            self.frame.push_str("^l");
+            self.frame.push_fmt(Sgr::Fg(name_color));
+            self.frame.push_ch(' ');
+            self.frame.push_str("Logs");
 
             let len = self.modals.logs().len_new();
             if len > 0 {
                 let mut buf = std::fmt::NumBuffer::new();
-                frame.push_iter(["(", len.format_into(&mut buf), ")"]);
+                self.frame.push_iter(["(", len.format_into(&mut buf), ")"]);
             }
         }
 
-        frame.push_fmt(Sgr::reset_fg());
-        frame.render(area, TextOptions::span_center_top());
+        self.frame.push_fmt(Sgr::reset_fg());
+        self.frame.render(area, TextOptions::span_center_top());
     }
 }
 
