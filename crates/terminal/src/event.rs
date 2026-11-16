@@ -7,13 +7,17 @@ use crossterm::event::{
     Event as CrosstermEvent, KeyCode, KeyEvent as CrosstermKeyEvent, KeyModifiers,
 };
 
-pub struct EventThread;
+pub struct EventThread(Receiver<TerminalEvent>);
 
 impl EventThread {
-    pub fn spawn() -> Events {
+    pub fn spawn() -> Self {
         let (sender, receiver) = channel();
         std::thread::spawn(|| Self::read(sender));
-        Events(receiver)
+        Self(receiver)
+    }
+
+    pub fn recv(&self, timeout: Duration) -> Option<TerminalEvent> {
+        self.0.recv_timeout(timeout).ok()
     }
 
     fn read(sender: Sender<TerminalEvent>) -> std::io::Result<()> {
@@ -22,14 +26,6 @@ impl EventThread {
                 let _ = sender.send(event);
             }
         }
-    }
-}
-
-pub struct Events(Receiver<TerminalEvent>);
-
-impl Events {
-    pub fn recv(&self, timeout: Duration) -> Option<TerminalEvent> {
-        self.0.recv_timeout(timeout).ok()
     }
 }
 
