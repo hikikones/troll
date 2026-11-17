@@ -670,6 +670,7 @@ enum TextKind {
     Error,
 }
 
+// TODO: Add a None/Flat option for no colors. Could be good for modals.
 #[derive(Debug, Clone, Copy)]
 pub enum MarkupCodeTheme {
     Base16OceanDark,
