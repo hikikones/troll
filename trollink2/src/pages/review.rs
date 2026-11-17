@@ -112,9 +112,12 @@ impl ReviewPage {
     ) {
         match self.state {
             ReviewState::None => {
-                frame.print_fmt(Sgr::Fg(colors.neutral));
-                frame.print_span_with(area, "No cards to review", SpanOptions::center());
-                frame.print_fmt(Sgr::reset_fg());
+                frame.print_span_fg(
+                    area,
+                    "No cards to review",
+                    colors.neutral,
+                    SpanOptions::center(),
+                );
             }
             ReviewState::Review(_id) => {
                 frame.push_fmt_fg(
@@ -130,9 +133,7 @@ impl ReviewPage {
                     .render(area, frame, self.review.content());
             }
             ReviewState::Done => {
-                frame.print_fmt(Sgr::Fg(colors.neutral));
-                frame.print_span_with(area, "Good job!", SpanOptions::center());
-                frame.print_fmt(Sgr::reset_fg());
+                frame.print_span_fg(area, "Good job!", colors.neutral, SpanOptions::center());
             }
         }
     }

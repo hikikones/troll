@@ -112,11 +112,7 @@ impl Framebuffer {
         self.buffer.extend(iter);
     }
 
-    pub fn print_span(&mut self, area: Rect, text: &str) {
-        self.print_span_with(area, text, SpanOptions::left());
-    }
-
-    pub fn print_span_with(&mut self, area: Rect, text: &str, options: SpanOptions) {
+    pub fn print_span(&mut self, area: Rect, text: &str, options: SpanOptions) {
         let SpanOptions {
             horizontal,
             vertical,
@@ -177,6 +173,12 @@ impl Framebuffer {
                 }
             }
         }
+    }
+
+    pub fn print_span_fg(&mut self, area: Rect, text: &str, color: Color, options: SpanOptions) {
+        self.print_fmt(Sgr::Fg(color));
+        self.print_span(area, text, options);
+        self.print_fmt(Sgr::reset_fg());
     }
 
     pub fn fill(&mut self, area: Rect, bg: Color, reset: bool) {

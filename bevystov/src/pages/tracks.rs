@@ -196,9 +196,12 @@ fn render_tracks(
     let colors = settings.colors();
 
     if database.is_tracks_empty() {
-        frame.print_fmt(Sgr::Fg(colors.neutral));
-        frame.print_span_with(area, "No tracks to be found", SpanOptions::center());
-        frame.print_fmt(Sgr::reset_fg());
+        frame.print_span_fg(
+            area,
+            "No tracks to be found",
+            colors.neutral,
+            SpanOptions::center(),
+        );
         return;
     }
 
@@ -309,12 +312,12 @@ fn render_table(
         frame.print_fmt(style);
 
         database.track_table(id, |track| {
-            frame.print_span(areas.title(), track.title);
-            frame.print_span(areas.artist(), track.artists);
-            frame.print_span(areas.album(), track.album);
+            frame.print_span(areas.title(), track.title, SpanOptions::left());
+            frame.print_span(areas.artist(), track.artists, SpanOptions::left());
+            frame.print_span(areas.album(), track.album, SpanOptions::left());
             frame.push_fmt(track.duration);
             frame.render(areas.time(), TextOptions::span());
-            frame.print_span(areas.rating(), track.rating.stars());
+            frame.print_span(areas.rating(), track.rating.stars(), SpanOptions::left());
         });
 
         frame.print_fmt(Sgr::Reset);

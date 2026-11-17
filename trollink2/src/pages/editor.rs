@@ -331,7 +331,7 @@ impl TagsSidebar {
 
     fn render(&mut self, mut area: Rect, frame: &mut Framebuffer, db: &Database, colors: &Colors) {
         frame.print_fmt(Sgr::Fg(colors.normal));
-        frame.print_span_with(area, "Tags", SpanOptions::center_top());
+        frame.print_span(area, "Tags", SpanOptions::center_top());
 
         if self.tags.is_empty() {
             frame.push_str_fg("No tags", colors.neutral);

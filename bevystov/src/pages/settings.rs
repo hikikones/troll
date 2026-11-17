@@ -327,7 +327,7 @@ fn render_settings(
 
     let (top, body, bottom) = area.inner(Margin::horizontal(1)).split_ends(1, 1);
 
-    frame.print_span_with(top, " Settings ", SpanOptions::center_top());
+    frame.print_span(top, " Settings ", SpanOptions::center_top());
 
     let Some((list_area, lines)) = list
         .set_len(SETTINGS.len())
@@ -518,9 +518,7 @@ fn render_shortcuts(
 }
 
 fn print_section(title: &str, line: Rect, frame: &mut Framebuffer, colors: &Colors) {
-    frame.print_fmt(Sgr::Fg(colors.neutral));
-    frame.print_span_with(line, title, SpanOptions::center_top());
-    frame.print_fmt(Sgr::reset_fg());
+    frame.print_span_fg(line, title, colors.neutral, SpanOptions::center_top());
 }
 
 fn print_toggle(
@@ -535,9 +533,7 @@ fn print_toggle(
     frame.render(left, TextOptions::span_right());
 
     let (toggle, color) = symbols::checkmark_with_value(value, colors.primary, colors.neutral);
-    frame.print_fmt(Sgr::Fg(color));
-    frame.print_span(right, toggle);
-    frame.print_fmt(Sgr::reset_fg());
+    frame.print_span_fg(right, toggle, color, SpanOptions::left());
 }
 
 fn print_color(

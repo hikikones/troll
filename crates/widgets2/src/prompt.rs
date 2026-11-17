@@ -296,7 +296,7 @@ impl Prompt {
 
     fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
         frame.print_fmt(Sgr::Fg(color));
-        frame.print_span(area, self.placeholder);
+        frame.print_span(area, self.placeholder, SpanOptions::left());
         frame.print_fmt(Sgr::Fg(Color::Default));
     }
 

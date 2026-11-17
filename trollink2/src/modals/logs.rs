@@ -110,9 +110,9 @@ impl LogsModal {
             frame.print_fmt(Sgr::Fg(colors.secondary));
             Block::rectangle().render(area, frame);
             frame.print_fmt(Sgr::Fg(colors.normal));
-            frame.print_span_with(area, " Logs ", SpanOptions::center_top());
+            frame.print_span(area, " Logs ", SpanOptions::center_top());
             frame.print_fmt(Sgr::Fg(colors.neutral));
-            frame.print_span_with(
+            frame.print_span(
                 area.inner(Margin::proportional(1)),
                 "No logs",
                 SpanOptions::center(),

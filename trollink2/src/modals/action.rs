@@ -168,7 +168,7 @@ impl ActionModal {
 
         let (top, mut body, bottom) = area.inner(Margin::horizontal(2)).split_ends(1, 1);
 
-        frame.print_span_with(top, self.action.title(), SpanOptions::center_top());
+        frame.print_span(top, self.action.title(), SpanOptions::center_top());
 
         match self.action {
             ModalAction::AddTag | ModalAction::EditTag(_) => {

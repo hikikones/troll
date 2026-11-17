@@ -132,7 +132,7 @@ impl FrontCover {
             CoverState::Loading => {
                 frame.print_fmt(Sgr::Fg(colors.neutral));
                 Block::rectangle().render(area, frame);
-                frame.print_span_with(
+                frame.print_span(
                     area.inner(Margin::proportional(1)),
                     "Loading",
                     SpanOptions::center(),
@@ -362,13 +362,12 @@ fn render_queue(
     frame.render(area, TextOptions::span_center_top());
 
     if jukebox.is_empty() {
-        frame.print_fmt(Sgr::Fg(colors.neutral));
-        frame.print_span_with(
+        frame.print_span_fg(
             area.inner(Margin::proportional(1)),
             "No tracks in the queue",
+            colors.neutral,
             SpanOptions::center(),
         );
-        frame.print_fmt(Sgr::reset_fg());
         return;
     }
 
