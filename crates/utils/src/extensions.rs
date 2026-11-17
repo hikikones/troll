@@ -2,6 +2,9 @@ use std::{error::Error, fmt::Display, range::Range};
 
 pub trait StringExt {
     fn slice(&self, range: Range<usize>) -> &str;
+    fn push_get_range(&mut self, ch: char) -> Range<usize>;
+    fn push_repeat(&mut self, ch: char, n: usize);
+    fn push_repeat_get_range(&mut self, ch: char, n: usize) -> Range<usize>;
     fn push_str_get_range(&mut self, s: &str) -> Range<usize>;
     fn push_str_get_range2(&mut self, s1: &str, s2: &str) -> (Range<usize>, Range<usize>);
     fn push_fmt(&mut self, content: impl Display);
@@ -15,6 +18,30 @@ pub trait StringExt {
 impl StringExt for String {
     fn slice(&self, range: Range<usize>) -> &str {
         &self[range]
+    }
+
+    fn push_get_range(&mut self, ch: char) -> Range<usize> {
+        let start = self.len();
+        self.push(ch);
+
+        Range {
+            start,
+            end: self.len(),
+        }
+    }
+
+    fn push_repeat(&mut self, ch: char, n: usize) {
+        self.extend(std::iter::repeat_n(ch, n as usize));
+    }
+
+    fn push_repeat_get_range(&mut self, ch: char, n: usize) -> Range<usize> {
+        let start = self.len();
+        self.push_repeat(ch, n);
+
+        Range {
+            start,
+            end: self.len(),
+        }
     }
 
     fn push_str_get_range(&mut self, s: &str) -> Range<usize> {
@@ -71,6 +98,15 @@ impl StringExt for String {
     }
 }
 
+pub trait ResultExt<T, E> {
+    fn context(self, context: &'static str) -> Result<T, ContextError<E, &'static str>>;
+
+    fn with_context<C, F>(self, context: F) -> Result<T, ContextError<E, C>>
+    where
+        C: Display + std::fmt::Debug,
+        F: FnOnce() -> C;
+}
+
 #[derive(Debug)]
 pub struct ContextError<E, C> {
     context: C,
@@ -95,15 +131,6 @@ where
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.source)
     }
-}
-
-pub trait ResultExt<T, E> {
-    fn context(self, context: &'static str) -> Result<T, ContextError<E, &'static str>>;
-
-    fn with_context<C, F>(self, context: F) -> Result<T, ContextError<E, C>>
-    where
-        C: Display + std::fmt::Debug,
-        F: FnOnce() -> C;
 }
 
 impl<T, E> ResultExt<T, E> for Result<T, E> {

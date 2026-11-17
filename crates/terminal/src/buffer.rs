@@ -52,16 +52,16 @@ impl Framebuffer {
         self.size.cell_dims()
     }
 
+    pub const fn area(&self) -> Rect {
+        Rect::new(Pos::ZERO, self.size.window_size())
+    }
+
     pub const fn generation(&self) -> i32 {
         self.generation
     }
 
     pub const fn increment_generation(&mut self) {
         self.generation += 1;
-    }
-
-    pub const fn area(&self) -> Rect {
-        Rect::new(Pos::ZERO, self.size.window_size())
     }
 
     pub const fn set_cursor_visibility(&mut self, value: bool) {
