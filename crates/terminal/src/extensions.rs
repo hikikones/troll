@@ -1,5 +1,3 @@
-// TODO: Add extensions for a Stylize trait.
-
 use std::fmt::Display;
 
 use crate::{Color, Sgr, Style, Styled};
