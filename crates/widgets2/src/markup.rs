@@ -180,7 +180,7 @@ impl Markup {
 
         // Prepare markup
         let cell = frame.cell_dims().unwrap_or_default();
-        self.parse_and_load(markup, cell);
+        self.parse_and_load(markup, cell, frame);
         self.process_markup(area, inner, cell, frame);
 
         // Scroll
@@ -310,7 +310,7 @@ impl Markup {
         self.hash = 0;
     }
 
-    fn parse_and_load(&mut self, markup: &str, cell: CellDims) {
+    fn parse_and_load(&mut self, markup: &str, cell: CellDims, frame: &mut Framebuffer) {
         let hash = utils::hash_fast(markup);
 
         if self.hash == hash {
@@ -320,9 +320,19 @@ impl Markup {
         self.clear();
         self.hash = hash;
 
-        let mut image_index = 0;
+        // Convert tabs to spaces before we parse and load markup
+        let markup = if markup.contains('\t') {
+            frame
+                .text_mut()
+                .extend(utils::graphemes(markup).map(|g| if g.0 == "\t" { "    " } else { g.0 }));
+            frame.text()
+        } else {
+            markup
+        };
 
         // Parse and load markup
+        let mut image_index = 0;
+
         for (block, _) in MarkupBlockParser::new(markup) {
             match block {
                 MarkupBlock::Paragraph { text, alignment } => {
@@ -418,6 +428,8 @@ impl Markup {
         if is_last_empty_line {
             self.plain.pop();
         }
+
+        frame.text_mut().clear();
     }
 
     fn process_markup(&mut self, area: Rect, inner: Rect, cell: CellDims, frame: &mut Framebuffer) {
