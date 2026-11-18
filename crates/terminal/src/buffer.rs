@@ -297,8 +297,8 @@ impl Framebuffer {
         self.text.clear();
     }
 
-    pub const fn text(&self) -> &str {
-        self.text.as_str()
+    pub const fn text(&self) -> &String {
+        &self.text
     }
 
     pub const fn text_mut(&mut self) -> &mut String {

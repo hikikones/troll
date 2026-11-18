@@ -321,13 +321,13 @@ impl Markup {
         self.hash = hash;
 
         // Convert tabs to spaces before we parse and load markup
-        let markup = if markup.contains('\t') {
-            frame
-                .text_mut()
-                .extend(utils::graphemes(markup).map(|g| if g.0 == "\t" { "    " } else { g.0 }));
-            frame.text()
+        let (markup, start) = if markup.contains('\t') {
+            let range = frame.text_mut().extend_get_range(
+                utils::graphemes(markup).map(|g| if g.0 == "\t" { "    " } else { g.0 }),
+            );
+            (frame.text().slice(range), Some(range.start))
         } else {
-            markup
+            (markup, None)
         };
 
         // Parse and load markup
@@ -429,7 +429,9 @@ impl Markup {
             self.plain.pop();
         }
 
-        frame.text_mut().clear();
+        if let Some(start) = start {
+            frame.text_mut().truncate(start);
+        }
     }
 
     fn process_markup(&mut self, area: Rect, inner: Rect, cell: CellDims, frame: &mut Framebuffer) {
