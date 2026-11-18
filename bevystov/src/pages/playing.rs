@@ -327,7 +327,7 @@ fn render_cover(
             frame.push_str(empty_stars);
             frame.push_fmt(Sgr::reset_fg());
             frame.render(
-                image_area.with_row(image_area.bottom_out()),
+                image_area.with_row(image_area.bottom_row_out()),
                 TextOptions::span_center_top(),
             );
         }

@@ -432,7 +432,7 @@ impl Markup {
         self.relayout(cell, frame);
 
         if self.is_scrollable() {
-            let scroll_area = area.with_col(area.right_col()).with_cols(1);
+            let scroll_area = area.right_edge();
             self.view
                 .sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
             self.scroll_area = Some(scroll_area);

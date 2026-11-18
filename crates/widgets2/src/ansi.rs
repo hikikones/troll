@@ -230,7 +230,7 @@ impl AnsiViewer {
         self.render_scrollbar(frame);
     }
 
-    fn process(&mut self, ansi: &str, mut area: Rect, mut inner: Rect) {
+    fn process(&mut self, ansi: &str, area: Rect, mut inner: Rect) {
         let hash = utils::hash_fast(ansi);
 
         if self.hash != hash || self.size != area.size {
@@ -240,7 +240,7 @@ impl AnsiViewer {
             self.relayout(ansi, inner.cols());
 
             if self.is_scrollable(inner.size) {
-                let scroll_area = Scroll::make_area(&mut area, self.options.scrollbar_margin);
+                let scroll_area = area.right_edge();
                 inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
                 self.scroll_area = Some(scroll_area);
 

@@ -334,7 +334,7 @@ impl List {
             return;
         }
 
-        let scroll_area = area.with_col(area.right_col()).with_cols(1);
+        let scroll_area = area.right_edge();
         inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
 
         Scrollbar::new(ScrollbarData {

@@ -212,7 +212,7 @@ impl TagList {
 
     pub fn render<T: TagItem>(
         &mut self,
-        mut area: Rect,
+        area: Rect,
         frame: &mut Framebuffer,
         tags: impl IntoIterator<Item = T, IntoIter: Clone>,
         mut render_tag: impl FnMut(Rect, &mut Framebuffer, T, bool),
@@ -229,7 +229,7 @@ impl TagList {
         self.process_tags(inner, tags.clone());
 
         let scroll_area = if self.is_scrollable(inner.size) {
-            let scroll_area = Scroll::make_area(&mut area, self.options.scrollbar_margin);
+            let scroll_area = area.right_edge();
             inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
 
             // Second pass after scrollbar
@@ -301,7 +301,7 @@ impl TagList {
     }
 
     const fn update_scroll(&mut self, area_size: Size, list_height: u16) {
-        let scroll = if self.last_size.neq(area_size) {
+        let scroll = if self.last_size.not_equals(area_size) {
             // Refresh scroll on window resize
             0
         } else {

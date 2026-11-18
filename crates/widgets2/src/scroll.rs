@@ -166,22 +166,6 @@ impl Scroll {
     pub const fn is_scrollable_min_width(lines: usize, viewport: Size, min_width: u16) -> bool {
         lines > viewport.rows as usize && viewport.cols >= min_width
     }
-
-    // TODO: Remove?
-    pub const fn make_area(area: &mut Rect, margin: u16) -> Rect {
-        let scroll_area = Rect {
-            pos: Pos {
-                col: area.pos.col + area.size.cols.saturating_sub(1),
-                row: area.pos.row,
-            },
-            size: Size {
-                cols: 1,
-                rows: area.size.rows,
-            },
-        };
-        area.size.cols = area.size.cols.saturating_sub(1 + margin);
-        scroll_area
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
