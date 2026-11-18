@@ -185,13 +185,10 @@ impl App {
         let (top, body, bottom) = self.frame.area().split_ends(1, 2);
 
         // Swap colors for modal
-        let colors = if self.modals.is_active() {
-            let colors = self.settings.colors().clone();
-            self.settings.colors_mut().set_all(colors.neutral);
-            Some(colors)
-        } else {
-            None
-        };
+        let colors = self
+            .modals
+            .is_active()
+            .then(|| self.settings.replace_colors_with_dimmed());
 
         // Navigation
         self.pages

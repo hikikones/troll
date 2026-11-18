@@ -68,25 +68,25 @@ impl Default for MarkupOptions {
 }
 
 pub struct MarkupColors {
-    pub syntax_theme: MarkupCodeTheme,
     pub scrollbar: ScrollbarColors,
     pub text: Color,
     pub error: Color,
     pub heading: Color,
     pub break_char: Color,
     pub math: Rgb,
+    pub syntax_theme: MarkupCodeTheme,
 }
 
 impl MarkupColors {
     pub const fn new() -> Self {
         Self {
-            syntax_theme: MarkupCodeTheme::Base16EightiesDark,
             scrollbar: ScrollbarColors::DEFAULT,
             text: Color::Default,
             error: Color::Red,
             heading: Color::Yellow,
             break_char: Color::Indexed(240),
             math: Rgb::WHITE,
+            syntax_theme: MarkupCodeTheme::Base16EightiesDark,
         }
     }
 }
@@ -505,12 +505,10 @@ impl Markup {
                         self.colors.syntax_theme,
                         |span, color| match color {
                             Some(Rgb(r, g, b)) => {
-                                writer.push_fmt(Sgr::Fg(Color::Rgb(r, g, b)));
-                                writer.push_str(span);
-                                writer.push_fmt(Sgr::Reset);
+                                writer.push_str_fg(span, Color::Rgb(r, g, b));
                             }
                             None => {
-                                writer.push_str(span);
+                                writer.push_str_fg(span, self.colors.text);
                             }
                         },
                     );
@@ -670,7 +668,6 @@ enum TextKind {
     Error,
 }
 
-// TODO: Add a None/Flat option for no colors. Could be good for modals.
 #[derive(Debug, Clone, Copy)]
 pub enum MarkupCodeTheme {
     Base16OceanDark,

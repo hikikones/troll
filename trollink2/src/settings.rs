@@ -108,6 +108,12 @@ impl Settings {
         self.config.colors = colors;
     }
 
+    pub fn replace_colors_with_dimmed(&mut self) -> Colors {
+        let colors = self.config.colors.clone();
+        self.config.colors = Colors::dimmed();
+        colors
+    }
+
     pub fn save(&self) -> SettingsResult<()> {
         let Some(path) = self.path.as_ref() else {
             return Err("No path to save settings to.")?;
@@ -206,26 +212,45 @@ pub struct Colors {
     pub green: Color,
 }
 
+impl Default for Colors {
+    fn default() -> Self {
+        Self {
+            primary: Color::YellowBright,
+            secondary: Color::Yellow,
+            neutral: Color::Indexed(240),
+            normal: Color::Default,
+            background: Color::Default,
+            foreground: Rgb::WHITE,
+            red: Color::Red,
+            green: Color::Green,
+        }
+    }
+}
+
 impl Colors {
-    pub const fn set_all(&mut self, color: Color) {
-        self.primary = color;
-        self.secondary = color;
-        self.neutral = color;
-        self.normal = color;
-        self.background = color;
-        self.red = color;
-        self.green = color;
+    pub const fn dimmed() -> Self {
+        let grey = Color::Indexed(240);
+        Self {
+            primary: grey,
+            secondary: grey,
+            neutral: grey,
+            normal: grey,
+            background: grey,
+            foreground: Rgb(98, 98, 98),
+            red: grey,
+            green: grey,
+        }
     }
 
     pub const fn markup(&self) -> MarkupColors {
         MarkupColors {
-            syntax_theme: MarkupCodeTheme::Base16EightiesDark,
             scrollbar: self.scrollbar(),
             text: self.normal,
             error: self.red,
             heading: self.secondary,
             break_char: self.neutral,
             math: self.foreground,
+            syntax_theme: MarkupCodeTheme::Base16EightiesDark,
         }
     }
 
@@ -255,21 +280,6 @@ impl Colors {
         ScrollbarColors {
             thumb: self.neutral,
             track: None,
-        }
-    }
-}
-
-impl Default for Colors {
-    fn default() -> Self {
-        Self {
-            primary: Color::YellowBright,
-            secondary: Color::Yellow,
-            neutral: Color::Indexed(240),
-            normal: Color::Default,
-            background: Color::Default,
-            foreground: Rgb::WHITE,
-            red: Color::Red,
-            green: Color::Green,
         }
     }
 }
