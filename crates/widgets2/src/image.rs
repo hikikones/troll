@@ -110,7 +110,7 @@ impl Image {
         opts: ImageRenderOptions,
     ) -> Rect {
         // Resize
-        let ResizeResult { size, render } = opts.fit.calc(
+        let FitResult { size, render } = opts.fit.calc(
             self.id,
             self.dims,
             area.size,
@@ -242,8 +242,8 @@ impl ImageRenderOptions {
         }
     }
 
-    pub const fn with_resize(mut self, resize: ImageFitMode) -> Self {
-        self.fit = resize;
+    pub const fn with_resize(mut self, fit: ImageFitMode) -> Self {
+        self.fit = fit;
         self
     }
 
@@ -276,9 +276,9 @@ impl ImageFitMode {
         image_dims: Dims,
         image_size: Size,
         cell_dims: CellDims,
-    ) -> ResizeResult {
+    ) -> FitResult {
         match self {
-            ImageFitMode::None => ResizeResult {
+            ImageFitMode::None => FitResult {
                 size: cell_dims.size(image_dims),
                 render: KittyRender {
                     id: image_id,
@@ -301,7 +301,7 @@ impl ImageFitMode {
                     KittyScale::Rows(resized.rows)
                 };
 
-                ResizeResult {
+                FitResult {
                     size: resized,
                     render: KittyRender {
                         id: image_id,
@@ -312,7 +312,7 @@ impl ImageFitMode {
             }
             ImageFitMode::Stretch => {
                 let scale = KittyScale::Stretch(image_size.cols, image_size.rows);
-                ResizeResult {
+                FitResult {
                     size: image_size,
                     render: KittyRender {
                         id: image_id,
@@ -339,7 +339,7 @@ impl ImageFitMode {
                         height: (height as f64 * h_ratio).round() as u32,
                     };
 
-                    ResizeResult {
+                    FitResult {
                         size: resized.with_rows(image_size.rows),
                         render: KittyRender {
                             id: image_id,
@@ -351,7 +351,7 @@ impl ImageFitMode {
                     // No vertical cropping needed, just scale by width
                     let scale =
                         KittyScale::Columns(image_size.cols.min(cell_dims.cols(image_dims.width)));
-                    ResizeResult {
+                    FitResult {
                         size: resized.with_rows(cell_dims.rows(image_dims.height)),
                         render: KittyRender {
                             id: image_id,
@@ -365,7 +365,7 @@ impl ImageFitMode {
     }
 }
 
-struct ResizeResult {
+struct FitResult {
     size: Size,
     render: KittyRender,
 }
