@@ -1,6 +1,7 @@
 use ecs::*;
 use shared::symbols;
 use terminal::*;
+use utils::ResultExt;
 use widgets2::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
@@ -256,16 +257,21 @@ fn handle_setting(
             }
         }
         Setting::PrimaryColor => match key.code {
-            KeyCode::Enter => match page.primary.as_str_trim().parse::<Color>() {
-                Ok(color) => {
-                    settings.colors_mut().primary = color;
-                    actions.push(Action::Render);
+            KeyCode::Enter => {
+                let name = page.primary.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
+                {
+                    Ok(color) => {
+                        settings.colors_mut().primary = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
                 }
-                Err(err) => {
-                    logs.push_err(err);
-                    actions.push(Action::Render);
-                }
-            },
+                actions.push(Action::Render);
+            }
             _ => {
                 if page.primary.input(key) {
                     actions.push(Action::Render);
@@ -273,16 +279,21 @@ fn handle_setting(
             }
         },
         Setting::SecondaryColor => match key.code {
-            KeyCode::Enter => match page.secondary.as_str_trim().parse::<Color>() {
-                Ok(color) => {
-                    settings.colors_mut().secondary = color;
-                    actions.push(Action::Render);
+            KeyCode::Enter => {
+                let name = page.secondary.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
+                {
+                    Ok(color) => {
+                        settings.colors_mut().secondary = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
                 }
-                Err(err) => {
-                    logs.push_err(err);
-                    actions.push(Action::Render);
-                }
-            },
+                actions.push(Action::Render);
+            }
             _ => {
                 if page.secondary.input(key) {
                     actions.push(Action::Render);
@@ -290,16 +301,21 @@ fn handle_setting(
             }
         },
         Setting::NeutralColor => match key.code {
-            KeyCode::Enter => match page.neutral.as_str_trim().parse::<Color>() {
-                Ok(color) => {
-                    settings.colors_mut().neutral = color;
-                    actions.push(Action::Render);
+            KeyCode::Enter => {
+                let name = page.neutral.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
+                {
+                    Ok(color) => {
+                        settings.colors_mut().neutral = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
                 }
-                Err(err) => {
-                    logs.push_err(err);
-                    actions.push(Action::Render);
-                }
-            },
+                actions.push(Action::Render);
+            }
             _ => {
                 if page.neutral.input(key) {
                     actions.push(Action::Render);

@@ -71,37 +71,30 @@ impl std::str::FromStr for Color {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let Some(c) = s.chars().next() else {
-            return Err(ParseColorError {
-                message: String::from("Failed to parse color from empty string."),
-                source: None,
-            });
+            return Err(ParseColorError::Empty);
         };
 
         if c == '#' {
             let hex = &s[1..];
 
             if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return Err(ParseColorError {
-                    message: format!(
-                        "Failed to parse hex color '{s}'. Expected exactly 6 hexadecimal digits."
-                    ),
-                    source: None,
-                });
+                return Err(ParseColorError::InvalidHex);
             }
 
-            let (r, g, b) = parse_hex_color(hex).map_err(|err| ParseColorError {
-                message: format!("Failed to parse hex color '{s}'."),
-                source: Some(err),
-            })?;
+            fn parse_hex_color(hex: &str) -> Result<(u8, u8, u8), std::num::ParseIntError> {
+                let r = u8::from_str_radix(&hex[0..2], 16)?;
+                let g = u8::from_str_radix(&hex[2..4], 16)?;
+                let b = u8::from_str_radix(&hex[4..6], 16)?;
+                Ok((r, g, b))
+            }
+
+            let (r, g, b) = parse_hex_color(hex).map_err(|err| ParseColorError::ParseRgb(err))?;
 
             Ok(Self::Rgb(r, g, b))
         } else if c.is_ascii_digit() {
-            let indexed_value = s.parse::<u8>().map_err(|err| ParseColorError {
-                message: format!(
-                    "Failed to parse indexed color value from '{s}'.\nNumber should be 0-255."
-                ),
-                source: Some(err),
-            })?;
+            let indexed_value = s
+                .parse::<u8>()
+                .map_err(|err| ParseColorError::ParseIndexed(err))?;
 
             Ok(Self::Indexed(indexed_value))
         } else {
@@ -110,20 +103,10 @@ impl std::str::FromStr for Color {
                 .find(|(name, _)| s.eq_ignore_ascii_case(name))
             {
                 Some((_, color)) => Ok(*color),
-                None => Err(ParseColorError {
-                    message: format!("Failed to parse color by name '{s}'."),
-                    source: None,
-                }),
+                None => Err(ParseColorError::UnknownName),
             }
         }
     }
-}
-
-fn parse_hex_color(hex: &str) -> Result<(u8, u8, u8), std::num::ParseIntError> {
-    let r = u8::from_str_radix(&hex[0..2], 16)?;
-    let g = u8::from_str_radix(&hex[2..4], 16)?;
-    let b = u8::from_str_radix(&hex[4..6], 16)?;
-    Ok((r, g, b))
 }
 
 const COLOR_NAMES: &[(&str, Color)] = &[
@@ -148,22 +131,36 @@ const COLOR_NAMES: &[(&str, Color)] = &[
     ("reset", Color::Default),
 ];
 
-// TODO: Use enum error. No message String.
 #[derive(Debug)]
-pub struct ParseColorError {
-    message: String,
-    source: Option<std::num::ParseIntError>,
+pub enum ParseColorError {
+    Empty,
+    InvalidHex,
+    ParseRgb(std::num::ParseIntError),
+    ParseIndexed(std::num::ParseIntError),
+    UnknownName,
 }
 
 impl std::fmt::Display for ParseColorError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message.as_str())
+        match self {
+            Self::Empty => f.write_str("Empty string."),
+            Self::InvalidHex => f.write_str("Invalid hex. Expected 6 hexadecimal digits."),
+            Self::ParseRgb(_) => f.write_str("Failed to parse a hex digit."),
+            Self::ParseIndexed(_) => f.write_str("Invalid indexed value. Expected 0-255."),
+            Self::UnknownName => f.write_str("Unknown color name."),
+        }
     }
 }
 
 impl std::error::Error for ParseColorError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|err| err as _)
+        match self {
+            Self::Empty => None,
+            Self::InvalidHex => None,
+            Self::ParseRgb(err) => Some(err),
+            Self::ParseIndexed(err) => Some(err),
+            Self::UnknownName => None,
+        }
     }
 }
 

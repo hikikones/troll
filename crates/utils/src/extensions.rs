@@ -99,34 +99,41 @@ impl StringExt for String {
 }
 
 pub trait ResultExt<T, E> {
-    fn context(self, context: &'static str) -> Result<T, ContextError<E, &'static str>>;
+    fn context(self, context: &'static str) -> Result<T, ContextError<&'static str, E>>;
+    fn with_context<C, F>(self, context: F) -> Result<T, ContextError<C, E>>
+    where
+        C: Display + std::fmt::Debug,
+        F: FnOnce() -> C;
+}
 
-    fn with_context<C, F>(self, context: F) -> Result<T, ContextError<E, C>>
+pub trait ErrorExt<E> {
+    fn context(self, context: &'static str) -> ContextError<&'static str, E>;
+    fn with_context<C, F>(self, context: F) -> ContextError<C, E>
     where
         C: Display + std::fmt::Debug,
         F: FnOnce() -> C;
 }
 
 #[derive(Debug)]
-pub struct ContextError<E, C> {
+pub struct ContextError<C, E> {
     context: C,
     source: E,
 }
 
-impl<E, C> Display for ContextError<E, C>
+impl<C, E> Display for ContextError<C, E>
 where
-    E: Display,
     C: Display,
+    E: Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.context)
     }
 }
 
-impl<E, C> Error for ContextError<E, C>
+impl<C, E> Error for ContextError<C, E>
 where
-    E: Error + 'static,
     C: Display + std::fmt::Debug,
+    E: Error + 'static,
 {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(&self.source)
@@ -134,11 +141,11 @@ where
 }
 
 impl<T, E> ResultExt<T, E> for Result<T, E> {
-    fn context(self, context: &'static str) -> Result<T, ContextError<E, &'static str>> {
+    fn context(self, context: &'static str) -> Result<T, ContextError<&'static str, E>> {
         self.map_err(|source| ContextError { context, source })
     }
 
-    fn with_context<C, F>(self, context: F) -> Result<T, ContextError<E, C>>
+    fn with_context<C, F>(self, context: F) -> Result<T, ContextError<C, E>>
     where
         C: Display + std::fmt::Debug,
         F: FnOnce() -> C,
@@ -147,5 +154,28 @@ impl<T, E> ResultExt<T, E> for Result<T, E> {
             context: context(),
             source,
         })
+    }
+}
+
+impl<E> ErrorExt<E> for E
+where
+    E: Error,
+{
+    fn context(self, context: &'static str) -> ContextError<&'static str, E> {
+        ContextError {
+            context,
+            source: self,
+        }
+    }
+
+    fn with_context<C, F>(self, context: F) -> ContextError<C, E>
+    where
+        C: Display + std::fmt::Debug,
+        F: FnOnce() -> C,
+    {
+        ContextError {
+            context: context(),
+            source: self,
+        }
     }
 }

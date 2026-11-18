@@ -1,4 +1,5 @@
 use terminal::*;
+use utils::ResultExt;
 use widgets2::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
@@ -293,7 +294,11 @@ impl SettingsPage {
             }
             Setting::PrimaryColor => match key.code {
                 KeyCode::Enter => {
-                    match self.primary.as_str_trim().parse::<Color>() {
+                    let name = self.primary.as_str_trim();
+                    match name
+                        .parse::<Color>()
+                        .with_context(|| format!("Failed to parse color \"{name}\"."))
+                    {
                         Ok(color) => {
                             settings.colors_mut().primary = color;
                         }
@@ -311,7 +316,11 @@ impl SettingsPage {
             },
             Setting::SecondaryColor => match key.code {
                 KeyCode::Enter => {
-                    match self.secondary.as_str_trim().parse::<Color>() {
+                    let name = self.secondary.as_str_trim();
+                    match name
+                        .parse::<Color>()
+                        .with_context(|| format!("Failed to parse color \"{name}\"."))
+                    {
                         Ok(color) => {
                             settings.colors_mut().secondary = color;
                         }
@@ -329,7 +338,11 @@ impl SettingsPage {
             },
             Setting::NeutralColor => match key.code {
                 KeyCode::Enter => {
-                    match self.neutral.as_str_trim().parse::<Color>() {
+                    let name = self.neutral.as_str_trim();
+                    match name
+                        .parse::<Color>()
+                        .with_context(|| format!("Failed to parse color \"{name}\"."))
+                    {
                         Ok(color) => {
                             settings.colors_mut().neutral = color;
                         }
