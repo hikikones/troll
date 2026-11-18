@@ -516,29 +516,35 @@ fn load_front_cover(
     generation: i32,
 ) -> ImageHandle {
     std::thread::spawn(move || {
-        let audio_file = AudioFile::read_cover(&path, ext).map_err(|err| LoadImageError {
-            message: format!("Failed to read front cover image from '{}'", path.display()),
-            source: Some(LoadErrorSource::Audio(err)),
-        })?;
+        let audio_file = match AudioFile::read_cover(&path, ext) {
+            Ok(file) => file,
+            Err(err) => {
+                return Err(LoadImageError {
+                    path,
+                    source: LoadErrorSource::Audio(err),
+                });
+            }
+        };
 
         let Some(bytes) = audio_file.front_cover() else {
             return Ok(None);
         };
 
         let mut image = Image::new_with_encode(image_id, encode);
-        image
-            .load_from_bytes(bytes, ImageLoadOptions::max(Dims::all(512)))
-            .map_err(|err| LoadImageError {
-                message: format!("Failed to load front cover image from '{}'", path.display()),
-                source: Some(LoadErrorSource::Image(err)),
-            })?;
-        image.transmit(generation).map_err(|err| LoadImageError {
-            message: format!(
-                "Failed to transmit front cover image from '{}'",
-                path.display()
-            ),
-            source: None, // TODO
-        })?;
+
+        if let Err(err) = image.load_from_bytes(bytes, ImageLoadOptions::max(Dims::all(512))) {
+            return Err(LoadImageError {
+                path,
+                source: LoadErrorSource::Image(err),
+            });
+        }
+
+        if let Err(err) = image.transmit(generation) {
+            return Err(LoadImageError {
+                path,
+                source: LoadErrorSource::Transmit(err),
+            });
+        }
 
         Ok(Some(image))
     })
@@ -546,27 +552,32 @@ fn load_front_cover(
 
 #[derive(Debug)]
 struct LoadImageError {
-    message: String,
-    source: Option<LoadErrorSource>,
+    path: std::path::PathBuf,
+    source: LoadErrorSource,
 }
 
 #[derive(Debug)]
 enum LoadErrorSource {
     Audio(AudioFileError),
     Image(ImageError),
+    Transmit(std::io::Error),
 }
 
 impl std::fmt::Display for LoadImageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        f.write_fmt(format_args!(
+            "Failed to load front cover from \"{}\".",
+            self.path.display()
+        ))
     }
 }
 
 impl std::error::Error for LoadImageError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|err| match err {
-            LoadErrorSource::Audio(err) => err as _,
-            LoadErrorSource::Image(err) => err as _,
-        })
+        match &self.source {
+            LoadErrorSource::Audio(err) => Some(err),
+            LoadErrorSource::Image(err) => Some(err),
+            LoadErrorSource::Transmit(err) => Some(err),
+        }
     }
 }
