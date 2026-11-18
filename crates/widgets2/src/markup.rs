@@ -3,7 +3,7 @@ use terminal::*;
 use utils::StringExt;
 
 use crate::{
-    ImageLoadOptions, ImageNEW, ImageOptions, KittyError, ResizeMode, Scroll, Scrollbar,
+    Image, ImageError, ImageFitMode, ImageLoadOptions, ImageRenderOptions, Scroll, Scrollbar,
     ScrollbarColors, ScrollbarData,
 };
 
@@ -769,7 +769,7 @@ impl MarkupImages {
         match source {
             ImageSource::Path(path) => {
                 if path.is_empty() {
-                    return Err(MarkupError::Image(ImageError::EmptyPath));
+                    return Err(MarkupError::EmptyImagePath);
                 }
 
                 let path = self
@@ -786,7 +786,7 @@ impl MarkupImages {
 
                 image
                     .load_from_path(&path, ImageLoadOptions::none())
-                    .map_err(|err| MarkupError::Image(ImageError::Kitty(path, err)))?;
+                    .map_err(|err| MarkupError::Image(path, err))?;
 
                 image.hash = hash;
             }
@@ -801,7 +801,7 @@ impl MarkupImages {
                 let png = math_to_png(math, color, cell)?;
                 image
                     .load_from_bytes(png, ImageLoadOptions::none())
-                    .map_err(|err| MarkupError::Math(MathError::Kitty(err)))?;
+                    .map_err(|err| MarkupError::MathImage(err))?;
 
                 image.hash = hash;
             }
@@ -814,8 +814,8 @@ impl MarkupImages {
         self.images[index as usize].render(
             area,
             frame,
-            ImageOptions {
-                resize: ResizeMode::FitWidthCropHeight { rows_outside_top },
+            ImageRenderOptions {
+                fit: ImageFitMode::FitWidthCropHeight { rows_outside_top },
                 horizontal: HorizontalAlignment::Center,
                 vertical: VerticalAlignment::Top,
             },
@@ -825,20 +825,20 @@ impl MarkupImages {
 
 struct MarkupImage {
     hash: u64,
-    image: ImageNEW,
+    image: Image,
 }
 
 impl MarkupImage {
     const fn new(id: u8) -> Self {
         Self {
             hash: 0,
-            image: ImageNEW::new(id as u32),
+            image: Image::new(id as u32),
         }
     }
 }
 
 impl std::ops::Deref for MarkupImage {
-    type Target = ImageNEW;
+    type Target = Image;
 
     fn deref(&self) -> &Self::Target {
         &self.image
@@ -879,56 +879,39 @@ fn math_to_png(math: &str, color: Rgb, size: CellDims) -> MarkupResult<Vec<u8>> 
         ..Default::default()
     };
 
-    let ast = ratex_parser::parse(math).map_err(|err| MarkupError::Math(MathError::Parse(err)))?;
+    let ast = ratex_parser::parse(math).map_err(|err| MarkupError::MathParse(err))?;
     let layout = ratex_layout::layout(&ast, &layout_options);
     let display_list = ratex_layout::to_display_list(&layout);
     ratex_render::render_to_png(&display_list, &render_options)
-        .map_err(|err| MarkupError::Math(MathError::Render(err)))
+        .map_err(|err| MarkupError::MathRender(err))
 }
 
 #[derive(Debug)]
 enum MarkupError {
-    Image(ImageError),
-    Math(MathError),
-}
-
-#[derive(Debug)]
-enum ImageError {
-    EmptyPath,
-    Kitty(PathBuf, KittyError),
-}
-
-#[derive(Debug)]
-enum MathError {
-    Parse(ratex_parser::ParseError),
-    Render(String),
-    Kitty(KittyError),
+    EmptyImagePath,
+    Image(PathBuf, ImageError),
+    MathParse(ratex_parser::ParseError),
+    MathRender(String),
+    MathImage(ImageError),
 }
 
 impl std::fmt::Display for MarkupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(ImageError::EmptyPath) => f.write_str("Empty image path."),
-            Self::Image(ImageError::Kitty(path, err)) => match err {
-                KittyError::Load(err) => f.write_fmt(format_args!(
-                    "Failed to load image\n'{}'\ndue to\n\"{}\".",
-                    path.display(),
-                    err
-                )),
-                KittyError::Encode(err) => f.write_fmt(format_args!(
-                    "Failed to encode image\n'{}'\ndue to\n\"{}\".",
-                    path.display(),
-                    err
-                )),
-            },
-            Self::Math(MathError::Parse(err)) => {
+            Self::EmptyImagePath => f.write_str("Empty image path."),
+            Self::Image(path, err) => f.write_fmt(format_args!(
+                "Failed to load or encode image\n'{}'\ndue to\n\"{}\".",
+                path.display(),
+                err
+            )),
+            Self::MathParse(err) => {
                 f.write_fmt(format_args!("Failed to parse math due to\n\"{}\".", err))
             }
-            Self::Math(MathError::Render(msg)) => f.write_fmt(format_args!(
+            Self::MathRender(msg) => f.write_fmt(format_args!(
                 "Failed to render math as png due to\n\"{}\".",
                 msg
             )),
-            Self::Math(MathError::Kitty(err)) => f.write_fmt(format_args!(
+            Self::MathImage(err) => f.write_fmt(format_args!(
                 "Failed to load or encode math image due to\n\"{}\".",
                 err
             )),

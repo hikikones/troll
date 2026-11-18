@@ -2,7 +2,8 @@ use ecs::*;
 use shared::symbols;
 use terminal::*;
 use widgets2::{
-    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, List, ScrollMargins,
+    Block, Image, ImageEncode, ImageError, ImageLoadOptions, ImageRenderOptions, KittyDeleteAll,
+    List, ScrollMargins,
 };
 
 use crate::{
@@ -104,20 +105,20 @@ impl ViewLayout {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct FrontCover {
     state: CoverState,
     handle: Option<ImageHandle>,
+    image: Image,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 enum CoverState {
     #[default]
     None,
-    Loading,
     NoImage,
     Error,
-    Image(Image),
+    Image,
 }
 
 impl FrontCover {
@@ -126,24 +127,16 @@ impl FrontCover {
         self.handle = None;
     }
 
-    fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) -> Option<Rect> {
+    fn render(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) -> Option<Rect> {
         let msg = match &self.state {
             CoverState::None => return None,
-            CoverState::Loading => {
-                frame.print_fmt(Sgr::Fg(colors.neutral));
-                Block::rectangle().render(area, frame);
-                frame.print_span(
-                    area.inner(Margin::proportional(1)),
-                    "Loading",
-                    SpanOptions::center(),
-                );
-                frame.print_fmt(Sgr::reset_fg());
-                return None;
-            }
             CoverState::NoImage => "No image",
             CoverState::Error => "Failed to load image",
-            CoverState::Image(image) => {
-                return Some(image.render(area, frame, ImageOptions::fit_center()));
+            CoverState::Image => {
+                return Some(
+                    self.image
+                        .render(area, frame, ImageRenderOptions::fit_center()),
+                );
             }
         };
 
@@ -274,7 +267,7 @@ fn render_playing(
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
     mut page: ResMut<PlayingPage>,
-    cover: NonSend<FrontCover>,
+    mut cover: NonSendMut<FrontCover>,
 ) {
     let colors = settings.colors();
 
@@ -285,7 +278,7 @@ fn render_playing(
     page.view = ViewLayout::from(screen_size.both());
     let (cover_area, queue_area) = match page.view {
         ViewLayout::Cover => {
-            render_cover(**area, &mut frame, colors, &database, &jukebox, &cover);
+            render_cover(**area, &mut frame, colors, &database, &jukebox, &mut cover);
             return;
         }
         ViewLayout::Horizontal => area.split_vertically_with_gap(0),
@@ -294,7 +287,9 @@ fn render_playing(
 
     page.update_scroll_on_new_track(&jukebox);
 
-    render_cover(cover_area, &mut frame, colors, &database, &jukebox, &cover);
+    render_cover(
+        cover_area, &mut frame, colors, &database, &jukebox, &mut cover,
+    );
     render_queue(
         queue_area,
         **shortcuts_area,
@@ -312,7 +307,7 @@ fn render_cover(
     colors: &Colors,
     database: &Database,
     jukebox: &Jukebox,
-    cover: &FrontCover,
+    cover: &mut FrontCover,
 ) {
     let Some(rating) = jukebox.track_id().map(|id| database.track_rating(id)) else {
         frame.push_str_fg("No track currently playing", colors.neutral);
@@ -461,6 +456,7 @@ fn update_cover(
     mut page: ResMut<PlayingPage>,
     mut cover: NonSendMut<FrontCover>,
     jukebox: NonSend<Jukebox>,
+    frame: Res<Framebuffer>,
 ) {
     let id = jukebox.track_id();
 
@@ -475,11 +471,12 @@ fn update_cover(
         return;
     };
 
-    cover.state = CoverState::Loading;
     cover.handle = Some(load_front_cover(
         track.path().to_path_buf(),
         track.ext(),
         page.next_image_id(),
+        cover.image.take_encode(),
+        frame.generation(),
     ));
 }
 
@@ -494,10 +491,12 @@ fn poll_cover(
         && let Ok(result) = handle.join()
     {
         match result {
-            Ok(image) => {
-                cover.state = image
-                    .map(|img| CoverState::Image(img))
-                    .unwrap_or(CoverState::NoImage);
+            Ok(Some(image)) => {
+                cover.state = CoverState::Image;
+                cover.image = image;
+            }
+            Ok(None) => {
+                cover.state = CoverState::NoImage;
             }
             Err(err) => {
                 logs.push_err(err);
@@ -509,28 +508,39 @@ fn poll_cover(
     }
 }
 
-fn load_front_cover(path: std::path::PathBuf, ext: AudioFileExt, image_id: u32) -> ImageHandle {
+fn load_front_cover(
+    path: std::path::PathBuf,
+    ext: AudioFileExt,
+    image_id: u32,
+    encode: ImageEncode,
+    generation: i32,
+) -> ImageHandle {
     std::thread::spawn(move || {
         let audio_file = AudioFile::read_cover(&path, ext).map_err(|err| LoadImageError {
             message: format!("Failed to read front cover image from '{}'", path.display()),
             source: Some(LoadErrorSource::Audio(err)),
         })?;
 
-        audio_file
-            .front_cover()
-            .map(|bytes| {
-                Image::from_bytes(
-                    bytes,
-                    &mut std::io::stdout().lock(),
-                    image_id,
-                    ImageLoadOptions::max(Dims::all(512)),
-                )
-            })
-            .transpose()
+        let Some(bytes) = audio_file.front_cover() else {
+            return Ok(None);
+        };
+
+        let mut image = Image::new_with_encode(image_id, encode);
+        image
+            .load_from_bytes(bytes, ImageLoadOptions::max(Dims::all(512)))
             .map_err(|err| LoadImageError {
                 message: format!("Failed to load front cover image from '{}'", path.display()),
                 source: Some(LoadErrorSource::Image(err)),
-            })
+            })?;
+        image.transmit(generation).map_err(|err| LoadImageError {
+            message: format!(
+                "Failed to transmit front cover image from '{}'",
+                path.display()
+            ),
+            source: None, // TODO
+        })?;
+
+        Ok(Some(image))
     })
 }
 
@@ -543,7 +553,7 @@ struct LoadImageError {
 #[derive(Debug)]
 enum LoadErrorSource {
     Audio(AudioFileError),
-    Image(KittyError),
+    Image(ImageError),
 }
 
 impl std::fmt::Display for LoadImageError {
