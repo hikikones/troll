@@ -229,11 +229,19 @@ impl Rect {
     }
 
     pub const fn left_edge(self) -> Self {
-        self.with_cols_sub(self.size.cols.saturating_sub(1))
+        if self.size.cols <= 1 {
+            return self;
+        }
+
+        self.with_cols_sub(self.size.cols - 1)
     }
 
     pub const fn right_edge(self) -> Self {
-        let sub = self.size.cols.saturating_sub(1);
+        if self.size.cols <= 1 {
+            return self;
+        }
+
+        let sub = self.size.cols - 1;
         Self {
             pos: self.pos.with_col_add(sub),
             size: self.size.with_cols_sub(sub),
@@ -241,11 +249,19 @@ impl Rect {
     }
 
     pub const fn top_edge(self) -> Self {
-        self.with_rows_sub(self.size.rows.saturating_sub(1))
+        if self.size.rows <= 1 {
+            return self;
+        }
+
+        self.with_rows_sub(self.size.rows - 1)
     }
 
     pub const fn bottom_edge(self) -> Self {
-        let sub = self.size.rows.saturating_sub(1);
+        if self.size.rows <= 1 {
+            return self;
+        }
+
+        let sub = self.size.rows - 1;
         Self {
             pos: self.pos.with_row_add(sub),
             size: self.size.with_rows_sub(sub),
@@ -715,16 +731,12 @@ impl Size {
     }
 
     pub const fn with_cols_min(mut self, min: u16) -> Self {
-        if self.cols > min {
-            self.cols = min;
-        }
+        self.set_cols_min(min);
         self
     }
 
     pub const fn with_rows_min(mut self, min: u16) -> Self {
-        if self.rows > min {
-            self.rows = min;
-        }
+        self.set_rows_min(min);
         self
     }
 
