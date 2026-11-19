@@ -295,9 +295,7 @@ impl Prompt {
     }
 
     fn render_placeholder(&self, area: Rect, frame: &mut Frame, color: Color) {
-        frame.print_fmt(Sgr::Fg(color));
-        frame.print_span(area, self.placeholder, SpanOptions::left());
-        frame.print_fmt(Sgr::Fg(Color::Default));
+        frame.print_span_fg(area, self.placeholder, color, SpanOptions::left());
     }
 
     fn render_text(&self, area: Rect, frame: &mut Frame, color: Color) {
@@ -311,12 +309,7 @@ impl Prompt {
         frame.print_fmt(Sgr::reset_fg());
     }
 
-    fn render_text_with_selection(
-        &self,
-        area: Rect,
-        frame: &mut Frame,
-        selector: Range<usize>,
-    ) {
+    fn render_text_with_selection(&self, area: Rect, frame: &mut Frame, selector: Range<usize>) {
         let mut found_selector = false;
         let mut has_reset_selector = false;
 

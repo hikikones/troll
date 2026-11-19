@@ -551,11 +551,11 @@ impl std::fmt::Display for RgbQueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(err) => err.fmt(f),
-            Self::ParseResponse { response: resp } => f.write_fmt(format_args!(
-                "unable to extract hex parts from query response: '{resp}'"
+            Self::ParseResponse { response } => f.write_fmt(format_args!(
+                "Unable to extract hex parts from query response: '{response}'."
             )),
-            Self::ParseRgb { hex_parts: hex, .. } => {
-                f.write_fmt(format_args!("unable to parse hex parts from {hex}"))
+            Self::ParseRgb { hex_parts, .. } => {
+                f.write_fmt(format_args!("Unable to parse hex parts from {hex_parts}."))
             }
         }
     }
@@ -564,9 +564,9 @@ impl std::fmt::Display for RgbQueryError {
 impl std::error::Error for RgbQueryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(err) => Some(err as _),
+            Self::Io(err) => Some(err),
             Self::ParseResponse { .. } => None,
-            Self::ParseRgb { error: err, .. } => Some(err as _),
+            Self::ParseRgb { error: err, .. } => Some(err),
         }
     }
 }

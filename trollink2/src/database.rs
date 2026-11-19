@@ -73,7 +73,7 @@ impl Database {
                 (content, CardKind::from_markup(content)),
             )
             .unwrap();
-        CardId(self.sqlite.last_insert_rowid())
+        CardId(self.sqlite.last_insert_rowid() as u32)
     }
 
     pub fn get_cards(&self, mut f: impl FnMut(CardId)) {
@@ -299,7 +299,7 @@ impl Database {
             )
             .unwrap();
 
-        ReviewId(self.sqlite.last_insert_rowid())
+        ReviewId(self.sqlite.last_insert_rowid() as u32)
     }
 
     pub fn delete_card(&self, id: CardId) {
@@ -331,7 +331,7 @@ impl Database {
         self.sqlite
             .execute("INSERT INTO tags (name) VALUES (?)", [name])
             .unwrap();
-        Some(TagId(self.sqlite.last_insert_rowid()))
+        Some(TagId(self.sqlite.last_insert_rowid() as u32))
     }
 
     pub fn get_tags(&self, mut f: impl FnMut(TagId)) {
@@ -479,7 +479,7 @@ impl Database {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CardId(SqliteId);
+pub struct CardId(u32);
 
 impl CardId {
     const ZERO: Self = Self(0);
@@ -487,13 +487,13 @@ impl CardId {
 
 impl ToSql for CardId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
     }
 }
 
 impl FromSql for CardId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(|n| Self(n as u32))
     }
 }
 
@@ -519,7 +519,7 @@ impl CardKind {
 
 impl ToSql for CardKind {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(*self as i64)))
+        Ok(ToSqlOutput::Owned(Value::Integer(*self as SqliteId)))
     }
 }
 
@@ -530,39 +530,39 @@ impl FromSql for CardKind {
             1 => Ok(Self::Note),
             _ => Err(FromSqlError::Other(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("invalid card kind: {n}"),
+                format!("Invalid card kind: {n}."),
             )))),
         })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ReviewId(SqliteId);
+pub struct ReviewId(u32);
 
 impl ToSql for ReviewId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
     }
 }
 
 impl FromSql for ReviewId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(|n| Self(n as u32))
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TagId(SqliteId);
+pub struct TagId(u32);
 
 impl ToSql for TagId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
     }
 }
 
 impl FromSql for TagId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(|n| Self(n as u32))
     }
 }
 

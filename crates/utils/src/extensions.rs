@@ -114,6 +114,8 @@ pub trait ErrorExt<E> {
         F: FnOnce() -> C;
 }
 
+pub type ContextResult<T, E> = Result<T, ContextError<T, E>>;
+
 #[derive(Debug)]
 pub struct ContextError<C, E> {
     context: C,

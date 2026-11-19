@@ -103,12 +103,7 @@ impl Image {
         Ok(())
     }
 
-    pub fn render(
-        &mut self,
-        area: Rect,
-        frame: &mut Frame,
-        opts: ImageRenderOptions,
-    ) -> Rect {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame, opts: ImageRenderOptions) -> Rect {
         // Resize
         let FitResult { size, render } = opts.fit.calc(
             self.id,

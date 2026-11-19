@@ -103,13 +103,7 @@ impl ReviewPage {
         Action::None
     }
 
-    pub fn render(
-        &self,
-        mut area: Rect,
-        frame: &mut Frame,
-        colors: &Colors,
-        markup: &mut Markup,
-    ) {
+    pub fn render(&self, mut area: Rect, frame: &mut Frame, colors: &Colors, markup: &mut Markup) {
         match self.state {
             ReviewState::None => {
                 frame.print_span_fg(

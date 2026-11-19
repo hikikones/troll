@@ -66,18 +66,15 @@ impl Modals {
             (Some(current), None) => {
                 self.exit(current);
             }
-            (Some(current), Some(next)) => match (current, next) {
-                (Modal::Search, Modal::Search) => {
+            (Some(current), Some(next)) => {
+                let is_same = std::mem::discriminant(&current) == std::mem::discriminant(&next);
+                if is_same {
                     self.exit(current);
-                }
-                (Modal::Logs, Modal::Logs) => {
-                    self.exit(current);
-                }
-                (_, _) => {
+                } else {
                     self.exit(current);
                     self.enter(next, db);
                 }
-            },
+            }
             (None, None) => {}
         }
     }
@@ -117,13 +114,7 @@ impl Modals {
         }
     }
 
-    pub fn render(
-        &mut self,
-        modal: Modal,
-        frame: &mut Frame,
-        colors: &Colors,
-        db: &Database,
-    ) {
+    pub fn render(&mut self, modal: Modal, frame: &mut Frame, colors: &Colors, db: &Database) {
         match modal {
             Modal::Search => self.search.render(frame, colors),
             Modal::Logs => self.logs.render(frame, colors),
