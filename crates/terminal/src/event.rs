@@ -7,7 +7,7 @@ use crossterm::event::{
     Event as CrosstermEvent, KeyCode, KeyEvent as CrosstermKeyEvent, KeyModifiers,
 };
 
-pub struct EventThread(Receiver<TerminalEvent>);
+pub struct EventThread(Receiver<TermEvent>);
 
 impl EventThread {
     pub fn spawn() -> Self {
@@ -16,13 +16,13 @@ impl EventThread {
         Self(receiver)
     }
 
-    pub fn recv(&self, timeout: Duration) -> Option<TerminalEvent> {
+    pub fn recv(&self, timeout: Duration) -> Option<TermEvent> {
         self.0.recv_timeout(timeout).ok()
     }
 
-    fn read(sender: Sender<TerminalEvent>) -> std::io::Result<()> {
+    fn read(sender: Sender<TermEvent>) -> std::io::Result<()> {
         loop {
-            if let Some(event) = TerminalEvent::read()? {
+            if let Some(event) = TermEvent::read()? {
                 let _ = sender.send(event);
             }
         }
@@ -30,14 +30,14 @@ impl EventThread {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TerminalEvent {
+pub enum TermEvent {
     Key(Key),
     Resize,
 }
 
-impl TerminalEvent {
+impl TermEvent {
     /// Reads a terminal event in a blocking manner.
-    pub fn read() -> std::io::Result<Option<TerminalEvent>> {
+    pub fn read() -> std::io::Result<Option<TermEvent>> {
         let event = crossterm::event::read()?;
         Ok(Self::from(event))
     }
@@ -47,7 +47,7 @@ impl TerminalEvent {
     // Reading crossterm event from another thread also triggers this bug.
 
     /// Polls and reads a terminal event in a non-blocking manner.
-    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TerminalEvent>> {
+    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TermEvent>> {
         if crossterm::event::poll(timeout)? {
             let event = crossterm::event::read()?;
             return Ok(Self::from(event));

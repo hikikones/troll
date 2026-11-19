@@ -82,7 +82,7 @@ impl App {
         self.render(terminal)?;
 
         while self.is_running {
-            let Some(event) = TerminalEvent::read().map_err(|err| AppError::Event(err))? else {
+            let Some(event) = TermEvent::read().map_err(|err| AppError::Event(err))? else {
                 continue;
             };
 
@@ -93,9 +93,9 @@ impl App {
         Ok(())
     }
 
-    fn handle_event(&mut self, event: TerminalEvent, terminal: &mut Terminal) -> AppResult<Action> {
+    fn handle_event(&mut self, event: TermEvent, terminal: &mut Terminal) -> AppResult<Action> {
         let action = match event {
-            TerminalEvent::Key(key) => match key.code {
+            TermEvent::Key(key) => match key.code {
                 KeyCode::Esc => Action::Quit,
                 KeyCode::Tab => {
                     if self.modals.is_active() {
@@ -131,7 +131,7 @@ impl App {
                     ),
                 },
             },
-            TerminalEvent::Resize => {
+            TermEvent::Resize => {
                 self.frame
                     .query_size()
                     .map_err(|err| AppError::QuerySize(err))?;

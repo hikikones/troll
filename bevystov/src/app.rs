@@ -162,15 +162,15 @@ impl App {
                 }
             }
 
-            if let Some(event) = TerminalEvent::poll(self.timers.update.timeout())? {
+            if let Some(event) = TermEvent::poll(self.timers.update.timeout())? {
                 match event {
-                    TerminalEvent::Key(key) => {
+                    TermEvent::Key(key) => {
                         if let KeyCode::Esc = key.code {
                             self.is_running = false;
                             break;
                         }
                     }
-                    TerminalEvent::Resize => {
+                    TermEvent::Resize => {
                         self.update_size()?;
                     }
                 }
@@ -197,13 +197,13 @@ impl App {
                 }
             }
 
-            if let Some(event) = TerminalEvent::poll(self.timers.update.timeout())? {
+            if let Some(event) = TermEvent::poll(self.timers.update.timeout())? {
                 match event {
-                    TerminalEvent::Key(key) => {
+                    TermEvent::Key(key) => {
                         self.insert_resource(Input(Some(key)));
                         self.run_input(terminal)?;
                     }
-                    TerminalEvent::Resize => {
+                    TermEvent::Resize => {
                         self.update_size()?;
                         self.run_render(terminal)?;
                     }
