@@ -169,7 +169,7 @@ impl AnsiViewer {
         true
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer, ansi: &str) {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame, ansi: &str) {
         let inner = area.inner(self.options.padding);
 
         if inner.is_empty() {
@@ -286,7 +286,7 @@ impl AnsiViewer {
         self.options.scrollbar && Scroll::is_scrollable(self.lines as usize, list_view)
     }
 
-    fn render_scrollbar(&self, frame: &mut Framebuffer) {
+    fn render_scrollbar(&self, frame: &mut Frame) {
         let Some(scroll_area) = self.scroll_area else {
             return;
         };

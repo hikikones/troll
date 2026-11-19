@@ -328,7 +328,7 @@ fn handle_setting(
 fn render_settings(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
-    mut frame: ResMut<Framebuffer>,
+    mut frame: ResMut<Frame>,
     mut list: ResMut<SettingsList>,
     mut page: ResMut<SettingsPage>,
     settings: Res<Settings>,
@@ -477,7 +477,7 @@ fn render_settings(
 
 fn render_shortcuts(
     area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     current: Setting,
     settings: &Settings,
@@ -492,7 +492,7 @@ fn render_shortcuts(
         name: &str,
         key_color: Color,
         name_color: Color,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
     ) {
         frame.push_fmt(Sgr::Fg(key_color));
         frame.push_str(key);
@@ -532,7 +532,7 @@ fn render_shortcuts(
     frame.render(area, TextOptions::span_center_top());
 }
 
-fn print_section(title: &str, line: Rect, frame: &mut Framebuffer, colors: &Colors) {
+fn print_section(title: &str, line: Rect, frame: &mut Frame, colors: &Colors) {
     frame.print_span_fg(line, title, colors.neutral, SpanOptions::center_top());
 }
 
@@ -541,7 +541,7 @@ fn print_toggle(
     value: bool,
     left: Rect,
     right: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
 ) {
     frame.push_str(description);
@@ -556,7 +556,7 @@ fn print_color(
     prompt: &mut Prompt,
     left: Rect,
     right: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     is_active: bool,
 ) {

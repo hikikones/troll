@@ -49,7 +49,7 @@ impl Scrollbar {
         self
     }
 
-    pub fn render(self, area: Rect, frame: &mut Framebuffer) {
+    pub fn render(self, area: Rect, frame: &mut Frame) {
         if self.data.total_items == 0 || area.is_empty() {
             return;
         }

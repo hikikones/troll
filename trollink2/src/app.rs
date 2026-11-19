@@ -16,7 +16,7 @@ pub type AppResult<T> = Result<T, AppError>;
 pub struct App {
     database: Database,
     settings: Settings,
-    frame: Framebuffer,
+    frame: Frame,
     pages: Pages,
     modals: Modals,
     markup: Markup,
@@ -66,7 +66,7 @@ impl App {
         Ok(Self {
             database,
             settings,
-            frame: Framebuffer::new(),
+            frame: Frame::new(),
             pages,
             modals,
             markup,

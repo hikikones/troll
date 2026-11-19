@@ -213,9 +213,9 @@ impl TagList {
     pub fn render<T: TagItem>(
         &mut self,
         area: Rect,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
         tags: impl IntoIterator<Item = T, IntoIter: Clone>,
-        mut render_tag: impl FnMut(Rect, &mut Framebuffer, T, bool),
+        mut render_tag: impl FnMut(Rect, &mut Frame, T, bool),
     ) {
         let mut inner = area.inner(self.options.padding);
 

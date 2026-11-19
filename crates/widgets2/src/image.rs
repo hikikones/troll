@@ -106,7 +106,7 @@ impl Image {
     pub fn render(
         &mut self,
         area: Rect,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
         opts: ImageRenderOptions,
     ) -> Rect {
         // Resize

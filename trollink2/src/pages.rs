@@ -139,7 +139,7 @@ impl Pages {
     pub fn render(
         &mut self,
         area: Rect,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
         settings: &Settings,
         db: &Database,
         markup: &mut Markup,
@@ -156,7 +156,7 @@ impl Pages {
         }
     }
 
-    pub fn render_shortcuts(&mut self, area: Rect, frame: &mut Framebuffer, settings: &Settings) {
+    pub fn render_shortcuts(&mut self, area: Rect, frame: &mut Frame, settings: &Settings) {
         match self.route {
             Route::Review => self.review.render_shortcuts(area, frame, settings.colors()),
             Route::Editor(_) => self.editor.render_shortcuts(area, frame, settings.colors()),
@@ -165,7 +165,7 @@ impl Pages {
         }
     }
 
-    pub fn render_navigation(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render_navigation(&self, area: Rect, frame: &mut Frame, colors: &Colors) {
         for (route, name, gap) in [
             (Route::Review, "Review", 3),
             (Route::Editor(None), "Editor", 3),

@@ -130,7 +130,7 @@ impl SettingsPage {
         Action::None
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer, settings: &Settings) {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame, settings: &Settings) {
         let colors = settings.colors();
 
         frame.print_fmt(Sgr::Fg(colors.secondary));
@@ -237,7 +237,7 @@ impl SettingsPage {
         frame.render(bottom, TextOptions::span_center_top());
     }
 
-    pub fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, settings: &Settings) {
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Frame, settings: &Settings) {
         let gap = 1;
         let key_color = settings.colors().secondary;
         let name_color = settings.colors().normal;
@@ -399,7 +399,7 @@ impl SettingsPage {
     }
 }
 
-fn print_section(title: &str, line: Rect, frame: &mut Framebuffer, colors: &Colors) {
+fn print_section(title: &str, line: Rect, frame: &mut Frame, colors: &Colors) {
     frame.print_span_fg(line, title, colors.neutral, SpanOptions::center_top());
 }
 
@@ -408,7 +408,7 @@ fn print_color(
     prompt: &mut Prompt,
     left: Rect,
     right: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     is_active: bool,
 ) {

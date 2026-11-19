@@ -16,7 +16,7 @@ use crate::{
 
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
-pub struct Framebuffer {
+pub struct Frame {
     buffer: String,
     text: String,
     size: TerminalSize,
@@ -26,7 +26,7 @@ pub struct Framebuffer {
     generation: i32,
 }
 
-impl Framebuffer {
+impl Frame {
     pub const fn new() -> Self {
         Self {
             buffer: String::new(),

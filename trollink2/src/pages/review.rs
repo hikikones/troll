@@ -106,7 +106,7 @@ impl ReviewPage {
     pub fn render(
         &self,
         mut area: Rect,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
         colors: &Colors,
         markup: &mut Markup,
     ) {
@@ -138,7 +138,7 @@ impl ReviewPage {
         }
     }
 
-    pub fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Frame, colors: &Colors) {
         if let ReviewState::Done = self.state {
             return;
         }

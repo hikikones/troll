@@ -53,7 +53,7 @@ impl LogsModal {
         }
     }
 
-    pub fn render(&self, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render(&self, frame: &mut Frame, colors: &Colors) {
         let area = frame.area().scale_and_center(0.7);
 
         frame.fill(area, colors.background, false);
@@ -98,7 +98,7 @@ impl LogsModal {
     }
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
     let key_color = colors.secondary;
     let name_color = colors.normal;
     let gap = 1;

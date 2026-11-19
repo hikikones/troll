@@ -261,7 +261,7 @@ impl List {
             .unwrap_or(self.index..=self.index)
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer) -> Option<(Rect, Range<usize>)> {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame) -> Option<(Rect, Range<usize>)> {
         let mut inner = area.inner(self.options.padding);
 
         self.list_height = inner.size.rows;
@@ -327,7 +327,7 @@ impl List {
         self.last_height = area_height;
     }
 
-    fn render_scrollbar(&self, area: Rect, inner: &mut Rect, frame: &mut Framebuffer) {
+    fn render_scrollbar(&self, area: Rect, inner: &mut Rect, frame: &mut Frame) {
         let is_scrollable = self.options.scrollbar && Scroll::is_scrollable(self.len, inner.size);
 
         if !is_scrollable {

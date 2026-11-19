@@ -135,7 +135,7 @@ impl CardsPage {
     pub fn render(
         &mut self,
         mut area: Rect,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
         db: &Database,
         colors: &Colors,
         markup: &mut Markup,
@@ -169,7 +169,7 @@ impl CardsPage {
         }
     }
 
-    pub fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Frame, colors: &Colors) {
         let gap = 1;
         let has_tags = self.show_tags && !self.tags.is_empty();
 
@@ -355,7 +355,7 @@ impl TagsSidebar {
         self.list.reset();
     }
 
-    fn render(&mut self, mut area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    fn render(&mut self, mut area: Rect, frame: &mut Frame, colors: &Colors) {
         frame.print_fmt(Sgr::Fg(colors.normal));
         frame.print_span(area, "Tags", SpanOptions::center_top());
 

@@ -186,7 +186,7 @@ fn input_tracks(
 fn render_tracks(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
-    mut frame: ResMut<Framebuffer>,
+    mut frame: ResMut<Frame>,
     settings: Res<Settings>,
     mut list: ResMut<TracksList>,
     mut database: NonSendMut<Database>,
@@ -229,7 +229,7 @@ fn render_tracks(
 
 fn render_table(
     area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     list: &mut List,
     database: &mut Database,
@@ -325,7 +325,7 @@ fn render_table(
     }
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
     let key_color = colors.secondary;
     let name_color = colors.normal;
     let gap = 1;

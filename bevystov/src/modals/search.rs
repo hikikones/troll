@@ -166,7 +166,7 @@ fn input_search(
 }
 
 fn render_search(
-    mut frame: ResMut<Framebuffer>,
+    mut frame: ResMut<Frame>,
     settings: Res<Settings>,
     mut modal: ResMut<SearchModal>,
     results: Res<SearchResults>,
@@ -272,7 +272,7 @@ fn render_search(
     frame.print_fmt(Sgr::Reset);
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors, state: SearchState) {
+fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors, state: SearchState) {
     match state {
         SearchState::Prompt => {
             frame.push_fmt(format_args!(

@@ -120,7 +120,7 @@ impl Modals {
     pub fn render(
         &mut self,
         modal: Modal,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
         colors: &Colors,
         db: &Database,
     ) {

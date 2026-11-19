@@ -126,7 +126,7 @@ impl FrontCover {
         self.handle = None;
     }
 
-    fn render(&mut self, area: Rect, frame: &mut Framebuffer, colors: &Colors) -> Option<Rect> {
+    fn render(&mut self, area: Rect, frame: &mut Frame, colors: &Colors) -> Option<Rect> {
         let msg = match &self.state {
             CoverState::None => return None,
             CoverState::NoImage => "No image",
@@ -260,7 +260,7 @@ fn input_playing(
 fn render_playing(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
-    mut frame: ResMut<Framebuffer>,
+    mut frame: ResMut<Frame>,
     settings: Res<Settings>,
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
@@ -301,7 +301,7 @@ fn render_playing(
 
 fn render_cover(
     area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     database: &Database,
     jukebox: &Jukebox,
@@ -337,7 +337,7 @@ fn render_cover(
 fn render_queue(
     area: Rect,
     shortcuts_area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     database: &Database,
     jukebox: &Jukebox,
@@ -420,7 +420,7 @@ fn render_queue(
     render_shortcuts(shortcuts_area, frame, colors);
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
     let key_color = colors.secondary;
     let name_color = colors.normal;
     let gap = 1;
@@ -446,7 +446,7 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
     frame.render(area, TextOptions::span_center_top());
 }
 
-fn exit_playing(mut frame: ResMut<Framebuffer>) {
+fn exit_playing(mut frame: ResMut<Frame>) {
     frame.print_fmt(KittyDeleteAll);
 }
 
@@ -454,7 +454,7 @@ fn update_cover(
     mut page: ResMut<PlayingPage>,
     mut cover: NonSendMut<FrontCover>,
     jukebox: NonSend<Jukebox>,
-    frame: Res<Framebuffer>,
+    frame: Res<Frame>,
 ) {
     let id = jukebox.track_id();
 

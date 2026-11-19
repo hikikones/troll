@@ -171,7 +171,7 @@ impl Markup {
         self.desired_scroll = None;
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer, markup: &str) {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame, markup: &str) {
         let inner = area.inner(self.options.padding);
 
         if inner.is_empty() {
@@ -191,7 +191,7 @@ impl Markup {
         self.render_markup(inner.with_size(self.view), cell, frame);
     }
 
-    fn render_markup(&mut self, mut area: Rect, cell: CellDims, frame: &mut Framebuffer) {
+    fn render_markup(&mut self, mut area: Rect, cell: CellDims, frame: &mut Frame) {
         let top_row = area.row();
         let view_top = self.scroll;
         let view_bot = self.scroll + area.rows();
@@ -310,7 +310,7 @@ impl Markup {
         self.hash = 0;
     }
 
-    fn parse_and_load(&mut self, markup: &str, cell: CellDims, frame: &mut Framebuffer) {
+    fn parse_and_load(&mut self, markup: &str, cell: CellDims, frame: &mut Frame) {
         let hash = utils::hash_fast(markup);
 
         if self.hash == hash {
@@ -434,7 +434,7 @@ impl Markup {
         }
     }
 
-    fn process_markup(&mut self, area: Rect, inner: Rect, cell: CellDims, frame: &mut Framebuffer) {
+    fn process_markup(&mut self, area: Rect, inner: Rect, cell: CellDims, frame: &mut Frame) {
         if self.size == area.size {
             return;
         }
@@ -454,7 +454,7 @@ impl Markup {
         }
     }
 
-    fn relayout(&mut self, cell: CellDims, frame: &mut Framebuffer) {
+    fn relayout(&mut self, cell: CellDims, frame: &mut Frame) {
         self.rich.clear();
 
         let width = self.view.cols;
@@ -598,7 +598,7 @@ impl Markup {
         };
     }
 
-    fn render_scrollbar(&self, frame: &mut Framebuffer) {
+    fn render_scrollbar(&self, frame: &mut Frame) {
         let Some(scroll_area) = self.scroll_area else {
             return;
         };
@@ -821,7 +821,7 @@ impl MarkupImages {
         Ok(())
     }
 
-    fn render(&mut self, index: u8, area: Rect, rows_outside_top: u16, frame: &mut Framebuffer) {
+    fn render(&mut self, index: u8, area: Rect, rows_outside_top: u16, frame: &mut Frame) {
         self.images[index as usize].render(
             area,
             frame,

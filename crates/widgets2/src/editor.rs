@@ -262,7 +262,7 @@ impl Editor {
         }
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame) {
         self.area_pos = area.pos;
 
         if area.is_empty() {
@@ -320,13 +320,13 @@ impl Editor {
         self.last_hash = 0;
     }
 
-    fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
+    fn render_placeholder(&self, area: Rect, frame: &mut Frame, color: Color) {
         frame.print_fmt(Sgr::Fg(color));
         frame.print_span(area, self.placeholder, SpanOptions::left());
         frame.print_fmt(Sgr::Fg(Color::Default));
     }
 
-    fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
+    fn render_text(&self, area: Rect, frame: &mut Frame, color: Color) {
         frame.print_fmt(Sgr::Fg(color));
 
         for (i, line) in self
@@ -348,7 +348,7 @@ impl Editor {
     fn render_text_with_selection(
         &self,
         area: Rect,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
         selector: Range<usize>,
     ) {
         let mut found_selector = false;

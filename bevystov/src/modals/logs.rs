@@ -60,7 +60,7 @@ fn input_logs(input: Res<Input>, mut logs: ResMut<Logs>, mut actions: ResMut<Act
     }
 }
 
-fn render_logs(mut frame: ResMut<Framebuffer>, settings: Res<Settings>, logs: Res<Logs>) {
+fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, logs: Res<Logs>) {
     let area = frame.area().scale_and_center(0.7);
     let colors = settings.colors();
 
@@ -94,7 +94,7 @@ fn render_logs(mut frame: ResMut<Framebuffer>, settings: Res<Settings>, logs: Re
     frame.print_fmt(Sgr::Reset);
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
     let key_color = colors.secondary;
     let name_color = colors.normal;
     let gap = 1;

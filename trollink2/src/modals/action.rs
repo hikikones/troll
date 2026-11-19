@@ -153,7 +153,7 @@ impl ActionModal {
         Action::None
     }
 
-    pub fn render(&mut self, frame: &mut Framebuffer, colors: &Colors, db: &Database) {
+    pub fn render(&mut self, frame: &mut Frame, colors: &Colors, db: &Database) {
         let area = frame
             .area()
             .with_rows_min(self.action.rows())

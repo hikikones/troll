@@ -51,7 +51,7 @@ impl Block {
         Self::Rectangle
     }
 
-    pub fn render(self, area: Rect, frame: &mut Framebuffer) {
+    pub fn render(self, area: Rect, frame: &mut Frame) {
         match self {
             Self::LineHorizontal => {
                 if area.is_empty() {
@@ -115,12 +115,12 @@ impl Block {
     }
 }
 
-fn draw_line_horizontal(pos: Pos, width: u16, frame: &mut Framebuffer) {
+fn draw_line_horizontal(pos: Pos, width: u16, frame: &mut Frame) {
     frame.cursor(pos);
     frame.print_ch_repeat('─', width);
 }
 
-fn draw_line_vertical(mut pos: Pos, height: u16, frame: &mut Framebuffer) {
+fn draw_line_vertical(mut pos: Pos, height: u16, frame: &mut Frame) {
     for _ in 0..height {
         frame.cursor(pos);
         frame.print_ch('│');
@@ -128,21 +128,21 @@ fn draw_line_vertical(mut pos: Pos, height: u16, frame: &mut Framebuffer) {
     }
 }
 
-fn draw_horizontals(area: Rect, frame: &mut Framebuffer) {
+fn draw_horizontals(area: Rect, frame: &mut Frame) {
     let Size { cols, rows } = area.size;
     let bottom = area.pos.with_row(area.pos.row + rows - 1);
     draw_line_horizontal(area.pos, cols, frame);
     draw_line_horizontal(bottom, cols, frame);
 }
 
-fn draw_verticals(area: Rect, frame: &mut Framebuffer) {
+fn draw_verticals(area: Rect, frame: &mut Frame) {
     let Size { cols, rows } = area.size;
     let right = area.pos.with_col(area.pos.col + cols - 1);
     draw_line_vertical(area.pos, rows, frame);
     draw_line_vertical(right, rows, frame);
 }
 
-fn draw_rectangle(area: Rect, frame: &mut Framebuffer) {
+fn draw_rectangle(area: Rect, frame: &mut Frame) {
     let mut pos = area.pos;
     let Size { cols, rows } = area.size;
     let horizontals = cols - 2;
@@ -175,7 +175,7 @@ fn draw_rectangle(area: Rect, frame: &mut Framebuffer) {
     frame.print_ch('┘');
 }
 
-fn draw_corners(area: Rect, frame: &mut Framebuffer) {
+fn draw_corners(area: Rect, frame: &mut Frame) {
     let right = area.pos.col + area.size.cols - 1;
     let bottom = area.pos.row + area.size.rows - 1;
 

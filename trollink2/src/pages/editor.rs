@@ -140,7 +140,7 @@ impl EditorPage {
     pub fn render(
         &mut self,
         mut area: Rect,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
         colors: &Colors,
         db: &Database,
         markup: &mut Markup,
@@ -175,7 +175,7 @@ impl EditorPage {
         }
     }
 
-    pub fn render_shortcuts(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Frame, colors: &Colors) {
         let gap = 1;
         let has_tags = self.show_tags && !self.tags.is_empty();
 
@@ -330,7 +330,7 @@ impl TagsSidebar {
         self.toggles.clear();
     }
 
-    fn render(&mut self, mut area: Rect, frame: &mut Framebuffer, db: &Database, colors: &Colors) {
+    fn render(&mut self, mut area: Rect, frame: &mut Frame, db: &Database, colors: &Colors) {
         frame.print_fmt(Sgr::Fg(colors.normal));
         frame.print_span(area, "Tags", SpanOptions::center_top());
 
