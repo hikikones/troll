@@ -10,16 +10,18 @@ use crossterm::{
 };
 
 use crate::{
-    CellDims, Color, Cursor, Dims, HorizontalAlignment, Pos, Rect, Sgr, Size, TerminalSize,
-    VerticalAlignment,
+    CellDims, Color, Cursor, Dims, HorizontalAlignment, Pos, Rect, ScreenHeight, ScreenSize,
+    ScreenSizeThresholds, ScreenWidth, Sgr, Size, TerminalSize, VerticalAlignment,
 };
 
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Framebuffer {
-    size: TerminalSize,
     buffer: String,
     text: String,
+    size: TerminalSize,
+    thresholds: ScreenSizeThresholds,
+    screen_size: ScreenSize,
     cursor_state: CursorState,
     generation: i32,
 }
@@ -27,16 +29,25 @@ pub struct Framebuffer {
 impl Framebuffer {
     pub const fn new() -> Self {
         Self {
-            size: TerminalSize::new(),
             buffer: String::new(),
             text: String::new(),
+            size: TerminalSize::new(),
+            thresholds: ScreenSizeThresholds::DEFAULT,
+            screen_size: ScreenSize::DEFAULT,
             cursor_state: CursorState::new(),
             generation: 0,
         }
     }
 
+    pub const fn with_thresholds(mut self, thresholds: ScreenSizeThresholds) -> Self {
+        self.thresholds = thresholds;
+        self
+    }
+
     pub fn query_size(&mut self) -> std::io::Result<()> {
         self.size = TerminalSize::query()?;
+        self.screen_size = ScreenSize::new(self.size.window_size(), self.thresholds);
+
         Ok(())
     }
 
@@ -50,6 +61,18 @@ impl Framebuffer {
 
     pub const fn cell_dims(&self) -> Option<CellDims> {
         self.size.cell_dims()
+    }
+
+    pub const fn screen_width(&self) -> ScreenWidth {
+        self.screen_size.width
+    }
+
+    pub const fn screen_height(&self) -> ScreenHeight {
+        self.screen_size.height
+    }
+
+    pub const fn screen_size(&self) -> ScreenSize {
+        self.screen_size
     }
 
     pub const fn area(&self) -> Rect {

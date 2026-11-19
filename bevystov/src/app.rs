@@ -47,7 +47,6 @@ impl App {
         }
 
         app.insert_resource(Framebuffer::default())
-            .insert_resource(ScreenSize::default())
             .insert_resource(Logs::default())
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
@@ -193,7 +192,11 @@ impl App {
 
             if self.timers.render.tick() {
                 let is_paused = self.world.non_send::<Jukebox>().is_paused();
-                let is_tall = self.world.resource::<ScreenSize>().is_tall();
+                let is_tall = self
+                    .world
+                    .resource::<Framebuffer>()
+                    .screen_height()
+                    .is_tall();
 
                 if is_tall && !is_paused {
                     self.run_render(terminal)?;
@@ -256,14 +259,7 @@ impl App {
     }
 
     fn update_size(&mut self) -> std::io::Result<()> {
-        let mut frame = self.world.resource_mut::<Framebuffer>();
-        frame.query_size()?;
-        let size = frame.window_size();
-
-        let mut screen_size = self.world.resource_mut::<ScreenSize>();
-        *screen_size = ScreenSize::new(size, ScreenSizeThresholds::DEFAULT);
-
-        Ok(())
+        self.world.resource_mut::<Framebuffer>().query_size()
     }
 
     fn apply_actions(&mut self) -> bool {
@@ -570,7 +566,6 @@ fn hide_cursor(mut frame: ResMut<Framebuffer>) {
 }
 
 fn render_app(
-    screen_size: Res<ScreenSize>,
     mut frame: ResMut<Framebuffer>,
     mut page_area: ResMut<PageArea>,
     mut shortcuts_area: ResMut<ShortcutsArea>,
@@ -582,7 +577,7 @@ fn render_app(
     let area = frame.area();
     let colors = settings.colors();
 
-    match screen_size.height() {
+    match frame.screen_height() {
         ScreenHeight::Short => {
             **page_area = area;
             **shortcuts_area = Rect::ZERO;

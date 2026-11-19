@@ -89,8 +89,8 @@ enum ViewLayout {
 }
 
 impl ViewLayout {
-    const fn from(screen_size: (ScreenWidth, ScreenHeight)) -> Self {
-        match screen_size {
+    const fn from(screen_size: ScreenSize) -> Self {
+        match screen_size.both() {
             (ScreenWidth::Narrow, ScreenHeight::Short) => Self::Cover,
             (ScreenWidth::Narrow, ScreenHeight::Normal) => Self::Vertical,
             (ScreenWidth::Narrow, ScreenHeight::Tall) => Self::Vertical,
@@ -261,7 +261,6 @@ fn render_playing(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
     mut frame: ResMut<Framebuffer>,
-    screen_size: Res<ScreenSize>,
     settings: Res<Settings>,
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
@@ -274,7 +273,7 @@ fn render_playing(
     frame.print_fmt(KittyDeleteAll);
 
     // Render layout based on screen size
-    page.view = ViewLayout::from(screen_size.both());
+    page.view = ViewLayout::from(frame.screen_size());
     let (cover_area, queue_area) = match page.view {
         ViewLayout::Cover => {
             render_cover(**area, &mut frame, colors, &database, &jukebox, &mut cover);

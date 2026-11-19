@@ -137,12 +137,24 @@ pub enum ScreenWidth {
     Wide,
 }
 
+impl ScreenWidth {
+    pub const fn is_wide(&self) -> bool {
+        matches!(self, ScreenWidth::Wide)
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenHeight {
     Short,
     #[default]
     Normal,
     Tall,
+}
+
+impl ScreenHeight {
+    pub const fn is_tall(&self) -> bool {
+        matches!(self, ScreenHeight::Tall)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -155,10 +167,10 @@ pub struct ScreenSizeThresholds {
 
 impl ScreenSizeThresholds {
     pub const DEFAULT: Self = Self {
-        width_normal: 60,
+        width_normal: 56,
         width_wide: 80,
-        height_normal: 20,
-        height_tall: 30,
+        height_normal: 16,
+        height_tall: 24,
     };
 }
 
@@ -169,13 +181,17 @@ impl Default for ScreenSizeThresholds {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct ScreenSize {
-    width: ScreenWidth,
-    height: ScreenHeight,
+    pub width: ScreenWidth,
+    pub height: ScreenHeight,
 }
 
 impl ScreenSize {
+    pub const DEFAULT: Self = Self {
+        width: ScreenWidth::Normal,
+        height: ScreenHeight::Normal,
+    };
+
     pub const fn new(window_size: Size, thresholds: ScreenSizeThresholds) -> ScreenSize {
         let ScreenSizeThresholds {
             width_normal,
@@ -210,8 +226,12 @@ impl ScreenSize {
         (self.width, self.height)
     }
 
+    pub const fn is_wide(&self) -> bool {
+        self.width.is_wide()
+    }
+
     pub const fn is_tall(&self) -> bool {
-        matches!(self.height, ScreenHeight::Tall)
+        self.height.is_tall()
     }
 }
 
