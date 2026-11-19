@@ -229,42 +229,26 @@ impl Rect {
     }
 
     pub const fn left_edge(self) -> Self {
-        if self.size.cols <= 1 {
-            return self;
-        }
-
-        self.with_cols_sub(self.size.cols - 1)
+        self.with_cols_sub(self.size.cols.saturating_sub(1))
     }
 
     pub const fn right_edge(self) -> Self {
-        if self.size.cols <= 1 {
-            return self;
-        }
-
-        let sub = self.size.cols - 1;
+        let cols = self.size.cols.saturating_sub(1);
         Self {
-            pos: self.pos.with_col_add(sub),
-            size: self.size.with_cols_sub(sub),
+            pos: self.pos.with_col_add(cols),
+            size: self.size.with_cols_sub(cols),
         }
     }
 
     pub const fn top_edge(self) -> Self {
-        if self.size.rows <= 1 {
-            return self;
-        }
-
-        self.with_rows_sub(self.size.rows - 1)
+        self.with_rows_sub(self.size.rows.saturating_sub(1))
     }
 
     pub const fn bottom_edge(self) -> Self {
-        if self.size.rows <= 1 {
-            return self;
-        }
-
-        let sub = self.size.rows - 1;
+        let rows = self.size.rows.saturating_sub(1);
         Self {
-            pos: self.pos.with_row_add(sub),
-            size: self.size.with_rows_sub(sub),
+            pos: self.pos.with_row_add(rows),
+            size: self.size.with_rows_sub(rows),
         }
     }
 
