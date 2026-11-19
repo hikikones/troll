@@ -25,7 +25,7 @@ pub enum Color {
 }
 
 impl Color {
-    pub const fn from_u8(i: u8) -> Self {
+    pub const fn from_indexed(i: u8) -> Self {
         match i {
             // 0-15: standard ANSI colors
             0 => Self::Black,
@@ -65,6 +65,39 @@ impl Color {
                 Self::Rgb(Rgb::all(gray))
             }
         }
+    }
+
+    pub fn readable(mut self) -> Option<Self> {
+        if self == Self::Default {
+            return None;
+        }
+
+        if let Color::Indexed(i) = self {
+            self = Self::from_indexed(i);
+        }
+
+        Some(match self {
+            Self::Black => Self::White,
+            Self::Red => Self::White,
+            Self::Green => Self::Black,
+            Self::Yellow => Self::Black,
+            Self::Blue => Self::White,
+            Self::Magenta => Self::White,
+            Self::Cyan => Self::White,
+            Self::White => Self::BlackBright,
+            Self::BlackBright => Self::White,
+            Self::RedBright => Self::White,
+            Self::GreenBright => Self::Black,
+            Self::YellowBright => Self::Black,
+            Self::BlueBright => Self::Black,
+            Self::MagentaBright => Self::White,
+            Self::CyanBright => Self::Black,
+            Self::WhiteBright => Self::Black,
+            Self::Rgb(rgb) => Self::Rgb(rgb.readable()),
+            Self::Default | Self::Indexed(_) => {
+                unreachable!()
+            }
+        })
     }
 }
 

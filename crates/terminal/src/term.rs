@@ -456,6 +456,34 @@ impl Rgb {
         Self(r, g, if b == 255 { 254 } else { b + 1 })
     }
 
+    pub fn readable(self) -> Self {
+        let rl = self.relative_luminance();
+        let contrast_black = (rl + 0.05) / 0.05;
+        let contrast_white = (1.05) / (rl + 0.05);
+        if contrast_black > contrast_white {
+            Self::BLACK
+        } else {
+            Self::WHITE
+        }
+    }
+
+    pub fn relative_luminance(self) -> f64 {
+        fn srgb_to_linear(c: u8) -> f64 {
+            let c = c as f64 / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+
+        let r = srgb_to_linear(self.0);
+        let g = srgb_to_linear(self.1);
+        let b = srgb_to_linear(self.2);
+
+        0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
     fn query(
         osc: &str,
         writer: &mut impl std::io::Write,
