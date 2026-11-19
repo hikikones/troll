@@ -1,7 +1,5 @@
-use std::time::{Duration, Instant};
-
 use ecs::*;
-use shared::logs::Logs;
+use shared::{logs::Logs, time::Timer};
 use terminal::*;
 
 use crate::{
@@ -145,6 +143,7 @@ impl App {
     fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         // Start loading
         self.world.non_send_mut::<Database>().load();
+        self.timers.update.start();
 
         let load_db_sid = self.world.register_system(load_database);
 
@@ -159,12 +158,11 @@ impl App {
                     // Init first run
                     self.run_state_transitions();
                     self.run_render(terminal)?;
-                    self.timers.render.reset();
                     break;
                 }
             }
 
-            if let Some(event) = TerminalEvent::poll(self.timers.update.timeout)? {
+            if let Some(event) = TerminalEvent::poll(self.timers.update.timeout())? {
                 match event {
                     TerminalEvent::Key(key) => {
                         if let KeyCode::Esc = key.code {
@@ -199,7 +197,7 @@ impl App {
                 }
             }
 
-            if let Some(event) = TerminalEvent::poll(self.timers.update.timeout)? {
+            if let Some(event) = TerminalEvent::poll(self.timers.update.timeout())? {
                 match event {
                     TerminalEvent::Key(key) => {
                         self.insert_resource(Input(Some(key)));
@@ -224,7 +222,6 @@ impl App {
         if self.apply_actions() {
             self.run_state_transitions();
             self.run_render(terminal)?;
-            self.timers.render.reset();
         }
 
         Ok(())
@@ -235,7 +232,6 @@ impl App {
 
         if self.apply_actions() {
             self.run_render(terminal)?;
-            self.timers.render.reset();
         }
 
         Ok(())
@@ -246,6 +242,7 @@ impl App {
         self.world
             .resource_mut::<Frame>()
             .flush(&mut terminal.lock())?;
+        self.timers.render.start();
 
         Ok(())
     }
@@ -315,36 +312,6 @@ impl App {
     }
 }
 
-struct Timer {
-    interval: Duration,
-    last_tick: Instant,
-    timeout: Duration,
-}
-
-impl Timer {
-    fn new(fps: u8) -> Self {
-        Self {
-            interval: Duration::from_secs_f64(1.0 / fps as f64),
-            last_tick: Instant::now(),
-            timeout: Duration::ZERO,
-        }
-    }
-
-    fn tick(&mut self) -> bool {
-        self.timeout = self.interval.saturating_sub(self.last_tick.elapsed());
-        if self.timeout == Duration::ZERO {
-            self.reset();
-            true
-        } else {
-            false
-        }
-    }
-
-    fn reset(&mut self) {
-        self.last_tick = Instant::now();
-    }
-}
-
 struct Timers {
     update: Timer,
     render: Timer,
@@ -353,14 +320,9 @@ struct Timers {
 impl Timers {
     fn new(update_fps: u8, render_fps: u8) -> Self {
         Self {
-            update: Timer::new(update_fps),
-            render: Timer::new(render_fps),
+            update: Timer::new(update_fps).with_loop(),
+            render: Timer::new(render_fps).with_loop(),
         }
-    }
-
-    fn _reset(&mut self) {
-        self.update.reset();
-        self.render.reset();
     }
 }
 

@@ -1,6 +1,6 @@
-use shared::sqlite::*;
+use shared::time::UnixTime;
 
-pub(super) struct Scheduler(fsrs::FSRS);
+pub struct Scheduler(fsrs::FSRS);
 
 impl Scheduler {
     pub fn new() -> Self {
@@ -41,50 +41,14 @@ impl Scheduler {
     }
 }
 
-pub(super) struct CurrentReviewState {
+pub struct CurrentReviewState {
     pub stability: f32,
     pub difficulty: f32,
     pub last_review_time: UnixTime,
 }
 
-pub(super) struct NextReviewState {
+pub struct NextReviewState {
     pub stability: f32,
     pub difficulty: f32,
     pub due_time: UnixTime,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct UnixTime(u64);
-
-impl UnixTime {
-    const SECONDS_PER_DAY: u64 = 86400;
-
-    pub fn now() -> Self {
-        let secs_since_unix_epoch = std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        Self(secs_since_unix_epoch)
-    }
-
-    pub(super) const fn days_since(self, other: Self) -> u32 {
-        (self.0.abs_diff(other.0) / Self::SECONDS_PER_DAY) as u32
-    }
-
-    pub(super) const fn add_days(self, days: f32) -> Self {
-        let days_in_secs = days * Self::SECONDS_PER_DAY as f32;
-        Self(self.0 + days_in_secs as u64)
-    }
-}
-
-impl ToSql for UnixTime {
-    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as i64)))
-    }
-}
-
-impl FromSql for UnixTime {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n as u64))
-    }
 }

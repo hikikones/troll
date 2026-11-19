@@ -4,7 +4,7 @@ use shared::sqlite::*;
 
 mod scheduler;
 
-pub use scheduler::*;
+use scheduler::*;
 
 use crate::AppDirRef;
 
