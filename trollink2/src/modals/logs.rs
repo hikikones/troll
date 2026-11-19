@@ -1,70 +1,22 @@
-use std::range::Range;
-
+use shared::logs::Logs;
 use terminal::*;
 use widgets2::Block;
 
 use crate::{app::Action, settings::Colors};
 
 pub struct LogsModal {
-    text: String,
-    logs: Vec<Range<usize>>,
-    len_new: usize,
-    index: usize,
+    pub logs: Logs,
 }
 
 impl LogsModal {
     pub const fn new() -> Self {
-        Self {
-            text: String::new(),
-            logs: Vec::new(),
-            len_new: 0,
-            index: 0,
-        }
-    }
-
-    pub const fn is_empty(&self) -> bool {
-        self.logs.is_empty()
-    }
-
-    pub const fn len(&self) -> usize {
-        self.logs.len()
-    }
-
-    pub const fn len_new(&self) -> usize {
-        self.len_new
-    }
-
-    pub fn push_err(&mut self, error: impl std::error::Error) {
-        use std::fmt::Write;
-
-        let start = self.text.len();
-        let _ = writeln!(self.text, "{error}");
-        let mut source = error.source();
-        while let Some(cause) = source {
-            let _ = writeln!(self.text, "Caused by: {cause}");
-            source = cause.source();
-        }
-        self.add_log(start);
-    }
-
-    pub fn push_str(&mut self, s: impl AsRef<str>) {
-        let start = self.text.len();
-        self.text.push_str(s.as_ref());
-        self.add_log(start);
-    }
-
-    pub fn push_fmt(&mut self, s: impl std::fmt::Display) {
-        use std::fmt::Write;
-
-        let start = self.text.len();
-        let _ = write!(self.text, "{s}");
-        self.add_log(start);
+        Self { logs: Logs::new() }
     }
 
     pub fn enter(&mut self) {
-        if self.len_new > 0 {
-            self.len_new = 0;
-            self.index = self.len().saturating_sub(1);
+        if self.logs.len_new() > 0 {
+            self.logs.reset_new();
+            self.logs.last();
         }
     }
 
@@ -73,20 +25,20 @@ impl LogsModal {
     pub fn input(&mut self, key: Key) -> Action {
         match key.code {
             KeyCode::Right => {
-                self.next();
+                self.logs.next();
                 Action::Render
             }
             KeyCode::Left => {
-                self.prev();
+                self.logs.prev();
                 Action::Render
             }
             KeyCode::Delete => {
                 if key.ctrl() {
-                    self.clear();
+                    self.logs.clear();
                     Action::Modal(None)
                 } else {
-                    self.remove_current();
-                    if self.is_empty() {
+                    self.logs.remove_current();
+                    if self.logs.is_empty() {
                         Action::Modal(None)
                     } else {
                         Action::Render
@@ -106,7 +58,7 @@ impl LogsModal {
 
         frame.fill(area, colors.background, false);
 
-        let Some(log) = self.current() else {
+        let Some(log) = self.logs.current() else {
             frame.print_fmt(Sgr::Fg(colors.secondary));
             Block::rectangle().render(area, frame);
             frame.print_fmt(Sgr::Fg(colors.normal));
@@ -129,7 +81,7 @@ impl LogsModal {
         frame.print_fmt(Sgr::Fg(colors.normal));
         frame.push_fmt(format_args!(
             " Logs: {} / {} ",
-            self.index + 1,
+            self.logs.index() + 1,
             self.logs.len()
         ));
         frame.render(top, TextOptions::span_center_top());
@@ -143,54 +95,6 @@ impl LogsModal {
         render_shortcuts(bottom, frame, colors);
 
         frame.print_fmt(Sgr::Reset);
-    }
-
-    fn add_log(&mut self, start: usize) {
-        self.logs.push(Range {
-            start,
-            end: self.text.len(),
-        });
-        self.len_new += 1;
-    }
-
-    fn _iter(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.logs.iter().copied().map(|range| &self.text[range])
-    }
-
-    fn current(&self) -> Option<&str> {
-        self.logs
-            .get(self.index)
-            .copied()
-            .map(|range| &self.text[range])
-    }
-
-    fn next(&mut self) {
-        self.index += 1;
-
-        if self.index >= self.logs.len() {
-            self.index = 0;
-        }
-    }
-
-    fn prev(&mut self) {
-        if self.index == 0 {
-            self.index = self.logs.len().saturating_sub(1);
-        } else {
-            self.index -= 1;
-        }
-    }
-
-    fn remove_current(&mut self) {
-        self.logs.remove(self.index);
-
-        if self.index >= self.logs.len() {
-            self.index = self.logs.len().saturating_sub(1);
-        }
-    }
-
-    fn clear(&mut self) {
-        self.text.clear();
-        self.logs.clear();
     }
 }
 

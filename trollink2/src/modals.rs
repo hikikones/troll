@@ -3,9 +3,10 @@ mod logs;
 mod search;
 
 use action::*;
-pub use logs::*;
+use logs::*;
 use search::*;
 
+use shared::logs::Logs;
 use terminal::*;
 
 use crate::{
@@ -49,12 +50,12 @@ impl Modals {
         self.current
     }
 
-    pub const fn logs(&self) -> &LogsModal {
-        &self.logs
+    pub const fn logs(&self) -> &Logs {
+        &self.logs.logs
     }
 
-    pub const fn logs_mut(&mut self) -> &mut LogsModal {
-        &mut self.logs
+    pub const fn logs_mut(&mut self) -> &mut Logs {
+        &mut self.logs.logs
     }
 
     pub fn set(&mut self, modal: Option<Modal>, db: &Database) {

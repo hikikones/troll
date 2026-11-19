@@ -18,7 +18,7 @@ lofty = { workspace = true }
 rodio = { workspace = true }
 serde = { workspace = true }
 serde_repr = { workspace = true }
-shared = { workspace = true }
+shared = { workspace = true,features = ["bevy"] }
 terminal = { workspace = true, features = ["bevy"] }
 toml = { workspace = true }
 utils = { workspace = true }

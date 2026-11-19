@@ -8,13 +8,13 @@ use editor::*;
 use review::*;
 use settings::*;
 
+use shared::logs::Logs;
 use terminal::*;
 use widgets2::Markup;
 
 use crate::{
     app::Action,
     database::{CardId, Database, TagId},
-    modals::LogsModal,
     settings::{Colors, Settings},
 };
 
@@ -123,7 +123,7 @@ impl Pages {
         markup: &mut Markup,
         settings: &mut Settings,
         terminal: &mut Terminal,
-        logs: &mut LogsModal,
+        logs: &mut Logs,
     ) -> Action {
         match self.route {
             Route::Review => {

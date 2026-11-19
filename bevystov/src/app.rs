@@ -1,12 +1,13 @@
 use std::time::{Duration, Instant};
 
 use ecs::*;
+use shared::logs::Logs;
 use terminal::*;
 
 use crate::{
     database::{Database, DatabaseLoadEvent},
     jukebox::{Jukebox, JukeboxEvent},
-    modals::{Logs, Modal, ModalsPlugin},
+    modals::{Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
     pages::{Page, PagesPlugin, Route, TracksParam},
     settings::{Colors, Settings},
@@ -47,6 +48,7 @@ impl App {
 
         app.insert_resource(Framebuffer::default())
             .insert_resource(ScreenSize::default())
+            .insert_resource(Logs::default())
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
             .insert_resource(ModalColors::new(&settings))

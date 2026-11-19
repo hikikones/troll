@@ -5,8 +5,6 @@ use crate::app::App;
 mod logs;
 mod search;
 
-pub use logs::*;
-
 pub struct ModalsPlugin;
 
 impl ModalsPlugin {

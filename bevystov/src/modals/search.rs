@@ -11,10 +11,10 @@ use crate::{
     settings::{Colors, Settings},
 };
 
-pub(super) struct SearchModalPlugin;
+pub struct SearchModalPlugin;
 
 impl SearchModalPlugin {
-    pub(super) fn build(app: &mut App) {
+    pub fn build(app: &mut App) {
         app.insert_resource(SearchModal::default())
             .insert_resource(SearchResults::default())
             .add_exit(Modal::Search, exit_search)

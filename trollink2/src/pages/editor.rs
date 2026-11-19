@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
+use shared::logs::Logs;
 use terminal::*;
 use widgets2::{Editor, List, Markup};
 
 use crate::{
     app::Action,
     database::{CardId, Database, TagId},
-    modals::{LogsModal, Modal},
+    modals::Modal,
     settings::Colors,
 };
 
@@ -62,7 +63,7 @@ impl EditorPage {
         db: &mut Database,
         markup: &mut Markup,
         terminal: &mut Terminal,
-        logs: &mut LogsModal,
+        logs: &mut Logs,
     ) -> Action {
         match key.code {
             KeyCode::Delete if self.show_tags => {

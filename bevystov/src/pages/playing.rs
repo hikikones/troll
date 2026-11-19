@@ -1,5 +1,5 @@
 use ecs::*;
-use shared::symbols;
+use shared::{logs::Logs, symbols};
 use terminal::*;
 use widgets2::{
     Block, Image, ImageEncode, ImageError, ImageLoadOptions, ImageRenderOptions, KittyDeleteAll,
@@ -10,7 +10,6 @@ use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::{AudioFile, AudioFileError, AudioFileExt, Database, TrackId, TrackRating},
     jukebox::Jukebox,
-    modals::Logs,
     pages::{Page, Route},
     settings::{Colors, Settings},
 };

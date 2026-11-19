@@ -1,10 +1,10 @@
+use shared::logs::Logs;
 use terminal::*;
 use utils::ResultExt;
 use widgets2::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
     app::Action,
-    modals::LogsModal,
     settings::{Colors, Config, Settings},
 };
 
@@ -82,7 +82,7 @@ impl SettingsPage {
 
     pub fn refresh(&self) {}
 
-    pub fn input(&mut self, key: Key, settings: &mut Settings, logs: &mut LogsModal) -> Action {
+    pub fn input(&mut self, key: Key, settings: &mut Settings, logs: &mut Logs) -> Action {
         match key.code {
             KeyCode::Down => {
                 if self.down() {
@@ -270,12 +270,7 @@ impl SettingsPage {
         frame.render(area, TextOptions::span_center_top());
     }
 
-    fn handle_setting(
-        &mut self,
-        key: Key,
-        settings: &mut Settings,
-        logs: &mut LogsModal,
-    ) -> Action {
+    fn handle_setting(&mut self, key: Key, settings: &mut Settings, logs: &mut Logs) -> Action {
         match self.current() {
             Setting::DesiredRetention => {
                 if let KeyCode::Left | KeyCode::Right = key.code {
