@@ -43,23 +43,29 @@ impl App {
                 });
                 Settings::new(args.settings)
             });
-        settings.colors_mut().background =
+
+        let (bg, theme) =
             Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
-                .map(|rgb| rgb.slight_offset().as_color())
+                .map(|rgb| (rgb.slight_offset().as_color(), TermTheme::from_bg(rgb)))
                 .unwrap_or_else(|error| {
                     modals.logs_mut().push_err(AppError::QueryBg(error));
-                    Color::Default
+                    (Color::Default, TermTheme::default())
                 });
-        settings.colors_mut().foreground =
-            Rgb::query_fg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
-                .unwrap_or_else(|error| {
-                    modals.logs_mut().push_err(AppError::QueryFg(error));
-                    Rgb::WHITE
-                });
+        let fg = Rgb::query_fg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+            .unwrap_or_else(|error| {
+                modals.logs_mut().push_err(AppError::QueryFg(error));
+                match theme {
+                    TermTheme::Dark => Rgb::WHITE,
+                    TermTheme::Light => Rgb::BLACK,
+                }
+            });
+
+        let colors = settings.colors_mut();
+        colors.background = bg;
+        colors.foreground = fg;
 
         let pages = Pages::new(Route::Review, &settings);
         let markup = Markup::new(args.assets)
-            .with_colors(settings.colors().markup())
             .with_scrollbar(0)
             .with_padding(Margin::horizontal(1));
 
@@ -303,10 +309,13 @@ impl std::fmt::Display for AppError {
                 "Failed to read or create settings at {path:?}."
             )),
             Self::QueryBg(_) => f.write_str(
-                "Failed to query background color. Using default instead. Images will not be blocked in modals.",
+                "Failed to query background color. \
+                Assuming dark mode with default color instead. \
+                Images will not be blocked in modals.",
             ),
             Self::QueryFg(_) => f.write_str(
-                "Failed to query foreground color. Using white color instead for math.",
+                "Failed to query foreground color. \
+                Using default color instead based on background for math.",
             ),
             Self::QuerySize(_) => f.write_str("Failed to query terminal for window size."),
             Self::Render(_) => f.write_str("Failed to render/flush to stdout."),

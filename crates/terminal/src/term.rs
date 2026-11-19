@@ -604,13 +604,13 @@ impl std::error::Error for RgbQueryError {
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
-pub struct TerminalPalette {
+pub struct TermPalette {
     fg: Rgb,
     bg: Rgb,
     cursor: Rgb,
 }
 
-impl TerminalPalette {
+impl TermPalette {
     pub fn query(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
@@ -634,16 +634,12 @@ impl TerminalPalette {
         self.cursor
     }
 
-    pub const fn theme(&self) -> TerminalTheme {
-        if self.bg.is_dark() {
-            TerminalTheme::Dark
-        } else {
-            TerminalTheme::Light
-        }
+    pub const fn theme(&self) -> TermTheme {
+        TermTheme::from_bg(self.bg)
     }
 }
 
-impl Default for TerminalPalette {
+impl Default for TermPalette {
     fn default() -> Self {
         Self {
             fg: Rgb::WHITE,
@@ -653,8 +649,19 @@ impl Default for TerminalPalette {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum TerminalTheme {
+#[derive(Debug, Default, Clone, Copy)]
+pub enum TermTheme {
+    #[default]
     Dark,
     Light,
+}
+
+impl TermTheme {
+    pub const fn from_bg(bg: Rgb) -> Self {
+        if bg.is_dark() {
+            Self::Dark
+        } else {
+            Self::Light
+        }
+    }
 }
