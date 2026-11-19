@@ -236,7 +236,7 @@ impl Colors {
             neutral: grey,
             normal: grey,
             background: grey,
-            foreground: Rgb(98, 98, 98),
+            foreground: Rgb::all(98),
             red: grey,
             green: grey,
         }
