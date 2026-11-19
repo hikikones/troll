@@ -1,3 +1,5 @@
+use crate::Rgb;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Color {
     Black,
@@ -19,11 +21,11 @@ pub enum Color {
     #[default]
     Default,
     Indexed(u8),
-    Rgb(u8, u8, u8),
+    Rgb(Rgb),
 }
 
 impl Color {
-    pub const fn from_u8(i: u8) -> Color {
+    pub const fn from_u8(i: u8) -> Self {
         match i {
             // 0-15: standard ANSI colors
             0 => Self::Black,
@@ -54,15 +56,21 @@ impl Color {
                     if v == 0 { 0 } else { v * 40 + 55 }
                 }
 
-                Color::Rgb(scale(r), scale(g), scale(b))
+                Self::Rgb(Rgb(scale(r), scale(g), scale(b)))
             }
 
             // 232-255: grayscale ramp
             232..=255 => {
                 let gray = 8 + (i - 232) * 10;
-                Color::Rgb(gray, gray, gray)
+                Self::Rgb(Rgb::all(gray))
             }
         }
+    }
+}
+
+impl From<Rgb> for Color {
+    fn from(value: Rgb) -> Self {
+        Self::Rgb(value)
     }
 }
 
@@ -81,16 +89,16 @@ impl std::str::FromStr for Color {
                 return Err(ParseColorError::InvalidHex);
             }
 
-            fn parse_hex_color(hex: &str) -> Result<(u8, u8, u8), std::num::ParseIntError> {
+            fn parse_hex_color(hex: &str) -> Result<Rgb, std::num::ParseIntError> {
                 let r = u8::from_str_radix(&hex[0..2], 16)?;
                 let g = u8::from_str_radix(&hex[2..4], 16)?;
                 let b = u8::from_str_radix(&hex[4..6], 16)?;
-                Ok((r, g, b))
+                Ok(Rgb(r, g, b))
             }
 
-            let (r, g, b) = parse_hex_color(hex).map_err(|err| ParseColorError::ParseRgb(err))?;
+            let rgb = parse_hex_color(hex).map_err(|err| ParseColorError::ParseRgb(err))?;
 
-            Ok(Self::Rgb(r, g, b))
+            Ok(Self::Rgb(rgb))
         } else if c.is_ascii_digit() {
             let indexed_value = s
                 .parse::<u8>()
@@ -197,7 +205,7 @@ impl std::fmt::Display for Color {
 
             Self::Default => f.write_str("Default"),
             Self::Indexed(i) => write!(f, "{i}"),
-            Self::Rgb(r, g, b) => write!(f, "#{r:02x}{g:02x}{b:02x}"),
+            Self::Rgb(Rgb(r, g, b)) => write!(f, "#{r:02x}{g:02x}{b:02x}"),
         }
     }
 }

@@ -5,7 +5,7 @@ use crossterm::{
     cursor::{Hide, MoveTo, Show},
 };
 
-use crate::{Color, Pos};
+use crate::{Color, Pos, Rgb};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Cursor {
@@ -157,8 +157,12 @@ impl Sgr {
             Self::Fg(Color::Indexed(n)) => f.write_fmt(format_args!("38;5;{}", n)),
             Self::Bg(Color::Indexed(n)) => f.write_fmt(format_args!("48;5;{}", n)),
 
-            Self::Fg(Color::Rgb(r, g, b)) => f.write_fmt(format_args!("38;2;{};{};{}", r, g, b)),
-            Self::Bg(Color::Rgb(r, g, b)) => f.write_fmt(format_args!("48;2;{};{};{}", r, g, b)),
+            Self::Fg(Color::Rgb(Rgb(r, g, b))) => {
+                f.write_fmt(format_args!("38;2;{};{};{}", r, g, b))
+            }
+            Self::Bg(Color::Rgb(Rgb(r, g, b))) => {
+                f.write_fmt(format_args!("48;2;{};{};{}", r, g, b))
+            }
         }
     }
 }

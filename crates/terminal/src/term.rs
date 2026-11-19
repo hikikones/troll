@@ -405,12 +405,16 @@ impl Default for CellDims {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
     pub const BLACK: Self = Self(0, 0, 0);
     pub const WHITE: Self = Self(255, 255, 255);
+
+    pub const fn all(v: u8) -> Self {
+        Self(v, v, v)
+    }
 
     pub fn query_fg(
         writer: &mut impl std::io::Write,
@@ -444,8 +448,7 @@ impl Rgb {
     }
 
     pub const fn as_color(self) -> Color {
-        let Self(r, g, b) = self;
-        Color::Rgb(r, g, b)
+        Color::Rgb(self)
     }
 
     pub const fn slight_offset(self) -> Self {

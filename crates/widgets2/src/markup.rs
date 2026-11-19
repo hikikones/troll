@@ -518,8 +518,8 @@ impl Markup {
                         code,
                         self.colors.syntax_theme,
                         |span, color| match color {
-                            Some(Rgb(r, g, b)) => {
-                                writer.push_str_fg(span, Color::Rgb(r, g, b));
+                            Some(rgb) => {
+                                writer.push_str_fg(span, Color::Rgb(rgb));
                             }
                             None => {
                                 writer.push_str_fg(span, self.colors.text);
