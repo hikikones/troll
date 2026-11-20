@@ -76,12 +76,6 @@ pub enum CursorMove {
     Position(Pos),
 }
 
-impl CursorMove {
-    pub const fn from_pos(pos: Pos) -> Self {
-        Self::Position(pos)
-    }
-}
-
 impl Display for CursorMove {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
@@ -178,14 +172,12 @@ pub struct CursorToPos(pub Pos);
 
 impl Display for CursorToPos {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let Pos { col, row } = self.0;
         f.write_str(CSI)?;
 
         let buf = &mut NumBuffer::new();
-
-        f.write_str((row + 1).format_into(buf))?;
+        f.write_str((self.0.row + 1).format_into(buf))?;
         f.write_char(';')?;
-        f.write_str((col + 1).format_into(buf))?;
+        f.write_str((self.0.col + 1).format_into(buf))?;
         f.write_char('H')
     }
 }
@@ -240,7 +232,7 @@ impl From<bool> for Cursor {
 
 impl From<Pos> for CursorMove {
     fn from(pos: Pos) -> Self {
-        Self::from_pos(pos)
+        Self::Position(pos)
     }
 }
 
