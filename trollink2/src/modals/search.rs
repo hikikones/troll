@@ -27,7 +27,7 @@ enum State {
 
 enum Message {
     Help,
-    Empty,
+    MoreChars,
     NoCardsFound,
     Error(SqliteError),
 }
@@ -86,7 +86,7 @@ impl SearchModal {
                     }
 
                     if prompt.chars().count() < 3 {
-                        self.message = Some(Message::Empty);
+                        self.message = Some(Message::MoreChars);
                         return Action::Render;
                     }
 
@@ -213,7 +213,7 @@ impl SearchModal {
                     Message::Help => {
                         frame.push_str_fg(USAGE, colors.neutral);
                     }
-                    Message::Empty => {
+                    Message::MoreChars => {
                         frame.push_str_fg(
                             "Search query must be at least 3 characters",
                             colors.neutral,
