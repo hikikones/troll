@@ -99,8 +99,6 @@ impl LogsModal {
 }
 
 fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
-    let key_color = colors.secondary;
-    let name_color = colors.normal;
     let gap = 1;
 
     frame.push_ch(' ');
@@ -110,9 +108,9 @@ fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
         ("c", "Copy (todo)", gap),
         ("(^)Del", "Delete (all)", 0),
     ] {
-        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_fmt(Sgr::Fg(colors.secondary));
         frame.push_str(key);
-        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_fmt(Sgr::Fg(colors.normal));
         frame.push_ch(' ');
         frame.push_str(name);
         frame.push_ch_repeat(' ', gap);

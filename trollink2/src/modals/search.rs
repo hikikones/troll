@@ -11,7 +11,7 @@ use crate::{
 
 pub struct SearchModal {
     state: State,
-    search: Prompt,
+    prompt: Prompt,
     results: Vec<CardId>,
     writer: String,
     viewer: AnsiViewer,
@@ -27,7 +27,7 @@ enum State {
 
 enum Message {
     Help,
-    Empty,
+    MoreChars,
     NoCardsFound,
     Error(SqliteError),
 }
@@ -36,7 +36,7 @@ impl SearchModal {
     pub const fn new() -> Self {
         Self {
             state: State::Search,
-            search: Prompt::new().with_placeholder("Search..."),
+            prompt: Prompt::new().with_placeholder("Search..."),
             results: Vec::new(),
             writer: String::new(),
             viewer: AnsiViewer::new(),
@@ -53,7 +53,7 @@ impl SearchModal {
 
     pub fn exit(&mut self) {
         self.state = State::Search;
-        self.search.clear();
+        self.prompt.clear();
         self.results.clear();
         self.writer.clear();
         self.message = None;
@@ -68,9 +68,9 @@ impl SearchModal {
         match self.state {
             State::Search => match key.code {
                 KeyCode::Enter => {
-                    let input = self.search.as_str_trim();
+                    let prompt = self.prompt.as_str_trim();
 
-                    if input.is_empty() {
+                    if prompt.is_empty() {
                         self.message = Some(Message::Help);
                         return Action::Render;
                     }
@@ -80,13 +80,13 @@ impl SearchModal {
                     self.results.clear();
                     self.writer.clear();
 
-                    if let Err(err) = db.search(input, |id| self.results.push(id)) {
+                    if let Err(err) = db.search(prompt, |id| self.results.push(id)) {
                         self.message = Some(Message::Error(err));
                         return Action::Render;
                     }
 
-                    if input.chars().count() < 3 {
-                        self.message = Some(Message::Empty);
+                    if prompt.chars().count() < 3 {
+                        self.message = Some(Message::MoreChars);
                         return Action::Render;
                     }
 
@@ -108,7 +108,7 @@ impl SearchModal {
                 }
                 KeyCode::Up => {}
                 _ => {
-                    if self.search.input(key) {
+                    if self.prompt.input(key) {
                         return Action::Render;
                     }
                 }
@@ -184,7 +184,7 @@ impl SearchModal {
                 let prompt_area = top.scale_cols_and_center(0.5);
                 frame.cursor(prompt_area.pos);
                 frame.print_ch_repeat(' ', prompt_area.cols());
-                self.search
+                self.prompt
                     .set_colors(colors.prompt())
                     .set_disabled(self.no_cards)
                     .render(prompt_area.inner(Margin::horizontal(1)), frame);
@@ -213,7 +213,7 @@ impl SearchModal {
                     Message::Help => {
                         frame.push_str_fg(USAGE, colors.neutral);
                     }
-                    Message::Empty => {
+                    Message::MoreChars => {
                         frame.push_str_fg(
                             "Search query must be at least 3 characters",
                             colors.neutral,
@@ -253,19 +253,21 @@ impl SearchModal {
                 frame.render(area, TextOptions::span_center_top());
             }
             State::Browse => {
-                if self.current_card().is_some() {
-                    frame.push_fmt(format_args!(
-                        " {}e{} Edit",
-                        Sgr::Fg(key_color),
-                        Sgr::Fg(name_color),
-                    ));
+                let gap = 1;
+
+                frame.push_ch(' ');
+
+                for (key, name, gap) in [("e", "Edit", gap), ("g", "Goto", gap), ("s", "Search", 0)]
+                {
+                    frame.push_fmt(Sgr::Fg(key_color));
+                    frame.push_str(key);
+                    frame.push_fmt(Sgr::Fg(name_color));
+                    frame.push_ch(' ');
+                    frame.push_str(name);
+                    frame.push_ch_repeat(' ', gap);
                 }
 
-                frame.push_fmt(format_args!(
-                    " {}s{} Search ",
-                    Sgr::Fg(key_color),
-                    Sgr::Fg(name_color),
-                ));
+                frame.push_ch(' ');
                 frame.render(area, TextOptions::span_center_top());
             }
         }
@@ -276,7 +278,7 @@ impl SearchModal {
     }
 
     fn highlight(&mut self, id: CardId, db: &Database) {
-        db.search_highlight(id, self.search.as_str_trim(), |content| {
+        db.search_highlight(id, self.prompt.as_str_trim(), |content| {
             self.writer.clear();
             self.writer.push_str(content);
         })
