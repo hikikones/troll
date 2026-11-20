@@ -34,6 +34,14 @@ impl Style {
         }
     }
 
+    pub const fn colors(fg: Color, bg: Color) -> Self {
+        Self {
+            fg: Some(fg),
+            bg: Some(bg),
+            attributes: Attributes::empty(),
+        }
+    }
+
     pub const fn attributes(attributes: Attributes) -> Self {
         Self {
             fg: None,
@@ -52,6 +60,22 @@ impl Style {
 
     pub const fn reverse() -> Self {
         Self::attributes(Attributes::REVERSE)
+    }
+
+    pub const fn bold_fg(color: Color) -> Self {
+        Self {
+            fg: Some(color),
+            bg: None,
+            attributes: Attributes::BOLD,
+        }
+    }
+
+    pub const fn italic_fg(color: Color) -> Self {
+        Self {
+            fg: Some(color),
+            bg: None,
+            attributes: Attributes::ITALIC,
+        }
     }
 
     pub const fn with_fg(mut self, color: Color) -> Self {

@@ -1,12 +1,11 @@
-use std::time::{Duration, Instant};
-
 use ecs::*;
+use shared::{logs::Logs, time::Timer};
 use terminal::*;
 
 use crate::{
     database::{Database, DatabaseLoadEvent},
     jukebox::{Jukebox, JukeboxEvent},
-    modals::{Logs, Modal, ModalsPlugin},
+    modals::{Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
     pages::{Page, PagesPlugin, Route, TracksParam},
     settings::{Colors, Settings},
@@ -45,8 +44,8 @@ impl App {
             app.insert_non_send(media_controls);
         }
 
-        app.insert_resource(Framebuffer::default())
-            .insert_resource(ScreenSize::default())
+        app.insert_resource(Frame::default())
+            .insert_resource(Logs::default())
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
             .insert_resource(ModalColors::new(&settings))
@@ -144,6 +143,7 @@ impl App {
     fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         // Start loading
         self.world.non_send_mut::<Database>().load();
+        self.timers.update.start();
 
         let load_db_sid = self.world.register_system(load_database);
 
@@ -151,27 +151,26 @@ impl App {
             if self.timers.update.tick() {
                 self.world.run_system(load_db_sid).unwrap();
                 self.world
-                    .resource_mut::<Framebuffer>()
+                    .resource_mut::<Frame>()
                     .flush(&mut terminal.lock())?;
 
                 if self.world.non_send::<Database>().has_finished_loading() {
                     // Init first run
                     self.run_state_transitions();
                     self.run_render(terminal)?;
-                    self.timers.render.reset();
                     break;
                 }
             }
 
-            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+            if let Some(event) = TermEvent::poll(self.timers.update.timeout())? {
                 match event {
-                    TerminalEvent::Key(key) => {
+                    TermEvent::Key(key) => {
                         if let KeyCode::Esc = key.code {
                             self.is_running = false;
                             break;
                         }
                     }
-                    TerminalEvent::Resize => {
+                    TermEvent::Resize => {
                         self.update_size()?;
                     }
                 }
@@ -191,20 +190,20 @@ impl App {
 
             if self.timers.render.tick() {
                 let is_paused = self.world.non_send::<Jukebox>().is_paused();
-                let is_tall = self.world.resource::<ScreenSize>().is_tall();
+                let is_tall = self.world.resource::<Frame>().screen_height().is_tall();
 
                 if is_tall && !is_paused {
                     self.run_render(terminal)?;
                 }
             }
 
-            if let Some(event) = Terminal::poll(self.timers.update.timeout)? {
+            if let Some(event) = TermEvent::poll(self.timers.update.timeout())? {
                 match event {
-                    TerminalEvent::Key(key) => {
+                    TermEvent::Key(key) => {
                         self.insert_resource(Input(Some(key)));
                         self.run_input(terminal)?;
                     }
-                    TerminalEvent::Resize => {
+                    TermEvent::Resize => {
                         self.update_size()?;
                         self.run_render(terminal)?;
                     }
@@ -223,7 +222,6 @@ impl App {
         if self.apply_actions() {
             self.run_state_transitions();
             self.run_render(terminal)?;
-            self.timers.render.reset();
         }
 
         Ok(())
@@ -234,7 +232,6 @@ impl App {
 
         if self.apply_actions() {
             self.run_render(terminal)?;
-            self.timers.render.reset();
         }
 
         Ok(())
@@ -243,8 +240,9 @@ impl App {
     fn run_render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
         self.schedules.render.run(&mut self.world);
         self.world
-            .resource_mut::<Framebuffer>()
+            .resource_mut::<Frame>()
             .flush(&mut terminal.lock())?;
+        self.timers.render.start();
 
         Ok(())
     }
@@ -254,14 +252,7 @@ impl App {
     }
 
     fn update_size(&mut self) -> std::io::Result<()> {
-        let mut frame = self.world.resource_mut::<Framebuffer>();
-        frame.query_size()?;
-        let size = frame.window_size();
-
-        let mut screen_size = self.world.resource_mut::<ScreenSize>();
-        *screen_size = ScreenSize::new(size, ScreenSizeThresholds::DEFAULT);
-
-        Ok(())
+        self.world.resource_mut::<Frame>().query_size()
     }
 
     fn apply_actions(&mut self) -> bool {
@@ -321,36 +312,6 @@ impl App {
     }
 }
 
-struct Timer {
-    interval: Duration,
-    last_tick: Instant,
-    timeout: Duration,
-}
-
-impl Timer {
-    fn new(fps: u8) -> Self {
-        Self {
-            interval: Duration::from_secs_f64(1.0 / fps as f64),
-            last_tick: Instant::now(),
-            timeout: Duration::ZERO,
-        }
-    }
-
-    fn tick(&mut self) -> bool {
-        self.timeout = self.interval.saturating_sub(self.last_tick.elapsed());
-        if self.timeout == Duration::ZERO {
-            self.reset();
-            true
-        } else {
-            false
-        }
-    }
-
-    fn reset(&mut self) {
-        self.last_tick = Instant::now();
-    }
-}
-
 struct Timers {
     update: Timer,
     render: Timer,
@@ -359,14 +320,9 @@ struct Timers {
 impl Timers {
     fn new(update_fps: u8, render_fps: u8) -> Self {
         Self {
-            update: Timer::new(update_fps),
-            render: Timer::new(render_fps),
+            update: Timer::new(update_fps).with_loop(),
+            render: Timer::new(render_fps).with_loop(),
         }
-    }
-
-    fn _reset(&mut self) {
-        self.update.reset();
-        self.render.reset();
     }
 }
 
@@ -563,13 +519,12 @@ fn swap_colors(mut settings: ResMut<Settings>, mut modal_colors: ResMut<ModalCol
     std::mem::swap(settings.colors_mut(), &mut modal_colors);
 }
 
-fn hide_cursor(mut frame: ResMut<Framebuffer>) {
+fn hide_cursor(mut frame: ResMut<Frame>) {
     frame.set_cursor_visibility(false);
 }
 
 fn render_app(
-    screen_size: Res<ScreenSize>,
-    mut frame: ResMut<Framebuffer>,
+    mut frame: ResMut<Frame>,
     mut page_area: ResMut<PageArea>,
     mut shortcuts_area: ResMut<ShortcutsArea>,
     settings: Res<Settings>,
@@ -580,7 +535,7 @@ fn render_app(
     let area = frame.area();
     let colors = settings.colors();
 
-    match screen_size.height() {
+    match frame.screen_height() {
         ScreenHeight::Short => {
             **page_area = area;
             **shortcuts_area = Rect::ZERO;
@@ -625,7 +580,7 @@ fn render_app(
     }
 }
 
-fn render_navigation(area: Rect, frame: &mut Framebuffer, colors: &Colors, current_page: Page) {
+fn render_navigation(area: Rect, frame: &mut Frame, colors: &Colors, current_page: Page) {
     for (page, name, gap) in [
         (Page::Tracks, "Tracks", 3),
         (Page::NowPlaying, "Now Playing", 3),
@@ -644,7 +599,7 @@ fn render_navigation(area: Rect, frame: &mut Framebuffer, colors: &Colors, curre
 fn render_playback(
     title_area: Rect,
     status_area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     jukebox: &Jukebox,
 ) {
@@ -717,7 +672,7 @@ fn render_playback(
 fn render_shortcuts(
     play_area: Rect,
     app_area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     volume: f32,
     logs: &Logs,
@@ -759,7 +714,7 @@ fn render_shortcuts(
     }
 
     if logs.len() > 0 {
-        frame.push_ch(' ');
+        frame.push_ch_repeat(' ', gap);
         frame.push_fmt(Sgr::Fg(key_color));
         frame.push_str("^l");
         frame.push_fmt(Sgr::Fg(name_color));
@@ -839,7 +794,7 @@ fn update_app(
 
 fn load_database(
     mut database: NonSendMut<Database>,
-    mut frame: ResMut<Framebuffer>,
+    mut frame: ResMut<Frame>,
     mut logs: ResMut<Logs>,
     settings: Res<Settings>,
     mut len: Local<u32>,

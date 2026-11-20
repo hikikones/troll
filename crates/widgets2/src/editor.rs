@@ -8,6 +8,7 @@ use crate::{Scroll, ScrollData, ScrollMargins};
 // TODO: Add scrollbar and padding.
 // TODO: Use ansi codes for syntax highlighting.
 
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Editor {
     input: String,
     cursor: usize,
@@ -23,6 +24,12 @@ pub struct Editor {
     area_pos: Pos,
     last_size: Size,
     last_hash: u64,
+}
+
+impl Default for Editor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub struct EditorColors {
@@ -254,7 +261,7 @@ impl Editor {
         }
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame) {
         self.area_pos = area.pos;
 
         if area.is_empty() {
@@ -312,13 +319,11 @@ impl Editor {
         self.last_hash = 0;
     }
 
-    fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
-        frame.print_fmt(Sgr::Fg(color));
-        frame.print_span(area, self.placeholder);
-        frame.print_fmt(Sgr::Fg(Color::Default));
+    fn render_placeholder(&self, area: Rect, frame: &mut Frame, color: Color) {
+        frame.print_span_fg(area, self.placeholder, color, SpanOptions::left());
     }
 
-    fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
+    fn render_text(&self, area: Rect, frame: &mut Frame, color: Color) {
         frame.print_fmt(Sgr::Fg(color));
 
         for (i, line) in self
@@ -337,12 +342,7 @@ impl Editor {
         frame.print_fmt(Sgr::reset_fg());
     }
 
-    fn render_text_with_selection(
-        &self,
-        area: Rect,
-        frame: &mut Framebuffer,
-        selector: Range<usize>,
-    ) {
+    fn render_text_with_selection(&self, area: Rect, frame: &mut Frame, selector: Range<usize>) {
         let mut found_selector = false;
         let mut has_reset_selector = false;
 

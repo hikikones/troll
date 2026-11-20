@@ -2,6 +2,8 @@ use terminal::*;
 
 use crate::{Scroll, Scrollbar, ScrollbarColors, ScrollbarData};
 
+// TODO: Add writer. No need to pass immutable &ansi.
+
 #[derive(Debug)]
 pub struct AnsiViewer {
     ansi: String,
@@ -15,12 +17,19 @@ pub struct AnsiViewer {
     colors: AnsiViewerColors,
 }
 
+impl Default for AnsiViewer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct AnsiViewerOptions {
     pub padding: Margin,
     pub scrollbar: bool,
     pub scrollbar_margin: u16,
     pub alignment: HorizontalAlignment,
+    // pub disabled: bool, TODO
 }
 
 impl AnsiViewerOptions {
@@ -43,6 +52,7 @@ impl Default for AnsiViewerOptions {
 #[derive(Debug, Clone, Copy)]
 pub struct AnsiViewerColors {
     pub scrollbar: ScrollbarColors,
+    // pub disabled: Color, TODO
 }
 
 impl AnsiViewerColors {
@@ -115,6 +125,10 @@ impl AnsiViewer {
         self
     }
 
+    pub const fn current_scroll(&self) -> u16 {
+        self.scroll
+    }
+
     pub const fn input(&mut self, key: KeyCode) -> bool {
         match key {
             KeyCode::Down => self.move_down(1),
@@ -155,7 +169,7 @@ impl AnsiViewer {
         true
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer, ansi: &str) {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame, ansi: &str) {
         let inner = area.inner(self.options.padding);
 
         if inner.is_empty() {
@@ -216,7 +230,7 @@ impl AnsiViewer {
         self.render_scrollbar(frame);
     }
 
-    fn process(&mut self, ansi: &str, mut area: Rect, mut inner: Rect) {
+    fn process(&mut self, ansi: &str, area: Rect, mut inner: Rect) {
         let hash = utils::hash_fast(ansi);
 
         if self.hash != hash || self.size != area.size {
@@ -226,7 +240,7 @@ impl AnsiViewer {
             self.relayout(ansi, inner.cols());
 
             if self.is_scrollable(inner.size) {
-                let scroll_area = Scroll::make_area(&mut area, self.options.scrollbar_margin);
+                let scroll_area = area.right_edge();
                 inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
                 self.scroll_area = Some(scroll_area);
 
@@ -272,7 +286,7 @@ impl AnsiViewer {
         self.options.scrollbar && Scroll::is_scrollable(self.lines as usize, list_view)
     }
 
-    fn render_scrollbar(&self, frame: &mut Framebuffer) {
+    fn render_scrollbar(&self, frame: &mut Frame) {
         let Some(scroll_area) = self.scroll_area else {
             return;
         };

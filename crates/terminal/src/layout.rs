@@ -29,6 +29,26 @@ impl Rect {
         self
     }
 
+    pub const fn with_col_add(mut self, v: u16) -> Self {
+        self.pos.add_col(v);
+        self
+    }
+
+    pub const fn with_row_add(mut self, v: u16) -> Self {
+        self.pos.add_row(v);
+        self
+    }
+
+    pub const fn with_col_sub(mut self, v: u16) -> Self {
+        self.pos.sub_col(v);
+        self
+    }
+
+    pub const fn with_row_sub(mut self, v: u16) -> Self {
+        self.pos.sub_row(v);
+        self
+    }
+
     pub const fn with_size(mut self, size: Size) -> Self {
         self.size = size;
         self
@@ -44,8 +64,46 @@ impl Rect {
         self
     }
 
+    pub const fn with_cols_add(mut self, v: u16) -> Self {
+        self.size.add_cols(v);
+        self
+    }
+
+    pub const fn with_rows_add(mut self, v: u16) -> Self {
+        self.size.add_rows(v);
+        self
+    }
+
+    pub const fn with_cols_sub(mut self, v: u16) -> Self {
+        self.size.sub_cols(v);
+        self
+    }
+
+    pub const fn with_rows_sub(mut self, v: u16) -> Self {
+        self.size.sub_rows(v);
+        self
+    }
+
+    pub const fn with_cols_min(mut self, min: u16) -> Self {
+        self.size.set_cols_min(min);
+        self
+    }
+
+    pub const fn with_rows_min(mut self, min: u16) -> Self {
+        self.size.set_rows_min(min);
+        self
+    }
+
     pub const fn is_empty(&self) -> bool {
         self.size.is_empty()
+    }
+
+    pub const fn equals(&self, other: Self) -> bool {
+        self.pos.equals(other.pos) && self.size.equals(other.size)
+    }
+
+    pub const fn not_equals(&self, other: Self) -> bool {
+        self.pos.not_equals(other.pos) || self.size.not_equals(other.size)
     }
 
     pub const fn col(&self) -> u16 {
@@ -146,33 +204,81 @@ impl Rect {
         self.size.rows = self.size.rows.saturating_sub(rows);
     }
 
-    pub const fn right_out(&self) -> u16 {
-        self.pos.col + self.size.cols
+    pub const fn left_col(&self) -> u16 {
+        self.pos.col
+    }
+
+    pub const fn left_col_out(&self) -> u16 {
+        self.pos.col.saturating_sub(1)
     }
 
     pub const fn right_col(&self) -> u16 {
-        self.right_out().saturating_sub(1)
+        self.right_col_out().saturating_sub(1)
     }
 
-    pub const fn bottom_out(&self) -> u16 {
-        self.pos.row + self.size.rows
+    pub const fn right_col_out(&self) -> u16 {
+        self.pos.col + self.size.cols
+    }
+
+    pub const fn top_row(&self) -> u16 {
+        self.pos.row
+    }
+
+    pub const fn top_row_out(&self) -> u16 {
+        self.pos.row.saturating_sub(1)
     }
 
     pub const fn bottom_row(&self) -> u16 {
-        self.bottom_out().saturating_sub(1)
+        self.bottom_row_out().saturating_sub(1)
+    }
+
+    pub const fn bottom_row_out(&self) -> u16 {
+        self.pos.row + self.size.rows
     }
 
     pub const fn right_bottom(&self) -> Pos {
         Pos::new(self.right_col(), self.bottom_row())
     }
 
+    pub const fn right_bottom_out(&self) -> Pos {
+        Pos::new(self.right_col_out(), self.bottom_row_out())
+    }
+
+    pub const fn left_edge(self) -> Self {
+        self.with_cols_sub(self.size.cols.saturating_sub(1))
+    }
+
+    pub const fn right_edge(self) -> Self {
+        let cols = self.size.cols.saturating_sub(1);
+        Self {
+            pos: self.pos.with_col_add(cols),
+            size: self.size.with_cols_sub(cols),
+        }
+    }
+
+    pub const fn top_edge(self) -> Self {
+        self.with_rows_sub(self.size.rows.saturating_sub(1))
+    }
+
+    pub const fn bottom_edge(self) -> Self {
+        let rows = self.size.rows.saturating_sub(1);
+        Self {
+            pos: self.pos.with_row_add(rows),
+            size: self.size.with_rows_sub(rows),
+        }
+    }
+
     pub const fn inner(self, margin: Margin) -> Self {
-        let pos = Pos::new(self.pos.col + margin.left, self.pos.row + margin.top);
-        let size = Size::new(
-            self.size.cols.saturating_sub(margin.left + margin.right),
-            self.size.rows.saturating_sub(margin.top + margin.bottom),
-        );
-        Self { pos, size }
+        Self {
+            pos: Pos {
+                col: self.pos.col + margin.left,
+                row: self.pos.row + margin.top,
+            },
+            size: Size {
+                cols: self.size.cols.saturating_sub(margin.left + margin.right),
+                rows: self.size.rows.saturating_sub(margin.top + margin.bottom),
+            },
+        }
     }
 
     pub const fn align(
@@ -368,7 +474,7 @@ impl Rect {
         gap: u16,
         constraints: [Constraint; N],
     ) -> [Self; N] {
-        let right_out = self.right_out();
+        let right_out = self.right_col_out();
         let mut pos = self.pos;
 
         let splits = split(self.size.cols, gap, constraints);
@@ -397,7 +503,7 @@ impl Rect {
         gap: u16,
         constraints: [Constraint; N],
     ) -> [Self; N] {
-        let bottom_out = self.bottom_out();
+        let bottom_out = self.bottom_row_out();
         let mut pos = self.pos;
 
         let splits = split(self.size.rows, gap, constraints);
@@ -493,6 +599,34 @@ impl Pos {
         self
     }
 
+    pub const fn with_col_add(mut self, v: u16) -> Self {
+        self.add_col(v);
+        self
+    }
+
+    pub const fn with_row_add(mut self, v: u16) -> Self {
+        self.add_row(v);
+        self
+    }
+
+    pub const fn with_col_sub(mut self, v: u16) -> Self {
+        self.sub_col(v);
+        self
+    }
+
+    pub const fn with_row_sub(mut self, v: u16) -> Self {
+        self.sub_row(v);
+        self
+    }
+
+    pub const fn equals(&self, other: Self) -> bool {
+        self.col == other.col && self.row == other.row
+    }
+
+    pub const fn not_equals(&self, other: Self) -> bool {
+        self.col != other.col || self.row != other.row
+    }
+
     pub const fn add(self, rhs: Self) -> Self {
         Self {
             col: self.col + rhs.col,
@@ -576,6 +710,36 @@ impl Size {
         self
     }
 
+    pub const fn with_cols_add(mut self, v: u16) -> Self {
+        self.add_cols(v);
+        self
+    }
+
+    pub const fn with_rows_add(mut self, v: u16) -> Self {
+        self.add_rows(v);
+        self
+    }
+
+    pub const fn with_cols_sub(mut self, v: u16) -> Self {
+        self.sub_cols(v);
+        self
+    }
+
+    pub const fn with_rows_sub(mut self, v: u16) -> Self {
+        self.sub_rows(v);
+        self
+    }
+
+    pub const fn with_cols_min(mut self, min: u16) -> Self {
+        self.set_cols_min(min);
+        self
+    }
+
+    pub const fn with_rows_min(mut self, min: u16) -> Self {
+        self.set_rows_min(min);
+        self
+    }
+
     pub const fn is_empty(&self) -> bool {
         self.cols == 0 || self.rows == 0
     }
@@ -584,11 +748,11 @@ impl Size {
         self.cols < v || self.rows < v
     }
 
-    pub const fn eq(&self, other: Self) -> bool {
+    pub const fn equals(&self, other: Self) -> bool {
         self.cols == other.cols && self.rows == other.rows
     }
 
-    pub const fn neq(&self, other: Self) -> bool {
+    pub const fn not_equals(&self, other: Self) -> bool {
         self.cols != other.cols || self.rows != other.rows
     }
 
@@ -676,6 +840,26 @@ impl Size {
 
     pub const fn div_rows(&mut self, v: u16) {
         self.rows /= v;
+    }
+
+    pub const fn set_cols(&mut self, cols: u16) {
+        self.cols = cols;
+    }
+
+    pub const fn set_rows(&mut self, rows: u16) {
+        self.rows = rows;
+    }
+
+    pub const fn set_cols_min(&mut self, min: u16) {
+        if self.cols > min {
+            self.cols = min;
+        }
+    }
+
+    pub const fn set_rows_min(&mut self, min: u16) {
+        if self.rows > min {
+            self.rows = min;
+        }
     }
 }
 

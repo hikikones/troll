@@ -1,40 +1,47 @@
-use std::{
-    cmp::Ordering,
-    fmt::{Display, Write},
-};
+use std::{cmp::Ordering, fmt::Display};
 
-use crossterm::{
-    Command,
-    cursor::{Hide, MoveTo, Show},
-    terminal::{Clear, ClearType},
-};
+use utils::StringExt;
 
 use crate::{
-    CellDims, Color, Cursor, Dims, HorizontalAlignment, Pos, Rect, Sgr, Size, TerminalSize,
-    VerticalAlignment,
+    AnsiExt, CellDims, Color, Cursor, CursorClear, CursorErase, CursorMoveDown, CursorToHome,
+    CursorToPos, CursorVisibility, Dims, HorizontalAlignment, Pos, Rect, ScreenHeight, ScreenSize,
+    ScreenSizeThresholds, ScreenWidth, Sgr, Size, TerminalSize, VerticalAlignment,
 };
 
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
-pub struct Framebuffer {
-    size: TerminalSize,
+pub struct Frame {
     buffer: String,
     text: String,
+    size: TerminalSize,
+    thresholds: ScreenSizeThresholds,
+    screen_size: ScreenSize,
     cursor_state: CursorState,
+    generation: i32,
 }
 
-impl Framebuffer {
+impl Frame {
     pub const fn new() -> Self {
         Self {
-            size: TerminalSize::new(),
             buffer: String::new(),
             text: String::new(),
+            size: TerminalSize::new(),
+            thresholds: ScreenSizeThresholds::DEFAULT,
+            screen_size: ScreenSize::DEFAULT,
             cursor_state: CursorState::new(),
+            generation: 0,
         }
+    }
+
+    pub const fn with_thresholds(mut self, thresholds: ScreenSizeThresholds) -> Self {
+        self.thresholds = thresholds;
+        self
     }
 
     pub fn query_size(&mut self) -> std::io::Result<()> {
         self.size = TerminalSize::query()?;
+        self.screen_size = ScreenSize::new(self.size.window_size(), self.thresholds);
+
         Ok(())
     }
 
@@ -50,12 +57,36 @@ impl Framebuffer {
         self.size.cell_dims()
     }
 
+    pub const fn screen_width(&self) -> ScreenWidth {
+        self.screen_size.width
+    }
+
+    pub const fn screen_height(&self) -> ScreenHeight {
+        self.screen_size.height
+    }
+
+    pub const fn screen_size(&self) -> ScreenSize {
+        self.screen_size
+    }
+
     pub const fn area(&self) -> Rect {
         Rect::new(Pos::ZERO, self.size.window_size())
     }
 
+    pub const fn generation(&self) -> i32 {
+        self.generation
+    }
+
+    pub const fn increment_generation(&mut self) {
+        self.generation += 1;
+    }
+
     pub const fn set_cursor_visibility(&mut self, value: bool) {
         self.cursor_state.set_visible(value);
+    }
+
+    pub const fn reset_cursor_visibility(&mut self) {
+        self.cursor_state.current_visibility = false;
     }
 
     pub const fn set_cursor_pos_at_end(&mut self, pos: Pos) {
@@ -63,7 +94,7 @@ impl Framebuffer {
     }
 
     pub fn cursor(&mut self, cursor: impl Into<Cursor>) {
-        let _ = write!(self.buffer, "{}", cursor.into());
+        self.buffer.push_fmt(format_args!("{}", cursor.into()));
     }
 
     pub fn print_ch(&mut self, ch: char) {
@@ -79,15 +110,15 @@ impl Framebuffer {
     }
 
     pub fn print_str_fg(&mut self, s: &str, fg: Color) {
-        let _ = write!(self.buffer, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
+        self.buffer.push_str_fg(s, fg);
     }
 
     pub fn print_fmt(&mut self, text: impl Display) {
-        let _ = write!(self.buffer, "{text}");
+        self.buffer.push_fmt(text);
     }
 
     pub fn print_fmt_fg(&mut self, text: impl Display, fg: Color) {
-        let _ = write!(self.buffer, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
+        self.buffer.push_fmt_fg(text, fg);
     }
 
     pub fn print_iter<I>(&mut self, iter: I)
@@ -98,11 +129,7 @@ impl Framebuffer {
         self.buffer.extend(iter);
     }
 
-    pub fn print_span(&mut self, area: Rect, text: &str) {
-        self.print_span_with(area, text, SpanOptions::left());
-    }
-
-    pub fn print_span_with(&mut self, area: Rect, text: &str, options: SpanOptions) {
+    pub fn print_span(&mut self, area: Rect, text: &str, options: SpanOptions) {
         let SpanOptions {
             horizontal,
             vertical,
@@ -123,7 +150,7 @@ impl Framebuffer {
 
                 if fill {
                     // Fill remaining empty cells with spaces
-                    let _ = MoveTo(pos.col, pos.row).write_ansi(&mut self.buffer);
+                    self.print_fmt(CursorToPos(pos));
 
                     let empty_left_count = start_text_col - pos.col;
                     self.print_ch_repeat(' ', empty_left_count);
@@ -133,18 +160,18 @@ impl Framebuffer {
                     let empty_right_count = max_width - (empty_left_count + text_width);
                     self.print_ch_repeat(' ', empty_right_count);
                 } else {
-                    let _ = MoveTo(start_text_col, pos.row).write_ansi(&mut self.buffer);
+                    self.print_fmt(CursorToPos(pos.with_col(start_text_col)));
                     self.buffer.push_str(text);
                 }
             }
             Ordering::Equal => {
                 // Perfect fit, just print
-                let _ = MoveTo(pos.col, pos.row).write_ansi(&mut self.buffer);
+                self.print_fmt(CursorToPos(pos));
                 self.buffer.push_str(text);
             }
             Ordering::Greater => {
                 // No fit, print what we can
-                let _ = MoveTo(pos.col, pos.row).write_ansi(&mut self.buffer);
+                self.print_fmt(CursorToPos(pos));
 
                 let mut width = 0;
                 for g in utils::graphemes(text) {
@@ -165,12 +192,19 @@ impl Framebuffer {
         }
     }
 
+    pub fn print_span_fg(&mut self, area: Rect, text: &str, color: Color, options: SpanOptions) {
+        self.print_fmt(Sgr::Fg(color));
+        self.print_span(area, text, options);
+        self.print_fmt(Sgr::reset_fg());
+    }
+
     pub fn fill(&mut self, area: Rect, bg: Color, reset: bool) {
+        self.print_fmt(CursorToPos(area.pos));
         self.print_fmt(Sgr::Bg(bg));
 
-        for i in 0..area.size.rows {
-            let _ = MoveTo(area.pos.col, area.pos.row + i).write_ansi(&mut self.buffer);
-            self.print_ch_repeat(' ', area.size.cols);
+        for _ in 0..area.size.rows {
+            self.print_fmt(CursorErase(area.size.cols));
+            self.print_fmt(CursorMoveDown(1));
         }
 
         if reset {
@@ -179,22 +213,15 @@ impl Framebuffer {
     }
 
     pub fn flush(&mut self, writer: &mut impl std::io::Write) -> std::io::Result<()> {
-        use crossterm::QueueableCommand;
-
-        let size = self.size.window_size();
-        if size.is_either_less(2) {
+        if self.size.window_size().is_either_less(2) {
             self.clear();
             return Ok(());
         }
 
-        for i in 0..size.rows {
-            writer
-                .queue(MoveTo(0, i))?
-                .queue(Clear(ClearType::CurrentLine))?;
-        }
+        let cursor_state = self.cursor_state.take();
+        self.print_fmt(cursor_state);
 
-        let _ = write!(self.buffer, "{}", self.cursor_state.take());
-
+        writer.write_fmt(format_args!("{}{}", CursorToHome, CursorClear::ToScreenEnd))?;
         writer.write_all(self.buffer.as_bytes())?;
         writer.flush()?;
 
@@ -215,16 +242,16 @@ impl Framebuffer {
         self.text.push_str(s);
     }
 
-    pub fn push_str_fg(&mut self, s: &str, fg: Color) {
-        let _ = write!(self.text, "{}{s}{}", Sgr::Fg(fg), Sgr::reset_fg());
+    pub fn push_str_fg(&mut self, text: &str, fg: Color) {
+        self.text.push_str_fg(text, fg);
     }
 
     pub fn push_fmt(&mut self, text: impl Display) {
-        let _ = write!(self.text, "{text}");
+        self.text.push_fmt(text);
     }
 
     pub fn push_fmt_fg(&mut self, text: impl Display, fg: Color) {
-        let _ = write!(self.text, "{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
+        self.text.push_fmt_fg(text, fg);
     }
 
     pub fn push_iter<I>(&mut self, iter: I)
@@ -281,6 +308,14 @@ impl Framebuffer {
         self.text.clear();
     }
 
+    pub const fn text(&self) -> &String {
+        &self.text
+    }
+
+    pub const fn text_mut(&mut self) -> &mut String {
+        &mut self.text
+    }
+
     fn clear(&mut self) {
         self.buffer.clear();
         self.text.clear();
@@ -303,7 +338,7 @@ fn print_span_with_ansi(
 
             if fill {
                 // Fill remaining empty cells with spaces
-                let _ = MoveTo(pos.col, pos.row).write_ansi(output);
+                output.push_fmt(CursorToPos(pos));
 
                 let empty_left_count = start_text_col - pos.col;
                 output.extend(std::iter::repeat_n(' ', empty_left_count as usize));
@@ -313,18 +348,18 @@ fn print_span_with_ansi(
                 let empty_right_count = max_width - (empty_left_count + display_width);
                 output.extend(std::iter::repeat_n(' ', empty_right_count as usize));
             } else {
-                let _ = MoveTo(start_text_col, pos.row).write_ansi(output);
+                output.push_fmt(CursorToPos(pos.with_col(start_text_col)));
                 output.push_str(text);
             }
         }
         Ordering::Equal => {
             // Perfect fit, just print
-            let _ = MoveTo(pos.col, pos.row).write_ansi(output);
+            output.push_fmt(CursorToPos(pos));
             output.push_str(text);
         }
         Ordering::Greater => {
             // No fit, print what we can and keep ansi codes
-            let _ = MoveTo(pos.col, pos.row).write_ansi(output);
+            output.push_fmt(CursorToPos(pos));
 
             let mut width = 0;
             for g in utils::GraphemeAnsiIter::new(text) {
@@ -410,15 +445,12 @@ struct CursorStateCommand {
 
 impl std::fmt::Display for CursorStateCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(visible) = self.visibility {
-            match visible {
-                true => Show.write_ansi(f)?,
-                false => Hide.write_ansi(f)?,
-            }
+        if let Some(show_or_hide) = self.visibility {
+            CursorVisibility::from_bool(show_or_hide).fmt(f)?;
         }
 
-        if let Some(Pos { col, row }) = self.position {
-            MoveTo(col, row).write_ansi(f)?;
+        if let Some(pos) = self.position {
+            CursorToPos(pos).fmt(f)?;
         }
 
         Ok(())
@@ -561,6 +593,16 @@ impl TextOptions {
             vertical: VerticalAlignment::Top,
             fill: false,
         }
+    }
+
+    pub const fn with_horizontal(mut self, align: HorizontalAlignment) -> Self {
+        self.horizontal = align;
+        self
+    }
+
+    pub const fn with_vertical(mut self, align: VerticalAlignment) -> Self {
+        self.vertical = align;
+        self
     }
 
     pub const fn with_fill(mut self) -> Self {

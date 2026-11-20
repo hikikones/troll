@@ -6,7 +6,7 @@ use crossterm::{
     terminal::{DisableLineWrap, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::{Color, Size, TerminalEvent};
+use crate::{Color, Size};
 
 pub struct Terminal<W: std::io::Write = Stdout>(W);
 
@@ -28,24 +28,6 @@ impl Terminal<Stdout> {
         res
     }
 
-    /// Reads a terminal event in a blocking manner.
-    pub fn read() -> std::io::Result<Option<TerminalEvent>> {
-        crossterm::event::read().map(|ev| TerminalEvent::from(ev))
-    }
-
-    // TODO: The first poll sometimes blocks forever even with a valid timeout.
-    // Seems to be a bug in crossterm, as any manual input when blocked will make it work again.
-    // Reading crossterm event from another thread also triggers this bug.
-
-    /// Polls and reads a terminal event in a non-blocking manner.
-    pub fn poll(timeout: std::time::Duration) -> std::io::Result<Option<TerminalEvent>> {
-        match crossterm::event::poll(timeout) {
-            Ok(true) => Self::read(),
-            Ok(false) => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-
     pub fn temp_leave<T>(&mut self, f: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
         Self::leave_alternate_screen(&mut self.0)?;
         let t = f();
@@ -60,8 +42,8 @@ impl Terminal<Stdout> {
     }
 
     fn leave_alternate_screen(backend: &mut impl std::io::Write) -> std::io::Result<()> {
-        crossterm::terminal::disable_raw_mode()?;
-        execute!(backend, LeaveAlternateScreen)
+        execute!(backend, LeaveAlternateScreen)?;
+        crossterm::terminal::disable_raw_mode()
     }
 
     fn set_panic_hook() {
@@ -155,12 +137,24 @@ pub enum ScreenWidth {
     Wide,
 }
 
+impl ScreenWidth {
+    pub const fn is_wide(&self) -> bool {
+        matches!(self, ScreenWidth::Wide)
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ScreenHeight {
     Short,
     #[default]
     Normal,
     Tall,
+}
+
+impl ScreenHeight {
+    pub const fn is_tall(&self) -> bool {
+        matches!(self, ScreenHeight::Tall)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -173,10 +167,10 @@ pub struct ScreenSizeThresholds {
 
 impl ScreenSizeThresholds {
     pub const DEFAULT: Self = Self {
-        width_normal: 60,
+        width_normal: 56,
         width_wide: 80,
-        height_normal: 20,
-        height_tall: 30,
+        height_normal: 16,
+        height_tall: 24,
     };
 }
 
@@ -187,13 +181,17 @@ impl Default for ScreenSizeThresholds {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct ScreenSize {
-    width: ScreenWidth,
-    height: ScreenHeight,
+    pub width: ScreenWidth,
+    pub height: ScreenHeight,
 }
 
 impl ScreenSize {
+    pub const DEFAULT: Self = Self {
+        width: ScreenWidth::Normal,
+        height: ScreenHeight::Normal,
+    };
+
     pub const fn new(window_size: Size, thresholds: ScreenSizeThresholds) -> ScreenSize {
         let ScreenSizeThresholds {
             width_normal,
@@ -228,8 +226,12 @@ impl ScreenSize {
         (self.width, self.height)
     }
 
+    pub const fn is_wide(&self) -> bool {
+        self.width.is_wide()
+    }
+
     pub const fn is_tall(&self) -> bool {
-        matches!(self.height, ScreenHeight::Tall)
+        self.height.is_tall()
     }
 }
 
@@ -403,12 +405,16 @@ impl Default for CellDims {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Rgb(u8, u8, u8);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Rgb(pub u8, pub u8, pub u8);
 
 impl Rgb {
     pub const BLACK: Self = Self(0, 0, 0);
     pub const WHITE: Self = Self(255, 255, 255);
+
+    pub const fn all(v: u8) -> Self {
+        Self(v, v, v)
+    }
 
     pub fn query_fg(
         writer: &mut impl std::io::Write,
@@ -442,13 +448,40 @@ impl Rgb {
     }
 
     pub const fn as_color(self) -> Color {
-        let Self(r, g, b) = self;
-        Color::Rgb(r, g, b)
+        Color::Rgb(self)
     }
 
     pub const fn slight_offset(self) -> Self {
         let Self(r, g, b) = self;
         Self(r, g, if b == 255 { 254 } else { b + 1 })
+    }
+
+    pub fn readable(self) -> Self {
+        let rl = self.relative_luminance();
+        let contrast_black = (rl + 0.05) / 0.05;
+        let contrast_white = (1.05) / (rl + 0.05);
+        if contrast_black > contrast_white {
+            Self::BLACK
+        } else {
+            Self::WHITE
+        }
+    }
+
+    pub fn relative_luminance(self) -> f64 {
+        fn srgb_to_linear(c: u8) -> f64 {
+            let c = c as f64 / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        }
+
+        let r = srgb_to_linear(self.0);
+        let g = srgb_to_linear(self.1);
+        let b = srgb_to_linear(self.2);
+
+        0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 
     fn query(
@@ -458,27 +491,18 @@ impl Rgb {
     ) -> Result<Self, RgbQueryError> {
         let mut buffer = [0; 32];
 
-        let n = Self::do_query(osc, &mut buffer, writer, reader).map_err(|err| RgbQueryError {
-            message: format!("Failed to run OSC color query '{osc}'."),
-            source: Some(RgbQueryErrorSource::Io(err)),
-        })?;
+        let n = Self::do_query(osc, &mut buffer, writer, reader)
+            .map_err(|err| RgbQueryError::Io(err))?;
 
         let response = String::from_utf8_lossy(&buffer[..n]);
 
-        let Some(rgb) = Self::get_hex_parts(&response) else {
-            return Err(RgbQueryError {
-                message: format!(
-                    "Failed to find hex color parts of response '{response}' from OSC color query '{osc}'."
-                ),
-                source: None,
-            });
-        };
+        let hex = Self::get_hex_parts(&response).ok_or_else(|| RgbQueryError::ParseResponse {
+            response: format!("{response}"),
+        })?;
 
-        let rgb = Self::parse_hex_parts(rgb).map_err(|err| RgbQueryError {
-            message: format!(
-                "Failed to parse hex colors from parts '{rgb:?}' obtained by the OSC color query '{osc}'."
-            ),
-            source: Some(RgbQueryErrorSource::Parse(err)),
+        let rgb = Self::parse_hex_parts(hex).map_err(|err| RgbQueryError::ParseRgb {
+            hex_parts: format!("{hex:?}"),
+            error: err,
         })?;
 
         Ok(rgb)
@@ -521,57 +545,72 @@ impl Rgb {
         }
     }
 
-    fn parse_hex_parts((r, g, b): (&str, &str, &str)) -> Result<Self, std::num::ParseIntError> {
+    fn parse_hex_parts(hex: (&str, &str, &str)) -> Result<Self, std::num::ParseIntError> {
         fn parse_channel(hex: &str) -> Result<u8, std::num::ParseIntError> {
             let value = u32::from_str_radix(hex, 16)?;
             let max = (1u32 << (hex.len() * 4)) - 1;
             Ok(((value * 255 + max / 2) / max) as u8)
         }
 
-        let r = parse_channel(r)?;
-        let g = parse_channel(g)?;
-        let b = parse_channel(b)?;
+        let r = parse_channel(hex.0)?;
+        let g = parse_channel(hex.1)?;
+        let b = parse_channel(hex.2)?;
 
         Ok(Self(r, g, b))
     }
 }
 
+impl Default for Rgb {
+    fn default() -> Self {
+        Self::WHITE
+    }
+}
+
 #[derive(Debug)]
-pub struct RgbQueryError {
-    message: String,
-    source: Option<RgbQueryErrorSource>,
+pub enum RgbQueryError {
+    Io(std::io::Error),
+    ParseResponse {
+        response: String,
+    },
+    ParseRgb {
+        hex_parts: String,
+        error: std::num::ParseIntError,
+    },
 }
 
 impl std::fmt::Display for RgbQueryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.message.as_str())
+        match self {
+            Self::Io(err) => err.fmt(f),
+            Self::ParseResponse { response } => f.write_fmt(format_args!(
+                "Unable to extract hex parts from query response: '{response}'."
+            )),
+            Self::ParseRgb { hex_parts, .. } => {
+                f.write_fmt(format_args!("Unable to parse hex parts from {hex_parts}."))
+            }
+        }
     }
 }
 
 impl std::error::Error for RgbQueryError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|source| match source {
-            RgbQueryErrorSource::Io(err) => err as _,
-            RgbQueryErrorSource::Parse(err) => err as _,
-        })
+        match self {
+            Self::Io(err) => Some(err),
+            Self::ParseResponse { .. } => None,
+            Self::ParseRgb { error: err, .. } => Some(err),
+        }
     }
-}
-
-#[derive(Debug)]
-enum RgbQueryErrorSource {
-    Io(std::io::Error),
-    Parse(std::num::ParseIntError),
 }
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
-pub struct TerminalPalette {
+pub struct TermPalette {
     fg: Rgb,
     bg: Rgb,
     cursor: Rgb,
 }
 
-impl TerminalPalette {
+impl TermPalette {
     pub fn query(
         writer: &mut impl std::io::Write,
         reader: &mut impl std::io::Read,
@@ -595,16 +634,12 @@ impl TerminalPalette {
         self.cursor
     }
 
-    pub const fn theme(&self) -> TerminalTheme {
-        if self.bg.is_dark() {
-            TerminalTheme::Dark
-        } else {
-            TerminalTheme::Light
-        }
+    pub const fn theme(&self) -> TermTheme {
+        TermTheme::from_bg(self.bg)
     }
 }
 
-impl Default for TerminalPalette {
+impl Default for TermPalette {
     fn default() -> Self {
         Self {
             fg: Rgb::WHITE,
@@ -614,8 +649,19 @@ impl Default for TerminalPalette {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum TerminalTheme {
+#[derive(Debug, Default, Clone, Copy)]
+pub enum TermTheme {
+    #[default]
     Dark,
     Light,
+}
+
+impl TermTheme {
+    pub const fn from_bg(bg: Rgb) -> Self {
+        if bg.is_dark() {
+            Self::Dark
+        } else {
+            Self::Light
+        }
+    }
 }

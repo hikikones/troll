@@ -4584,6 +4584,7 @@ dependencies = [
 name = "shared"
 version = "0.1.0"
 dependencies = [
+ "bevy_ecs",
  "constcat",
  "ouroboros",
  "ratatui",
@@ -5397,6 +5398,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "trollink2"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "clap-cargo",
+ "directories",
+ "edit",
+ "fsrs",
+ "ron",
+ "serde",
+ "shared",
+ "terminal",
+ "toml",
+ "utils",
+ "widgets2",
+]
+
+[[package]]
 name = "trollstov"
 version = "0.2.0-dev"
 dependencies = [
@@ -5866,7 +5885,13 @@ name = "widgets2"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "bevy_ecs",
  "image",
+ "ratex-layout",
+ "ratex-parser",
+ "ratex-render",
+ "ratex-types",
+ "syntect",
  "terminal",
  "utils",
  "zlib-rs",

@@ -1,12 +1,12 @@
 use ecs::*;
-use shared::symbols;
+use shared::{logs::Logs, symbols};
 use terminal::*;
+use utils::ResultExt;
 use widgets2::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::TrackRating,
-    modals::Logs,
     pages::Page,
     settings::{Colors, Config, Settings},
 };
@@ -256,16 +256,21 @@ fn handle_setting(
             }
         }
         Setting::PrimaryColor => match key.code {
-            KeyCode::Enter => match page.primary.as_str_trim().parse::<Color>() {
-                Ok(color) => {
-                    settings.colors_mut().primary = color;
-                    actions.push(Action::Render);
+            KeyCode::Enter => {
+                let name = page.primary.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
+                {
+                    Ok(color) => {
+                        settings.colors_mut().primary = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
                 }
-                Err(err) => {
-                    logs.push_err(err);
-                    actions.push(Action::Render);
-                }
-            },
+                actions.push(Action::Render);
+            }
             _ => {
                 if page.primary.input(key) {
                     actions.push(Action::Render);
@@ -273,16 +278,21 @@ fn handle_setting(
             }
         },
         Setting::SecondaryColor => match key.code {
-            KeyCode::Enter => match page.secondary.as_str_trim().parse::<Color>() {
-                Ok(color) => {
-                    settings.colors_mut().secondary = color;
-                    actions.push(Action::Render);
+            KeyCode::Enter => {
+                let name = page.secondary.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
+                {
+                    Ok(color) => {
+                        settings.colors_mut().secondary = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
                 }
-                Err(err) => {
-                    logs.push_err(err);
-                    actions.push(Action::Render);
-                }
-            },
+                actions.push(Action::Render);
+            }
             _ => {
                 if page.secondary.input(key) {
                     actions.push(Action::Render);
@@ -290,16 +300,21 @@ fn handle_setting(
             }
         },
         Setting::NeutralColor => match key.code {
-            KeyCode::Enter => match page.neutral.as_str_trim().parse::<Color>() {
-                Ok(color) => {
-                    settings.colors_mut().neutral = color;
-                    actions.push(Action::Render);
+            KeyCode::Enter => {
+                let name = page.neutral.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
+                {
+                    Ok(color) => {
+                        settings.colors_mut().neutral = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
                 }
-                Err(err) => {
-                    logs.push_err(err);
-                    actions.push(Action::Render);
-                }
-            },
+                actions.push(Action::Render);
+            }
             _ => {
                 if page.neutral.input(key) {
                     actions.push(Action::Render);
@@ -313,7 +328,7 @@ fn handle_setting(
 fn render_settings(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
-    mut frame: ResMut<Framebuffer>,
+    mut frame: ResMut<Frame>,
     mut list: ResMut<SettingsList>,
     mut page: ResMut<SettingsPage>,
     settings: Res<Settings>,
@@ -323,11 +338,11 @@ fn render_settings(
 
     frame.print_fmt(Sgr::Fg(colors.secondary));
     Block::rectangle().render(area, &mut frame);
+    frame.print_fmt(Sgr::Fg(colors.normal));
 
     let (top, body, bottom) = area.inner(Margin::horizontal(1)).split_ends(1, 1);
 
-    frame.print_span_with(top, " Settings ", SpanOptions::center_top());
-    frame.print_fmt(Sgr::reset_fg());
+    frame.print_span(top, " Settings ", SpanOptions::center_top());
 
     let Some((list_area, lines)) = list
         .set_len(SETTINGS.len())
@@ -462,7 +477,7 @@ fn render_settings(
 
 fn render_shortcuts(
     area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     current: Setting,
     settings: &Settings,
@@ -477,7 +492,7 @@ fn render_shortcuts(
         name: &str,
         key_color: Color,
         name_color: Color,
-        frame: &mut Framebuffer,
+        frame: &mut Frame,
     ) {
         frame.push_fmt(Sgr::Fg(key_color));
         frame.push_str(key);
@@ -517,10 +532,8 @@ fn render_shortcuts(
     frame.render(area, TextOptions::span_center_top());
 }
 
-fn print_section(title: &str, line: Rect, frame: &mut Framebuffer, colors: &Colors) {
-    frame.print_fmt(Sgr::Fg(colors.neutral));
-    frame.print_span_with(line, title, SpanOptions::center_top());
-    frame.print_fmt(Sgr::reset_fg());
+fn print_section(title: &str, line: Rect, frame: &mut Frame, colors: &Colors) {
+    frame.print_span_fg(line, title, colors.neutral, SpanOptions::center_top());
 }
 
 fn print_toggle(
@@ -528,16 +541,14 @@ fn print_toggle(
     value: bool,
     left: Rect,
     right: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
 ) {
     frame.push_str(description);
     frame.render(left, TextOptions::span_right());
 
     let (toggle, color) = symbols::checkmark_with_value(value, colors.primary, colors.neutral);
-    frame.print_fmt(Sgr::Fg(color));
-    frame.print_span(right, toggle);
-    frame.print_fmt(Sgr::reset_fg());
+    frame.print_span_fg(right, toggle, color, SpanOptions::left());
 }
 
 fn print_color(
@@ -545,7 +556,7 @@ fn print_color(
     prompt: &mut Prompt,
     left: Rect,
     right: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     is_active: bool,
 ) {

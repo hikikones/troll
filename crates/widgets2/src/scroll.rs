@@ -49,7 +49,7 @@ impl Scrollbar {
         self
     }
 
-    pub fn render(self, area: Rect, frame: &mut Framebuffer) {
+    pub fn render(self, area: Rect, frame: &mut Frame) {
         if self.data.total_items == 0 || area.is_empty() {
             return;
         }
@@ -69,8 +69,6 @@ impl Scrollbar {
         let start = (progress * range as f32).floor() as u16;
         let end = start + size;
 
-        // TODO: Rework rendering.
-        let mut pos = area.pos;
         match self.colors.track {
             // Render both track and thumb
             Some(track_color) => {
@@ -83,31 +81,24 @@ impl Scrollbar {
                         ('│', track_color)
                     };
 
-                    frame.cursor(pos);
+                    frame.cursor(area.pos.with_row_add(i));
                     frame.print_fmt(Sgr::Fg(color));
                     frame.print_ch(ch);
-
-                    pos.row += 1;
                 }
 
-                frame.print_fmt(Sgr::Fg(Color::Default));
+                frame.print_fmt(Sgr::reset_fg());
             }
             // Render only thumb
             None => {
                 frame.print_fmt(Sgr::Fg(self.colors.thumb));
 
-                for i in 0..area.size.rows {
-                    let is_thumb = i >= start && i < end;
-
-                    if is_thumb {
-                        frame.cursor(pos);
-                        frame.print_ch('│');
-                    }
-
-                    pos.row += 1;
+                let pos = area.pos.with_row_add(start);
+                for i in 0..size {
+                    frame.cursor(pos.with_row_add(i));
+                    frame.print_ch('│');
                 }
 
-                frame.print_fmt(Sgr::Fg(Color::Default));
+                frame.print_fmt(Sgr::reset_fg());
             }
         }
     }
@@ -165,22 +156,6 @@ impl Scroll {
 
     pub const fn is_scrollable_min_width(lines: usize, viewport: Size, min_width: u16) -> bool {
         lines > viewport.rows as usize && viewport.cols >= min_width
-    }
-
-    // TODO: Remove?
-    pub const fn make_area(area: &mut Rect, margin: u16) -> Rect {
-        let scroll_area = Rect {
-            pos: Pos {
-                col: area.pos.col + area.size.cols.saturating_sub(1),
-                row: area.pos.row,
-            },
-            size: Size {
-                cols: 1,
-                rows: area.size.rows,
-            },
-        };
-        area.size.cols = area.size.cols.saturating_sub(1 + margin);
-        scroll_area
     }
 }
 

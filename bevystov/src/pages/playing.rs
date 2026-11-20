@@ -1,15 +1,15 @@
 use ecs::*;
-use shared::symbols;
+use shared::{logs::Logs, symbols};
 use terminal::*;
 use widgets2::{
-    Block, Image, ImageLoadOptions, ImageOptions, KittyDeleteAll, KittyError, List, ScrollMargins,
+    Block, Image, ImageEncode, ImageError, ImageLoadOptions, ImageRenderOptions, KittyDeleteAll,
+    List, ScrollMargins,
 };
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
     database::{AudioFile, AudioFileError, AudioFileExt, Database, TrackId, TrackRating},
     jukebox::Jukebox,
-    modals::Logs,
     pages::{Page, Route},
     settings::{Colors, Settings},
 };
@@ -89,8 +89,8 @@ enum ViewLayout {
 }
 
 impl ViewLayout {
-    const fn from(screen_size: (ScreenWidth, ScreenHeight)) -> Self {
-        match screen_size {
+    const fn from(screen_size: ScreenSize) -> Self {
+        match screen_size.both() {
             (ScreenWidth::Narrow, ScreenHeight::Short) => Self::Cover,
             (ScreenWidth::Narrow, ScreenHeight::Normal) => Self::Vertical,
             (ScreenWidth::Narrow, ScreenHeight::Tall) => Self::Vertical,
@@ -104,20 +104,20 @@ impl ViewLayout {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct FrontCover {
     state: CoverState,
     handle: Option<ImageHandle>,
+    image: Image,
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 enum CoverState {
     #[default]
     None,
-    Loading,
     NoImage,
     Error,
-    Image(Image),
+    Image,
 }
 
 impl FrontCover {
@@ -126,24 +126,16 @@ impl FrontCover {
         self.handle = None;
     }
 
-    fn render(&self, area: Rect, frame: &mut Framebuffer, colors: &Colors) -> Option<Rect> {
+    fn render(&mut self, area: Rect, frame: &mut Frame, colors: &Colors) -> Option<Rect> {
         let msg = match &self.state {
             CoverState::None => return None,
-            CoverState::Loading => {
-                frame.print_fmt(Sgr::Fg(colors.neutral));
-                Block::rectangle().render(area, frame);
-                frame.print_span_with(
-                    area.inner(Margin::proportional(1)),
-                    "Loading",
-                    SpanOptions::center(),
-                );
-                frame.print_fmt(Sgr::reset_fg());
-                return None;
-            }
             CoverState::NoImage => "No image",
             CoverState::Error => "Failed to load image",
-            CoverState::Image(image) => {
-                return Some(image.render(area, frame, ImageOptions::fit_center()));
+            CoverState::Image => {
+                return Some(
+                    self.image
+                        .render(area, frame, ImageRenderOptions::fit_center()),
+                );
             }
         };
 
@@ -268,13 +260,12 @@ fn input_playing(
 fn render_playing(
     area: Res<PageArea>,
     shortcuts_area: Res<ShortcutsArea>,
-    mut frame: ResMut<Framebuffer>,
-    screen_size: Res<ScreenSize>,
+    mut frame: ResMut<Frame>,
     settings: Res<Settings>,
     database: NonSend<Database>,
     jukebox: NonSend<Jukebox>,
     mut page: ResMut<PlayingPage>,
-    cover: NonSend<FrontCover>,
+    mut cover: NonSendMut<FrontCover>,
 ) {
     let colors = settings.colors();
 
@@ -282,10 +273,10 @@ fn render_playing(
     frame.print_fmt(KittyDeleteAll);
 
     // Render layout based on screen size
-    page.view = ViewLayout::from(screen_size.both());
+    page.view = ViewLayout::from(frame.screen_size());
     let (cover_area, queue_area) = match page.view {
         ViewLayout::Cover => {
-            render_cover(**area, &mut frame, colors, &database, &jukebox, &cover);
+            render_cover(**area, &mut frame, colors, &database, &jukebox, &mut cover);
             return;
         }
         ViewLayout::Horizontal => area.split_vertically_with_gap(0),
@@ -294,7 +285,9 @@ fn render_playing(
 
     page.update_scroll_on_new_track(&jukebox);
 
-    render_cover(cover_area, &mut frame, colors, &database, &jukebox, &cover);
+    render_cover(
+        cover_area, &mut frame, colors, &database, &jukebox, &mut cover,
+    );
     render_queue(
         queue_area,
         **shortcuts_area,
@@ -308,11 +301,11 @@ fn render_playing(
 
 fn render_cover(
     area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     database: &Database,
     jukebox: &Jukebox,
-    cover: &FrontCover,
+    cover: &mut FrontCover,
 ) {
     let Some(rating) = jukebox.track_id().map(|id| database.track_rating(id)) else {
         frame.push_str_fg("No track currently playing", colors.neutral);
@@ -332,7 +325,7 @@ fn render_cover(
             frame.push_str(empty_stars);
             frame.push_fmt(Sgr::reset_fg());
             frame.render(
-                image_area.with_row(image_area.bottom_out()),
+                image_area.with_row(image_area.bottom_row_out()),
                 TextOptions::span_center_top(),
             );
         }
@@ -344,7 +337,7 @@ fn render_cover(
 fn render_queue(
     area: Rect,
     shortcuts_area: Rect,
-    frame: &mut Framebuffer,
+    frame: &mut Frame,
     colors: &Colors,
     database: &Database,
     jukebox: &Jukebox,
@@ -362,13 +355,12 @@ fn render_queue(
     frame.render(area, TextOptions::span_center_top());
 
     if jukebox.is_empty() {
-        frame.print_fmt(Sgr::Fg(colors.neutral));
-        frame.print_span_with(
+        frame.print_span_fg(
             area.inner(Margin::proportional(1)),
             "No tracks in the queue",
+            colors.neutral,
             SpanOptions::center(),
         );
-        frame.print_fmt(Sgr::reset_fg());
         return;
     }
 
@@ -428,7 +420,7 @@ fn render_queue(
     render_shortcuts(shortcuts_area, frame, colors);
 }
 
-fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
+fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
     let key_color = colors.secondary;
     let name_color = colors.normal;
     let gap = 1;
@@ -454,7 +446,7 @@ fn render_shortcuts(area: Rect, frame: &mut Framebuffer, colors: &Colors) {
     frame.render(area, TextOptions::span_center_top());
 }
 
-fn exit_playing(mut frame: ResMut<Framebuffer>) {
+fn exit_playing(mut frame: ResMut<Frame>) {
     frame.print_fmt(KittyDeleteAll);
 }
 
@@ -462,6 +454,7 @@ fn update_cover(
     mut page: ResMut<PlayingPage>,
     mut cover: NonSendMut<FrontCover>,
     jukebox: NonSend<Jukebox>,
+    frame: Res<Frame>,
 ) {
     let id = jukebox.track_id();
 
@@ -476,11 +469,12 @@ fn update_cover(
         return;
     };
 
-    cover.state = CoverState::Loading;
     cover.handle = Some(load_front_cover(
         track.path().to_path_buf(),
         track.ext(),
         page.next_image_id(),
+        cover.image.take_encode(),
+        frame.generation(),
     ));
 }
 
@@ -495,10 +489,12 @@ fn poll_cover(
         && let Ok(result) = handle.join()
     {
         match result {
-            Ok(image) => {
-                cover.state = image
-                    .map(|img| CoverState::Image(img))
-                    .unwrap_or(CoverState::NoImage);
+            Ok(Some(image)) => {
+                cover.state = CoverState::Image;
+                cover.image = image;
+            }
+            Ok(None) => {
+                cover.state = CoverState::NoImage;
             }
             Err(err) => {
                 logs.push_err(err);
@@ -510,54 +506,76 @@ fn poll_cover(
     }
 }
 
-fn load_front_cover(path: std::path::PathBuf, ext: AudioFileExt, image_id: u32) -> ImageHandle {
+fn load_front_cover(
+    path: std::path::PathBuf,
+    ext: AudioFileExt,
+    image_id: u32,
+    encode: ImageEncode,
+    generation: i32,
+) -> ImageHandle {
     std::thread::spawn(move || {
-        let audio_file = AudioFile::read_cover(&path, ext).map_err(|err| LoadImageError {
-            message: format!("Failed to read front cover image from '{}'", path.display()),
-            source: Some(LoadErrorSource::Audio(err)),
-        })?;
+        let audio_file = match AudioFile::read_cover(&path, ext) {
+            Ok(file) => file,
+            Err(err) => {
+                return Err(LoadImageError {
+                    path,
+                    source: LoadErrorSource::Audio(err),
+                });
+            }
+        };
 
-        audio_file
-            .front_cover()
-            .map(|bytes| {
-                Image::from_bytes(
-                    bytes,
-                    &mut std::io::stdout().lock(),
-                    image_id,
-                    ImageLoadOptions::max(Dims::all(512)),
-                )
-            })
-            .transpose()
-            .map_err(|err| LoadImageError {
-                message: format!("Failed to load front cover image from '{}'", path.display()),
-                source: Some(LoadErrorSource::Image(err)),
-            })
+        let Some(bytes) = audio_file.front_cover() else {
+            return Ok(None);
+        };
+
+        let mut image = Image::new_with_encode(image_id, encode);
+
+        if let Err(err) = image.load_from_bytes(bytes, ImageLoadOptions::max(Dims::all(512))) {
+            return Err(LoadImageError {
+                path,
+                source: LoadErrorSource::Image(err),
+            });
+        }
+
+        if let Err(err) = image.transmit(generation) {
+            return Err(LoadImageError {
+                path,
+                source: LoadErrorSource::Transmit(err),
+            });
+        }
+
+        Ok(Some(image))
     })
 }
 
 #[derive(Debug)]
 struct LoadImageError {
-    message: String,
-    source: Option<LoadErrorSource>,
+    path: std::path::PathBuf,
+    source: LoadErrorSource,
 }
 
 #[derive(Debug)]
 enum LoadErrorSource {
     Audio(AudioFileError),
-    Image(KittyError),
+    Image(ImageError),
+    Transmit(std::io::Error),
 }
 
 impl std::fmt::Display for LoadImageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        f.write_fmt(format_args!(
+            "Failed to load front cover from \"{}\".",
+            self.path.display()
+        ))
     }
 }
 
 impl std::error::Error for LoadImageError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|err| match err {
-            LoadErrorSource::Audio(err) => err as _,
-            LoadErrorSource::Image(err) => err as _,
-        })
+        match &self.source {
+            LoadErrorSource::Audio(err) => Some(err),
+            LoadErrorSource::Image(err) => Some(err),
+            LoadErrorSource::Transmit(err) => Some(err),
+        }
     }
 }

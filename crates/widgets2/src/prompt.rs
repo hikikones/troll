@@ -4,9 +4,10 @@ use terminal::*;
 
 use crate::{Scroll, ScrollData, ScrollMargins};
 
-// TODO: Scrolling assumes all chars/graphemes are one width.
+// TODO: Horizontal scrolling assumes all chars/graphemes are one display width.
 
 #[derive(Debug)]
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Prompt {
     input: String,
     placeholder: &'static str,
@@ -18,6 +19,12 @@ pub struct Prompt {
     colors: PromptColors,
     area_pos: Pos,
     last_width: u16,
+}
+
+impl Default for Prompt {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug)]
@@ -241,7 +248,7 @@ impl Prompt {
         self.scroll = 0;
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Framebuffer) {
+    pub fn render(&mut self, area: Rect, frame: &mut Frame) {
         self.area_pos = area.pos;
 
         if area.is_empty() {
@@ -286,13 +293,11 @@ impl Prompt {
         frame.set_cursor_visibility(true);
     }
 
-    fn render_placeholder(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
-        frame.print_fmt(Sgr::Fg(color));
-        frame.print_span(area, self.placeholder);
-        frame.print_fmt(Sgr::Fg(Color::Default));
+    fn render_placeholder(&self, area: Rect, frame: &mut Frame, color: Color) {
+        frame.print_span_fg(area, self.placeholder, color, SpanOptions::left());
     }
 
-    fn render_text(&self, area: Rect, frame: &mut Framebuffer, color: Color) {
+    fn render_text(&self, area: Rect, frame: &mut Frame, color: Color) {
         frame.print_fmt(Sgr::Fg(color));
 
         frame.cursor(area.pos);
@@ -303,12 +308,7 @@ impl Prompt {
         frame.print_fmt(Sgr::reset_fg());
     }
 
-    fn render_text_with_selection(
-        &self,
-        area: Rect,
-        frame: &mut Framebuffer,
-        selector: Range<usize>,
-    ) {
+    fn render_text_with_selection(&self, area: Rect, frame: &mut Frame, selector: Range<usize>) {
         let mut found_selector = false;
         let mut has_reset_selector = false;
 
