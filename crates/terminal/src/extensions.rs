@@ -13,10 +13,8 @@ impl AnsiExt for String {
     }
 
     fn push_fmt_fg(&mut self, text: impl Display, fg: Color) {
-        let _ = std::fmt::Write::write_fmt(
-            self,
-            format_args!("{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg()),
-        );
+        let fmt = format_args!("{}{text}{}", Sgr::Fg(fg), Sgr::reset_fg());
+        let _ = std::fmt::Write::write_fmt(self, fmt);
     }
 }
 

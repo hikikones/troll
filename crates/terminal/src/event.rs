@@ -3,9 +3,9 @@ use std::{
     time::Duration,
 };
 
-use crossterm::event::{
-    Event as CrosstermEvent, KeyCode, KeyEvent as CrosstermKeyEvent, KeyModifiers,
-};
+use crossterm::event::{Event as CrosstermEvent, KeyEvent as CrosstermKeyEvent};
+
+pub use crossterm::event::{KeyCode, KeyModifiers};
 
 pub struct EventThread(Receiver<TermEvent>);
 

@@ -1,39 +1,264 @@
-use std::fmt::{Display, Write};
-
-use crossterm::{
-    Command,
-    cursor::{Hide, MoveTo, Show},
-};
+use std::fmt::{Display, NumBuffer, Write};
 
 use crate::{Color, Pos, Rgb};
 
+const CSI: &str = "\x1b[";
+
 #[derive(Debug, Clone, Copy)]
 pub enum Cursor {
-    Hide,
-    Show,
-    Move(u16, u16),
+    Visibility(CursorVisibility),
+    Move(CursorMove),
+    Erase(u16),
+    Clear(CursorClear),
 }
 
 impl Display for Cursor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Cursor::Hide => Hide.write_ansi(f),
-            Cursor::Show => Show.write_ansi(f),
-            Cursor::Move(col, row) => MoveTo(col, row).write_ansi(f),
+            Self::Visibility(cv) => cv.fmt(f),
+            Self::Move(cm) => cm.fmt(f),
+            Self::Erase(cols) => CursorErase(cols).fmt(f),
+            Self::Clear(clear) => clear.fmt(f),
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CursorVisibility {
+    Hide,
+    Show,
+}
+
+impl CursorVisibility {
+    pub const fn from_bool(show: bool) -> Self {
+        if show { Self::Show } else { Self::Hide }
+    }
+}
+
+impl Display for CursorVisibility {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CursorVisibility::Hide => CursorHide.fmt(f),
+            CursorVisibility::Show => CursorShow.fmt(f),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorHide;
+
+impl Display for CursorHide {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str("?25l")
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorShow;
+
+impl Display for CursorShow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str("?25h")
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CursorMove {
+    Home,
+    Left(u16),
+    Right(u16),
+    Up(u16),
+    Down(u16),
+    Column(u16),
+    Row(u16),
+    Position(Pos),
+}
+
+impl CursorMove {
+    pub const fn from_pos(pos: Pos) -> Self {
+        Self::Position(pos)
+    }
+}
+
+impl Display for CursorMove {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Home => CursorToHome.fmt(f),
+            Self::Left(n) => CursorMoveLeft(n).fmt(f),
+            Self::Right(n) => CursorMoveRight(n).fmt(f),
+            Self::Up(n) => CursorMoveUp(n).fmt(f),
+            Self::Down(n) => CursorMoveDown(n).fmt(f),
+            Self::Column(col) => CursorToColumn(col).fmt(f),
+            Self::Row(row) => CursorToRow(row).fmt(f),
+            Self::Position(pos) => CursorToPos(pos).fmt(f),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorToHome;
+
+impl Display for CursorToHome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_char('H')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorMoveLeft(pub u16);
+
+impl Display for CursorMoveLeft {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str(self.0.format_into(&mut NumBuffer::new()))?;
+        f.write_char('D')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorMoveRight(pub u16);
+
+impl Display for CursorMoveRight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str(self.0.format_into(&mut NumBuffer::new()))?;
+        f.write_char('C')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorMoveUp(pub u16);
+
+impl Display for CursorMoveUp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str(self.0.format_into(&mut NumBuffer::new()))?;
+        f.write_char('A')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorMoveDown(pub u16);
+
+impl Display for CursorMoveDown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str(self.0.format_into(&mut NumBuffer::new()))?;
+        f.write_char('B')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorToColumn(pub u16);
+
+impl Display for CursorToColumn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str((self.0 + 1).format_into(&mut NumBuffer::new()))?;
+        f.write_char('G')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorToRow(pub u16);
+
+impl Display for CursorToRow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str((self.0 + 1).format_into(&mut NumBuffer::new()))?;
+        f.write_char('d')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorToPos(pub Pos);
+
+impl Display for CursorToPos {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Pos { col, row } = self.0;
+        f.write_str(CSI)?;
+
+        let buf = &mut NumBuffer::new();
+
+        f.write_str((row + 1).format_into(buf))?;
+        f.write_char(';')?;
+        f.write_str((col + 1).format_into(buf))?;
+        f.write_char('H')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CursorErase(pub u16);
+
+impl Display for CursorErase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+        f.write_str((self.0).format_into(&mut NumBuffer::new()))?;
+        f.write_char('X')
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CursorClear {
+    ToLineEnd,
+    FromLineStart,
+    EntireLine,
+    ToScreenEnd,
+    FromScreenStart,
+    EntireScreen,
+}
+
+impl Display for CursorClear {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(CSI)?;
+
+        match self {
+            Self::ToLineEnd => f.write_char('K'),
+            Self::FromLineStart => f.write_str("1K"),
+            Self::EntireLine => f.write_str("2K"),
+            Self::ToScreenEnd => f.write_char('J'),
+            Self::FromScreenStart => f.write_str("1J"),
+            Self::EntireScreen => f.write_str("2J"),
+        }
+    }
+}
+
+impl From<bool> for CursorVisibility {
+    fn from(show: bool) -> Self {
+        Self::from_bool(show)
+    }
+}
+
+impl From<bool> for Cursor {
+    fn from(show: bool) -> Self {
+        Self::Visibility(CursorVisibility::from_bool(show))
+    }
+}
+
+impl From<Pos> for CursorMove {
+    fn from(pos: Pos) -> Self {
+        Self::from_pos(pos)
     }
 }
 
 impl From<Pos> for Cursor {
     fn from(pos: Pos) -> Self {
-        let Pos { col, row } = pos;
-        Self::Move(col, row)
+        Self::Move(CursorMove::Position(pos))
     }
 }
 
-impl From<(u16, u16)> for Cursor {
-    fn from((col, row): (u16, u16)) -> Self {
-        Self::Move(col, row)
+impl From<CursorMove> for Cursor {
+    fn from(cm: CursorMove) -> Self {
+        Self::Move(cm)
+    }
+}
+
+impl From<CursorClear> for Cursor {
+    fn from(clear: CursorClear) -> Self {
+        Self::Clear(clear)
     }
 }
 
@@ -86,7 +311,7 @@ impl Sgr {
     }
 
     pub(crate) fn write_ansi_code(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
+        match *self {
             Self::Reset => f.write_char('0'),
 
             Self::Bold => f.write_char('1'),
@@ -154,14 +379,34 @@ impl Sgr {
             Self::Bg(Color::CyanBright) => f.write_str("106"),
             Self::Bg(Color::WhiteBright) => f.write_str("107"),
 
-            Self::Fg(Color::Indexed(n)) => f.write_fmt(format_args!("38;5;{}", n)),
-            Self::Bg(Color::Indexed(n)) => f.write_fmt(format_args!("48;5;{}", n)),
+            Self::Fg(Color::Indexed(n)) => {
+                f.write_str("38;5;")?;
+                f.write_str(n.format_into(&mut NumBuffer::new()))
+            }
+            Self::Bg(Color::Indexed(n)) => {
+                f.write_str("48;5;")?;
+                f.write_str(n.format_into(&mut NumBuffer::new()))
+            }
 
             Self::Fg(Color::Rgb(Rgb(r, g, b))) => {
-                f.write_fmt(format_args!("38;2;{};{};{}", r, g, b))
+                f.write_str("38;2;")?;
+
+                let buf = &mut NumBuffer::new();
+                f.write_str(r.format_into(buf))?;
+                f.write_char(';')?;
+                f.write_str(g.format_into(buf))?;
+                f.write_char(';')?;
+                f.write_str(b.format_into(buf))
             }
             Self::Bg(Color::Rgb(Rgb(r, g, b))) => {
-                f.write_fmt(format_args!("48;2;{};{};{}", r, g, b))
+                f.write_str("48;2;")?;
+
+                let buf = &mut NumBuffer::new();
+                f.write_str(r.format_into(buf))?;
+                f.write_char(';')?;
+                f.write_str(g.format_into(buf))?;
+                f.write_char(';')?;
+                f.write_str(b.format_into(buf))
             }
         }
     }
@@ -169,7 +414,7 @@ impl Sgr {
 
 impl Display for Sgr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("\x1b[")?;
+        f.write_str(CSI)?;
         self.write_ansi_code(f)?;
         f.write_char('m')
     }
@@ -182,7 +427,7 @@ where
     for<'a> &'a T: IntoIterator<Item = &'a Sgr>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("\x1b[")?;
+        f.write_str(CSI)?;
 
         for sgr in self.0.into_iter() {
             sgr.write_ansi_code(f)?;

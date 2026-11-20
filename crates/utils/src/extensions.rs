@@ -31,7 +31,7 @@ impl StringExt for String {
     }
 
     fn push_repeat(&mut self, ch: char, n: usize) {
-        self.extend(std::iter::repeat_n(ch, n as usize));
+        self.extend(std::iter::repeat_n(ch, n));
     }
 
     fn push_repeat_get_range(&mut self, ch: char, n: usize) -> Range<usize> {

@@ -204,12 +204,28 @@ impl Rect {
         self.size.rows = self.size.rows.saturating_sub(rows);
     }
 
+    pub const fn left_col(&self) -> u16 {
+        self.pos.col
+    }
+
+    pub const fn left_col_out(&self) -> u16 {
+        self.pos.col.saturating_sub(1)
+    }
+
     pub const fn right_col(&self) -> u16 {
         self.right_col_out().saturating_sub(1)
     }
 
     pub const fn right_col_out(&self) -> u16 {
         self.pos.col + self.size.cols
+    }
+
+    pub const fn top_row(&self) -> u16 {
+        self.pos.row
+    }
+
+    pub const fn top_row_out(&self) -> u16 {
+        self.pos.row.saturating_sub(1)
     }
 
     pub const fn bottom_row(&self) -> u16 {
