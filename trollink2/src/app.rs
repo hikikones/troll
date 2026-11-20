@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
+use shared::env::AppDir;
 use terminal::*;
 use widgets2::{KittyDeleteAll, Markup};
 
 use crate::{
-    AppDir,
     database::Database,
     modals::{Modal, Modals},
     pages::{Pages, Route},

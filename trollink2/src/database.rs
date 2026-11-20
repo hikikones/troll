@@ -1,12 +1,10 @@
 use std::{fmt::NumBuffer, path::Path};
 
-use shared::sqlite::*;
+use shared::{env::AppDirRef, sqlite::*};
 
 mod scheduler;
 
 use scheduler::*;
-
-use crate::AppDirRef;
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
@@ -577,7 +575,7 @@ impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DatabaseError::Sqlite(err) => err.fmt(f),
-            DatabaseError::Version(v) => f.write_fmt(format_args!("Unknown version: {v}")),
+            DatabaseError::Version(v) => f.write_fmt(format_args!("Unknown version: {v}.")),
             DatabaseError::Other(msg) => f.write_str(msg),
         }
     }

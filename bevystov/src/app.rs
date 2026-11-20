@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use ecs::*;
 use shared::{logs::Logs, time::Timer};
 use terminal::*;
@@ -852,6 +854,56 @@ fn load_database(
     frame.push_ch(' ');
     frame.push_str_fg("Quit", colors.normal);
     frame.render(shortcut_area, TextOptions::span_center_top());
+}
+
+#[derive(Debug)]
+pub enum AppError {
+    Database {
+        path: Option<PathBuf>,
+        error: crate::database::DatabaseError,
+    },
+    Config {
+        path: Option<PathBuf>,
+        error: crate::settings::ConfigError,
+    },
+    QueryBg(RgbQueryError),
+    QuerySize(std::io::Error),
+    Render(std::io::Error),
+    Event(std::io::Error),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Database { path, .. } => {
+                f.write_fmt(format_args!("Failed to open database at {path:?}."))
+            }
+            Self::Config { path, .. } => f.write_fmt(format_args!(
+                "Failed to read or create settings at {path:?}."
+            )),
+            Self::QueryBg(_) => f.write_str(
+                "Failed to query background color. \
+                Assuming dark mode with default color instead. \
+                Images will not be blocked in modals.",
+            ),
+            Self::QuerySize(_) => f.write_str("Failed to query terminal for window size."),
+            Self::Render(_) => f.write_str("Failed to render/flush to stdout."),
+            Self::Event(_) => f.write_str("Failed to read event from stdin."),
+        }
+    }
+}
+
+impl std::error::Error for AppError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Database { error, .. } => Some(error),
+            Self::Config { error, .. } => Some(error),
+            Self::QueryBg(error) => Some(error),
+            Self::QuerySize(error) => Some(error),
+            Self::Render(error) => Some(error),
+            Self::Event(error) => Some(error),
+        }
+    }
 }
 
 enum Logo {

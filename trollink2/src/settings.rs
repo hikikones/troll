@@ -4,12 +4,11 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use shared::env::AppDirRef;
 use terminal::{Color, Rgb};
 use widgets2::{
     EditorColors, ListColors, MarkupCodeTheme, MarkupColors, PromptColors, ScrollbarColors,
 };
-
-use crate::AppDirRef;
 
 // TODO: Add show_scrollbars to config.
 
