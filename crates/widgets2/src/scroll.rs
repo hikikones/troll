@@ -69,8 +69,6 @@ impl Scrollbar {
         let start = (progress * range as f32).floor() as u16;
         let end = start + size;
 
-        // TODO: Rework rendering.
-        let mut pos = area.pos;
         match self.colors.track {
             // Render both track and thumb
             Some(track_color) => {
@@ -83,31 +81,24 @@ impl Scrollbar {
                         ('│', track_color)
                     };
 
-                    frame.cursor(pos);
+                    frame.cursor(area.pos.with_row_add(i));
                     frame.print_fmt(Sgr::Fg(color));
                     frame.print_ch(ch);
-
-                    pos.row += 1;
                 }
 
-                frame.print_fmt(Sgr::Fg(Color::Default));
+                frame.print_fmt(Sgr::reset_fg());
             }
             // Render only thumb
             None => {
                 frame.print_fmt(Sgr::Fg(self.colors.thumb));
 
-                for i in 0..area.size.rows {
-                    let is_thumb = i >= start && i < end;
-
-                    if is_thumb {
-                        frame.cursor(pos);
-                        frame.print_ch('│');
-                    }
-
-                    pos.row += 1;
+                let pos = area.pos.with_row_add(start);
+                for i in 0..size {
+                    frame.cursor(pos.with_row_add(i));
+                    frame.print_ch('│');
                 }
 
-                frame.print_fmt(Sgr::Fg(Color::Default));
+                frame.print_fmt(Sgr::reset_fg());
             }
         }
     }

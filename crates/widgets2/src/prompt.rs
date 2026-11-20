@@ -5,7 +5,6 @@ use terminal::*;
 use crate::{Scroll, ScrollData, ScrollMargins};
 
 // TODO: Horizontal scrolling assumes all chars/graphemes are one display width.
-// TODO: Add background color. Ignore Color::Default.
 
 #[derive(Debug)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
