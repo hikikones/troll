@@ -45,8 +45,8 @@ impl Database {
         let sqlite = if in_memory {
             Sqlite::open_in_memory()?
         } else {
-            let path = std::env::temp_dir()
-                .join(shared::symbols::concat!(shared::env::APP_NAME, ".db.tmp"));
+            let path =
+                std::env::temp_dir().join(shared::symbols::concat!(crate::APP_NAME, ".db.tmp"));
             let _ = std::fs::File::create(&path);
             Sqlite::open(&path)?
         };

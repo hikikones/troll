@@ -1,4 +1,4 @@
-use bevystov::{app::App, cli::Args};
+use bevystov::{APP_NAME, APP_ORGANIZATION, APP_QUALIFIER, app::App, cli::Args};
 use terminal::Terminal;
 
 fn main() -> std::process::ExitCode {
@@ -20,7 +20,8 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let mut app = App::new(args, shared::env::get_app_dir())?;
+    let app_dir = shared::env::get_app_dir(APP_QUALIFIER, APP_ORGANIZATION, APP_NAME);
+    let mut app = App::new(args, app_dir)?;
     let terminal = Terminal::stdout();
     terminal.enter(|term| {
         app.run(term)?;
