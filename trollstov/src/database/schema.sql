@@ -50,6 +50,6 @@ CREATE VIRTUAL TABLE track_fts USING fts5(
 --     DELETE FROM track_fts WHERE rowid = old.id;
 -- END;
 
--- Indexes
-CREATE INDEX idx_tracks_album_id ON tracks(album_id);
-CREATE INDEX idx_artist_tracks_track_id ON artist_tracks(track_id);
+-- More indexes
+CREATE INDEX idx_tracks_aid ON tracks(album_id);
+CREATE INDEX idx_artist_tracks_tid ON artist_tracks(track_id);
