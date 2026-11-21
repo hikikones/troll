@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use ecs::*;
-use shared::{logs::Logs, time::Timer};
+use shared::{env::AppDir, logs::Logs, time::Timer};
 use terminal::*;
+use utils::ErrorExt;
 
 use crate::{
     database::{Database, DatabaseLoadEvent},
@@ -13,6 +14,8 @@ use crate::{
     settings::{Colors, Settings},
 };
 
+pub type AppResult<T> = Result<T, AppError>;
+
 pub struct App {
     world: World,
     timers: Timers,
@@ -21,12 +24,29 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(
-        database: Database,
-        jukebox: Jukebox,
-        settings: Settings,
-        media_controls: Option<MediaControls>,
-    ) -> Self {
+    pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
+        let jukebox = Jukebox::new().map_err(|err| AppError::Jukebox(err))?;
+        let database =
+            Database::new(args.dir, args.in_memory).map_err(|err| AppError::Database(err))?;
+
+        let mut logs = Logs::new();
+
+        let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
+            .unwrap_or_else(|error| {
+                logs.push_err(AppError::Config {
+                    path: args.settings.clone(),
+                    error,
+                });
+                Settings::new(args.settings)
+            });
+        settings.colors_mut().background =
+            Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+                .map(|rgb| rgb.slight_offset().as_color())
+                .unwrap_or_else(|error| {
+                    logs.push_err(AppError::QueryBg(error));
+                    Color::Default
+                });
+
         let mut app = {
             let mut world = World::new();
             let timers = Timers::new(8, 1);
@@ -42,12 +62,20 @@ impl App {
         };
 
         app.insert_non_send(database).insert_non_send(jukebox);
-        if let Some(media_controls) = media_controls {
-            app.insert_non_send(media_controls);
+
+        if args.media_controls {
+            match MediaControls::spawn() {
+                Ok(mc) => {
+                    app.insert_non_send(mc);
+                }
+                Err(err) => {
+                    logs.push_err(err.context("Failed to create media controls."));
+                }
+            }
         }
 
         app.insert_resource(Frame::default())
-            .insert_resource(Logs::default())
+            .insert_resource(logs)
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
             .insert_resource(ModalColors::new(&settings))
@@ -67,7 +95,7 @@ impl App {
         PagesPlugin::build(&mut app);
         ModalsPlugin::build(&mut app);
 
-        app
+        Ok(app)
     }
 
     pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
@@ -858,10 +886,8 @@ fn load_database(
 
 #[derive(Debug)]
 pub enum AppError {
-    Database {
-        path: Option<PathBuf>,
-        error: crate::database::DatabaseError,
-    },
+    Jukebox(crate::jukebox::JukeboxError),
+    Database(crate::database::DatabaseError),
     Config {
         path: Option<PathBuf>,
         error: crate::settings::ConfigError,
@@ -875,11 +901,11 @@ pub enum AppError {
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Database { path, .. } => {
-                f.write_fmt(format_args!("Failed to open database at {path:?}."))
-            }
+            Self::Jukebox(_) => f.write_str("Failed to create audio player."),
+            Self::Database(_) => f.write_str("Failed to open database."),
             Self::Config { path, .. } => f.write_fmt(format_args!(
-                "Failed to read or create settings at {path:?}."
+                "Failed to read or create settings at {path:?}. \
+                A default one will be used instead."
             )),
             Self::QueryBg(_) => f.write_str(
                 "Failed to query background color. \
@@ -896,12 +922,13 @@ impl std::fmt::Display for AppError {
 impl std::error::Error for AppError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Database { error, .. } => Some(error),
+            Self::Jukebox(err) => err.source(),
+            Self::Database(err) => Some(err),
             Self::Config { error, .. } => Some(error),
-            Self::QueryBg(error) => Some(error),
-            Self::QuerySize(error) => Some(error),
-            Self::Render(error) => Some(error),
-            Self::Event(error) => Some(error),
+            Self::QueryBg(err) => Some(err),
+            Self::QuerySize(err) => Some(err),
+            Self::Render(err) => Some(err),
+            Self::Event(err) => Some(err),
         }
     }
 }

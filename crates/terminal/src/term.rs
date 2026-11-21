@@ -597,7 +597,7 @@ impl std::error::Error for RgbQueryError {
         match self {
             Self::Io(err) => Some(err),
             Self::ParseResponse { .. } => None,
-            Self::ParseRgb { error: err, .. } => Some(err),
+            Self::ParseRgb { error, .. } => Some(error),
         }
     }
 }

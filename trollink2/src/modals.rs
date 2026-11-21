@@ -33,11 +33,11 @@ pub enum Modal {
 }
 
 impl Modals {
-    pub const fn new() -> Self {
+    pub const fn new(logs: Logs) -> Self {
         Self {
             current: None,
             search: SearchModal::new(),
-            logs: LogsModal::new(),
+            logs: LogsModal::new(logs),
             action: ActionModal::new(),
         }
     }

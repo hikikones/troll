@@ -20,8 +20,8 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let terminal = Terminal::stdout();
     let mut app = App::new(args, shared::env::get_app_dir())?;
+    let terminal = Terminal::stdout();
     terminal.enter(|term| {
         app.run(term)?;
         Ok(())

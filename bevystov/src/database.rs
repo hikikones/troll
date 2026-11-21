@@ -43,26 +43,15 @@ pub enum DatabaseLoadEvent {
 impl Database {
     pub fn new(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
         let sqlite = if in_memory {
-            Sqlite::open_in_memory().map_err(|err| DatabaseError {
-                message: String::from("Failed to open database in-memory"),
-                source: Some(DatabaseErrorSource::Sqlite(err)),
-            })
+            Sqlite::open_in_memory()?
         } else {
-            let path =
-                std::env::temp_dir().join(shared::symbols::concat!(crate::APP_NAME, ".db.tmp"));
+            let path = std::env::temp_dir()
+                .join(shared::symbols::concat!(shared::env::APP_NAME, ".db.tmp"));
             let _ = std::fs::File::create(&path);
-            Sqlite::open(&path).map_err(|err| DatabaseError {
-                message: format!("Failed to open database at '{}'", path.display()),
-                source: Some(DatabaseErrorSource::Sqlite(err)),
-            })
-        }?;
+            Sqlite::open(&path)?
+        };
 
-        sqlite
-            .execute_batch(include_str!("database/schema.sql"))
-            .map_err(|err| DatabaseError {
-                message: String::from("Failed to execute schema"),
-                source: Some(DatabaseErrorSource::Sqlite(err)),
-            })?;
+        sqlite.execute_batch(include_str!("database/schema.sql"))?;
 
         Ok(Self {
             sqlite,
@@ -382,10 +371,10 @@ impl Database {
                         .unwrap();
                     progress = Some(i);
                 }
-                ScanEvent::Error(path, err) => {
-                    on_event(DatabaseLoadEvent::ScanError(DatabaseError {
-                        message: format!("Failed to scan audio file '{}'", path.display()),
-                        source: Some(DatabaseErrorSource::Audio(err)),
+                ScanEvent::Error(path, error) => {
+                    on_event(DatabaseLoadEvent::ScanError(DatabaseError::ScanFile {
+                        path,
+                        error,
                     }));
                 }
                 ScanEvent::Done => {
@@ -424,10 +413,7 @@ impl Database {
             self.set_track_rating(id, old_rating);
 
             // Notify
-            on_error(DatabaseError {
-                message: format!("Failed to write audio rating to '{}'", path.display()),
-                source: Some(DatabaseErrorSource::Audio(error)),
-            });
+            on_error(DatabaseError::SaveAudio { path, error });
         }
     }
 
@@ -633,28 +619,55 @@ impl FromSql for AlbumId {
 }
 
 #[derive(Debug)]
-pub struct DatabaseError {
-    message: String,
-    source: Option<DatabaseErrorSource>,
-}
-
-#[derive(Debug)]
-enum DatabaseErrorSource {
+pub enum DatabaseError {
     Sqlite(SqliteError),
-    Audio(AudioFileError),
+    ScanFile {
+        path: PathBuf,
+        error: AudioFileError,
+    },
+    SaveAudio {
+        path: PathBuf,
+        error: AudioFileError,
+    },
+    Other(&'static str),
 }
 
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        match self {
+            Self::Sqlite(err) => err.fmt(f),
+            Self::ScanFile { path, .. } => f.write_fmt(format_args!(
+                "Failed to scan audio file '{}'.",
+                path.display()
+            )),
+            Self::SaveAudio { path, .. } => f.write_fmt(format_args!(
+                "Failed to write audio rating to '{}'.",
+                path.display()
+            )),
+            Self::Other(msg) => f.write_str(msg),
+        }
     }
 }
 
 impl std::error::Error for DatabaseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|err| match err {
-            DatabaseErrorSource::Sqlite(err) => err as _,
-            DatabaseErrorSource::Audio(err) => err as _,
-        })
+        match self {
+            Self::Sqlite(err) => Some(err),
+            Self::ScanFile { error, .. } => Some(error),
+            Self::SaveAudio { error, .. } => Some(error),
+            Self::Other(_) => None,
+        }
+    }
+}
+
+impl From<SqliteError> for DatabaseError {
+    fn from(err: SqliteError) -> Self {
+        Self::Sqlite(err)
+    }
+}
+
+impl From<&'static str> for DatabaseError {
+    fn from(err: &'static str) -> Self {
+        Self::Other(err)
     }
 }

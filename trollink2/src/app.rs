@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use shared::env::AppDir;
+use shared::{env::AppDir, logs::Logs};
 use terminal::*;
 use widgets2::{KittyDeleteAll, Markup};
 
@@ -33,11 +33,11 @@ impl App {
                 }
             })?;
 
-        let mut modals = Modals::new();
+        let mut logs = Logs::new();
 
         let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
             .unwrap_or_else(|error| {
-                modals.logs_mut().push_err(AppError::Config {
+                logs.push_err(AppError::Config {
                     path: args.settings.clone(),
                     error,
                 });
@@ -48,12 +48,12 @@ impl App {
             Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
                 .map(|rgb| (rgb.slight_offset().as_color(), TermTheme::from_bg(rgb)))
                 .unwrap_or_else(|error| {
-                    modals.logs_mut().push_err(AppError::QueryBg(error));
+                    logs.push_err(AppError::QueryBg(error));
                     (Color::Default, TermTheme::default())
                 });
         let fg = Rgb::query_fg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
             .unwrap_or_else(|error| {
-                modals.logs_mut().push_err(AppError::QueryFg(error));
+                logs.push_err(AppError::QueryFg(error));
                 match theme {
                     TermTheme::Dark => Rgb::WHITE,
                     TermTheme::Light => Rgb::BLACK,
@@ -74,7 +74,7 @@ impl App {
             settings,
             frame: Frame::new(),
             pages,
-            modals,
+            modals: Modals::new(logs),
             markup,
             is_running: true,
         })
@@ -306,7 +306,8 @@ impl std::fmt::Display for AppError {
                 f.write_fmt(format_args!("Failed to open database at {path:?}."))
             }
             Self::Config { path, .. } => f.write_fmt(format_args!(
-                "Failed to read or create settings at {path:?}."
+                "Failed to read or create settings at {path:?}. \
+                A default one will be used instead."
             )),
             Self::QueryBg(_) => f.write_str(
                 "Failed to query background color. \
