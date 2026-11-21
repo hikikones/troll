@@ -109,7 +109,7 @@ impl Settings {
 
     pub fn replace_colors_with_dimmed(&mut self) -> Colors {
         let colors = self.config.colors.clone();
-        self.config.colors = Colors::dimmed(colors.background);
+        self.config.colors = Colors::dimmed();
         colors
     }
 
@@ -227,14 +227,14 @@ impl Default for Colors {
 }
 
 impl Colors {
-    const fn dimmed(bg: Color) -> Self {
+    const fn dimmed() -> Self {
         let grey = Color::Indexed(240);
         Self {
             primary: grey,
             secondary: grey,
             neutral: grey,
             normal: grey,
-            background: bg,
+            background: grey,
             foreground: Rgb::all(98),
             red: grey,
             green: grey,

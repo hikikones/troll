@@ -74,13 +74,13 @@ impl App {
             }
         }
 
-        app.insert_resource(Frame::default())
+        app.insert_resource(settings)
             .insert_resource(logs)
+            .insert_resource(Frame::default())
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
-            .insert_resource(ModalColors::new(&settings))
-            .insert_resource(settings)
             .insert_resource(PageArea::default())
+            .insert_resource(ModalColors::default())
             .insert_resource(ShortcutsArea::default());
 
         app.add_input(InputSet::App, input_app)
@@ -450,11 +450,9 @@ pub struct Actions(Vec<Action>);
 #[derive(Debug, Resource, Deref, DerefMut)]
 struct ModalColors(Colors);
 
-impl ModalColors {
-    const fn new(settings: &Settings) -> Self {
-        let mut colors = Colors::all(Color::Indexed(240));
-        colors.background = settings.colors().background;
-        Self(colors)
+impl Default for ModalColors {
+    fn default() -> Self {
+        Self(Colors::all(Color::Indexed(240)))
     }
 }
 
