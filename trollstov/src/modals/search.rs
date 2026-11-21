@@ -173,8 +173,11 @@ fn render_search(
     mut database: NonSendMut<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
-    // TODO: Use PageArea instead?
-    let area = frame.area().scale_and_center(0.7);
+    let area = frame
+        .area()
+        .scale(0.8)
+        .with_size_min(Size::LARGE)
+        .center(frame.area());
     let colors = settings.colors();
     let state = modal.state;
     let bg = colors.background;

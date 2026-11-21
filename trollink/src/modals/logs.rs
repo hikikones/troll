@@ -54,7 +54,11 @@ impl LogsModal {
     }
 
     pub fn render(&self, frame: &mut Frame, colors: &Colors) {
-        let area = frame.area().scale_and_center(0.7);
+        let area = frame
+            .area()
+            .scale(0.7)
+            .with_size_min(Size::MEDIUM)
+            .center(frame.area());
 
         frame.fill(area, colors.background, false);
 

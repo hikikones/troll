@@ -168,7 +168,11 @@ impl SearchModal {
     }
 
     pub fn render(&mut self, frame: &mut Frame, colors: &Colors) {
-        let area = frame.area().scale_and_center(0.8);
+        let area = frame
+            .area()
+            .scale(0.8)
+            .with_size_min(Size::LARGE)
+            .center(frame.area());
 
         frame.fill(area, colors.background, false);
 

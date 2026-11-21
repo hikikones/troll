@@ -156,8 +156,8 @@ impl ActionModal {
     pub fn render(&mut self, frame: &mut Frame, colors: &Colors, db: &Database) {
         let area = frame
             .area()
-            .with_rows_min(self.action.rows())
-            .scale_cols(0.5)
+            .scale_cols(0.6)
+            .with_size_min(Size::new(Size::SMALL.cols, self.action.rows()))
             .center(frame.area());
 
         frame.fill(area, colors.background, false);

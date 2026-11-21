@@ -54,6 +54,11 @@ impl Rect {
         self
     }
 
+    pub const fn with_size_min(mut self, size: Size) -> Self {
+        self.size.set_min(size);
+        self
+    }
+
     pub const fn with_cols(mut self, cols: u16) -> Self {
         self.size.cols = cols;
         self
@@ -667,6 +672,10 @@ pub struct Size {
 
 impl Size {
     pub const ZERO: Self = Self::all(0);
+    pub const TINY: Self = Self::new(40, 6);
+    pub const SMALL: Self = Self::new(56, 12);
+    pub const MEDIUM: Self = Self::new(80, 18);
+    pub const LARGE: Self = Self::new(96, 24);
 
     pub const fn new(cols: u16, rows: u16) -> Self {
         Self { cols, rows }
@@ -724,6 +733,11 @@ impl Size {
         self.rows = rows;
     }
 
+    pub const fn set_min(&mut self, other: Self) {
+        self.set_cols_min(other.cols);
+        self.set_rows_min(other.rows);
+    }
+
     pub const fn set_cols_min(&mut self, min: u16) {
         if self.cols > min {
             self.cols = min;
@@ -750,6 +764,11 @@ impl Size {
 
     pub const fn not_equals(&self, other: Self) -> bool {
         self.cols != other.cols || self.rows != other.rows
+    }
+
+    pub const fn min(mut self, other: Self) -> Self {
+        self.set_min(other);
+        self
     }
 
     pub const fn add(self, rhs: Self) -> Self {
