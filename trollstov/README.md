@@ -68,6 +68,7 @@ Options:
 - Gapless playback.
 
 [^1]: Requires the `opus` feature.
+
 [kitty_terminal]: https://sw.kovidgoyal.net/kitty
 [ghostty_terminal]: https://ghostty.org
 [wezterm_terminal]: https://wezterm.org
