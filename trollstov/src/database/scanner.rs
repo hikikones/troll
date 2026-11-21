@@ -57,12 +57,6 @@ impl Scanner {
                 i += 1;
                 track.clear();
             }
-
-            // TODO: remove
-            for t in ScannedTrack::test() {
-                let _ = sender.send(ScanEvent::Track(i, t));
-                i += 1;
-            }
         });
     }
 
@@ -83,29 +77,6 @@ pub struct ScannedTrack {
 }
 
 impl ScannedTrack {
-    // TODO: Remove
-    fn test() -> Vec<ScannedTrack> {
-        let mut v = vec![];
-
-        let t = v.push_mut(Self::default());
-        t.metadata.artists.push(Range::default());
-
-        let t = v.push_mut(Self::default());
-        t.metadata.title = t.metadata.text.push_str_get_range("title");
-        t.metadata.album = t.metadata.text.push_str_get_range("album");
-        t.metadata
-            .artists
-            .push(t.metadata.text.push_str_get_range("a1"));
-        t.metadata
-            .artists
-            .push(t.metadata.text.push_str_get_range("a2"));
-        t.metadata
-            .artists
-            .push(t.metadata.text.push_str_get_range("a3"));
-
-        v
-    }
-
     pub const fn number(&self) -> TrackNumber {
         self.metadata.number
     }
