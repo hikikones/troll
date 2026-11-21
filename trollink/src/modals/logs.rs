@@ -1,6 +1,6 @@
 use shared::logs::Logs;
 use terminal::*;
-use widgets2::Block;
+use widgets::Block;
 
 use crate::{app::Action, settings::Colors};
 

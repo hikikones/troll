@@ -7,7 +7,7 @@ use ecs::Resource;
 use serde::{Deserialize, Serialize};
 use shared::env::AppDirRef;
 use terminal::Color;
-use widgets2::{ListColors, PromptColors, ScrollbarColors};
+use widgets::{ListColors, PromptColors, ScrollbarColors};
 
 use crate::database::TrackRating;
 

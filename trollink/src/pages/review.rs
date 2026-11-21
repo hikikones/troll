@@ -1,5 +1,5 @@
 use terminal::*;
-use widgets2::{Markup, MarkupScroll};
+use widgets::{Markup, MarkupScroll};
 
 use crate::{
     app::Action,
@@ -217,8 +217,8 @@ impl ReviewCard {
 
         self.content.push_str(content);
         self.reveals.extend(
-            widgets2::MarkupBlockParser::new(content)
-                .filter(|(b, _)| matches!(b, widgets2::MarkupBlock::Break))
+            widgets::MarkupBlockParser::new(content)
+                .filter(|(b, _)| matches!(b, widgets::MarkupBlock::Break))
                 .map(|(_, range)| range.start),
         );
         self.reveals.reverse();

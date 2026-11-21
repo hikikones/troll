@@ -10,7 +10,7 @@ use settings::*;
 
 use shared::logs::Logs;
 use terminal::*;
-use widgets2::Markup;
+use widgets::Markup;
 
 use crate::{
     app::Action,

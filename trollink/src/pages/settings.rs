@@ -1,7 +1,7 @@
 use shared::logs::Logs;
 use terminal::*;
 use utils::ResultExt;
-use widgets2::{Block, List, Prompt, ScrollMargins};
+use widgets::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
     app::Action,

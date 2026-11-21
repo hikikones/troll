@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use shared::logs::Logs;
 use terminal::*;
-use widgets2::{Editor, List, Markup};
+use widgets::{Editor, List, Markup};
 
 use crate::{
     app::Action,

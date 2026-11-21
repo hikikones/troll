@@ -504,8 +504,8 @@ pub enum CardKind {
 
 impl CardKind {
     pub fn from_markup(markup: &str) -> Self {
-        let has_break = widgets2::MarkupBlockParser::new(markup)
-            .any(|(mb, _)| matches!(mb, widgets2::MarkupBlock::Break));
+        let has_break = widgets::MarkupBlockParser::new(markup)
+            .any(|(mb, _)| matches!(mb, widgets::MarkupBlock::Break));
 
         if has_break {
             Self::Flashcard

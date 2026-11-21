@@ -1,5 +1,5 @@
 use terminal::*;
-use widgets2::{Block, Prompt};
+use widgets::{Block, Prompt};
 
 use crate::{
     app::Action,

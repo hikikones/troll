@@ -2,7 +2,7 @@ use ecs::*;
 use shared::{logs::Logs, symbols};
 use terminal::*;
 use utils::ResultExt;
-use widgets2::{Block, List, Prompt, ScrollMargins};
+use widgets::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},

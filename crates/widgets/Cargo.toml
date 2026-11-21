@@ -1,5 +1,5 @@
 [package]
-name = "widgets2"
+name = "widgets"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

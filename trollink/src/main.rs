@@ -1,5 +1,5 @@
 use terminal::Terminal;
-use trollink2::{APP_NAME, APP_ORGANIZATION, APP_QUALIFIER, app::App, cli::Args};
+use trollink::{APP_NAME, APP_ORGANIZATION, APP_QUALIFIER, app::App, cli::Args};
 
 fn main() -> std::process::ExitCode {
     let args: Args = clap::Parser::parse();

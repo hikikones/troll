@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, List, Prompt};
+use widgets::{Block, List, Prompt};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, RenderSet},

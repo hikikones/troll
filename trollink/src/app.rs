@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use shared::{env::AppDir, logs::Logs};
 use terminal::*;
-use widgets2::{KittyDeleteAll, Markup};
+use widgets::{KittyDeleteAll, Markup};
 
 use crate::{
     database::Database,

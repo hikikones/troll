@@ -1,7 +1,7 @@
 use ecs::*;
 use shared::{logs::Logs, symbols};
 use terminal::*;
-use widgets2::{
+use widgets::{
     Block, Image, ImageEncode, ImageError, ImageLoadOptions, ImageRenderOptions, KittyDeleteAll,
     List, ScrollMargins,
 };

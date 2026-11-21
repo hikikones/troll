@@ -1,9 +1,14 @@
 [package]
-name = "bevystov"
-version = "0.1.0"
+name = "trollstov"
+version = "0.2.0-dev"
 edition.workspace = true
 rust-version.workspace = true
+description = "A music player for the terminal where your files and their metadata are all you need."
+homepage = "https://github.com/hikikones/troll/trollstov"
+repository = "https://github.com/hikikones/troll/trollstov"
 license.workspace = true
+keywords = ["audio", "music", "player", "terminal", "tui"]
+categories = ["command-line-utilities", "multimedia::audio"]
 
 [dependencies]
 bevy_derive = { workspace = true }
@@ -18,12 +23,12 @@ lofty = { workspace = true }
 rodio = { workspace = true }
 serde = { workspace = true }
 serde_repr = { workspace = true }
-shared = { workspace = true,features = ["bevy"] }
+shared = { workspace = true, features = ["bevy"] }
 terminal = { workspace = true, features = ["bevy"] }
 toml = { workspace = true }
 utils = { workspace = true }
 walkdir = { workspace = true }
-widgets2 = { workspace = true }
+widgets = { workspace = true }
 zbus = { workspace = true }
 
 [features]

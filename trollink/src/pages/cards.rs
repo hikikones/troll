@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use terminal::*;
 use utils::StringExt;
-use widgets2::{List, Markup, MarkupScroll};
+use widgets::{List, Markup, MarkupScroll};
 
 use crate::{
     app::Action,

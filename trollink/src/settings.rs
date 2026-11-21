@@ -6,7 +6,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use shared::env::AppDirRef;
 use terminal::{Color, Rgb};
-use widgets2::{
+use widgets::{
     EditorColors, ListColors, MarkupCodeTheme, MarkupColors, PromptColors, ScrollbarColors,
 };
 
