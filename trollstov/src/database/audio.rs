@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fs::File, path::Path, range::Range, time::Duration};
+use std::{borrow::Cow, fmt::Write, fs::File, path::Path, range::Range, time::Duration};
 
 use lofty::{
     config::{ParseOptions, WriteOptions},
@@ -13,6 +13,7 @@ use shared::sqlite::{
     FromSql, FromSqlError, FromSqlResult, SqliteId, SqliteResult, ToSql, ToSqlOutput, Value,
     ValueRef,
 };
+use terminal::{Color, Sgr};
 use utils::StringExt;
 
 pub type AudioResult<T> = Result<T, AudioFileError>;
@@ -526,27 +527,50 @@ impl TrackRating {
     }
 
     pub const fn stars(self) -> &'static str {
-        use shared::symbols::{STAR, repeat};
+        const STAR: &str = "★";
         match self {
             Self::None => "",
             Self::Awful => STAR,
-            Self::Bad => repeat!(STAR, 2),
-            Self::Ok => repeat!(STAR, 3),
-            Self::Good => repeat!(STAR, 4),
-            Self::Amazing => repeat!(STAR, 5),
+            Self::Bad => utils::repeat!(STAR, 2),
+            Self::Ok => utils::repeat!(STAR, 3),
+            Self::Good => utils::repeat!(STAR, 4),
+            Self::Amazing => utils::repeat!(STAR, 5),
         }
     }
 
-    pub const fn stars_split(self) -> (&'static str, &'static str) {
-        use shared::symbols::{STAR_BIG, repeat};
-        match self {
-            Self::None => (repeat!(STAR_BIG, 0), repeat!(STAR_BIG, 5)),
-            Self::Awful => (repeat!(STAR_BIG, 1), repeat!(STAR_BIG, 4)),
-            Self::Bad => (repeat!(STAR_BIG, 2), repeat!(STAR_BIG, 3)),
-            Self::Ok => (repeat!(STAR_BIG, 3), repeat!(STAR_BIG, 2)),
-            Self::Good => (repeat!(STAR_BIG, 4), repeat!(STAR_BIG, 1)),
-            Self::Amazing => (repeat!(STAR_BIG, 5), repeat!(STAR_BIG, 0)),
+    pub const fn stars_split(self, filled: Color, empty: Color) -> StarsSplit {
+        StarsSplit {
+            rating: self,
+            filled,
+            empty,
         }
+    }
+}
+
+pub struct StarsSplit {
+    rating: TrackRating,
+    filled: Color,
+    empty: Color,
+}
+
+impl std::fmt::Display for StarsSplit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const STAR_BIG: char = '🟊';
+
+        let filled_count = self.rating.as_u8();
+        let empty_count = 5 - filled_count;
+
+        f.write_fmt(format_args!("{}", Sgr::Fg(self.filled)))?;
+        for _ in 0..filled_count {
+            f.write_char(STAR_BIG)?;
+        }
+
+        f.write_fmt(format_args!("{}", Sgr::Fg(self.empty)))?;
+        for _ in 0..empty_count {
+            f.write_char(STAR_BIG)?;
+        }
+
+        f.write_fmt(format_args!("{}", Sgr::reset_fg()))
     }
 }
 

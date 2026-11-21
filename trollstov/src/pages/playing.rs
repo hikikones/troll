@@ -1,5 +1,5 @@
 use ecs::*;
-use shared::{logs::Logs, symbols};
+use shared::logs::Logs;
 use terminal::*;
 use widgets::{
     Block, Image, ImageEncode, ImageError, ImageLoadOptions, ImageRenderOptions, KittyDeleteAll,
@@ -318,12 +318,8 @@ fn render_cover(
 
     if area.size.rows >= 10 {
         if let Some(image_area) = cover.render(area.inner(Margin::vertical(1)), frame, colors) {
-            let (filled_stars, empty_stars) = rating.stars_split();
-            frame.push_fmt(Sgr::Fg(colors.primary));
-            frame.push_str(filled_stars);
-            frame.push_fmt(Sgr::Fg(colors.neutral));
-            frame.push_str(empty_stars);
-            frame.push_fmt(Sgr::reset_fg());
+            let stars = rating.stars_split(colors.primary, colors.neutral);
+            frame.push_fmt(stars);
             frame.render(
                 image_area.with_row(image_area.bottom_row_out()),
                 TextOptions::span_center_top(),
@@ -392,16 +388,13 @@ fn render_queue(
             colors.normal
         };
 
-        let symbol = if index == selected {
-            symbols::concat!(symbols::SELECTED, " ")
-        } else if selection.contains(&index) {
-            symbols::concat!(symbols::SELECTION, " ")
-        } else {
-            ""
-        };
-
         frame.push_fmt(Sgr::Fg(fg));
-        frame.push_str(symbol);
+
+        if index == selected {
+            frame.push_str("> ");
+        } else if selection.contains(&index) {
+            frame.push_str("| ");
+        }
 
         if jukebox.is_faulty(id) {
             frame.push_fmt(Sgr::CrossedOut);

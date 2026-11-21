@@ -1,5 +1,5 @@
 use ecs::*;
-use shared::{logs::Logs, symbols};
+use shared::logs::Logs;
 use terminal::*;
 use utils::ResultExt;
 use widgets::{Block, List, Prompt, ScrollMargins};
@@ -378,12 +378,10 @@ fn render_settings(
                 frame.push_str("Skip tracks with rating:");
                 frame.render(left, TextOptions::span_right());
 
-                let (filled_stars, empty_stars) = settings.general().skip_rating.stars_split();
-                frame.push_fmt(Sgr::Fg(colors.primary));
-                frame.push_str(filled_stars);
-                frame.push_fmt(Sgr::Fg(colors.neutral));
-                frame.push_str(empty_stars);
-                frame.push_fmt(Sgr::reset_fg());
+                let stars = settings
+                    .skip_rating()
+                    .stars_split(colors.primary, colors.neutral);
+                frame.push_fmt(stars);
                 frame.render(right, TextOptions::span());
             }
             Setting::KeepTrackSort => {
@@ -547,8 +545,12 @@ fn print_toggle(
     frame.push_str(description);
     frame.render(left, TextOptions::span_right());
 
-    let (toggle, color) = symbols::checkmark_with_value(value, colors.primary, colors.neutral);
-    frame.print_span_fg(right, toggle, color, SpanOptions::left());
+    let (checkmark, color) = if value {
+        ("🗸", colors.primary)
+    } else {
+        ("✗", colors.neutral)
+    };
+    frame.print_span_fg(right, checkmark, color, SpanOptions::left());
 }
 
 fn print_color(

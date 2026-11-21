@@ -225,7 +225,7 @@ impl Database {
         const ANSI_NOT_REVERSE: &str = "\x1b[27m";
 
         self.sqlite.single(
-            shared::symbols::concat!(
+            utils::concat!(
                 "SELECT rowid, highlight(cards_fts, 0, '",
                 ANSI_REVERSE,
                 "', '",

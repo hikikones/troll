@@ -127,6 +127,7 @@ impl<'a> DoubleEndedIterator for GraphemeIndices<'a> {
     }
 }
 
+// TODO: Move to terminal module.
 #[derive(Debug)]
 pub struct GraphemeAnsiIter<'a> {
     text: &'a str,
@@ -166,3 +167,33 @@ impl<'a> Iterator for GraphemeAnsiIter<'a> {
         }
     }
 }
+
+#[macro_export]
+macro_rules! repeat {
+    ($s:expr, 0) => {{
+        const _: &str = $s;
+        ""
+    }};
+    ($s:expr, 1) => {{
+        const _: &str = $s;
+        $s
+    }};
+    ($s:expr, 2) => {{
+        const _: &str = $s;
+        utils::concat!($s, $s)
+    }};
+    ($s:expr, 3) => {{
+        const _: &str = $s;
+        utils::concat!($s, $s, $s)
+    }};
+    ($s:expr, 4) => {{
+        const _: &str = $s;
+        utils::concat!($s, $s, $s, $s)
+    }};
+    ($s:expr, 5) => {{
+        const _: &str = $s;
+        utils::concat!($s, $s, $s, $s, $s)
+    }};
+}
+
+pub use constcat::concat;
