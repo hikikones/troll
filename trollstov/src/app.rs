@@ -681,7 +681,7 @@ fn render_playback(
 
     frame.push_str(artists);
     if !(artists.is_empty() || title.is_empty()) {
-        frame.push_str(" - ");
+        frame.push_str(": ");
     }
     frame.push_str(title);
     frame.render(title_area, TextOptions::span_center_top());
