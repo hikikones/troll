@@ -1,904 +1,1015 @@
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
-use ratatui::{
-    CompletedFrame,
-    buffer::Buffer,
-    crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    layout::{Alignment, Constraint, Layout, Margin, Rect},
-    style::{Color, Style},
-};
-use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
-use shared::{symbols, terminal::Terminal};
-use widgets::{Shortcut, Shortcuts, TextSpan};
+use ecs::*;
+use shared::{env::AppDir, logs::Logs, time::Timer};
+use terminal::*;
+use utils::ErrorExt;
 
 use crate::{
-    database::{Database, DatabaseEvent, Track},
-    events::{Event, EventHandler, MediaEvent, MediaPlayback},
+    database::{Database, DatabaseLoadEvent},
     jukebox::{Jukebox, JukeboxEvent},
-    pages::{
-        Log, LogsAction, LogsPage, Pages, PlayingPage, Route, SearchAction, SearchPage,
-        SettingsPage, TracksPage,
-    },
+    modals::{Modal, ModalsPlugin},
+    mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
+    pages::{Page, PagesPlugin, Route, TracksParam},
     settings::{Colors, Settings},
 };
 
-// TODO: Add a dynamic playlist page for artists/albums/genres and filtering.
-
-type FrontCoverHandle = std::thread::JoinHandle<Result<FrontCover, String>>;
+pub type AppResult<T> = Result<T, AppError>;
 
 pub struct App {
-    running: bool,
-    pages: Pages,
-    route: Route,
-    state: State,
-    events: EventHandler,
-    settings: Settings,
-    database: Database,
-    jukebox: Jukebox,
-    picker: Picker,
-    screen_size: ScreenSize,
-    front_cover: FrontCover,
-    front_cover_handle: Option<FrontCoverHandle>,
-    text: TextSpan,
-    shortcuts: Shortcuts,
-}
-
-enum State {
-    Route,
-    Search,
-    Logs,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScreenSize {
-    Small,
-    Medium,
-    Large,
-}
-
-impl ScreenSize {
-    const fn from_rect(area: Rect) -> ScreenSize {
-        match (area.width, area.height) {
-            (w, h) if w < 68 || h < 20 => ScreenSize::Small,
-            (w, h) if w < 108 || h < 30 => ScreenSize::Medium,
-            _ => ScreenSize::Large,
-        }
-    }
-}
-
-pub struct FrontCover {
-    image: Option<StatefulProtocol>,
-    has_loaded: bool,
-}
-
-impl FrontCover {
-    const fn new(image: Option<StatefulProtocol>, has_loaded: bool) -> Self {
-        Self { image, has_loaded }
-    }
-
-    const fn default() -> Self {
-        Self::new(None, false)
-    }
-
-    const fn empty() -> Self {
-        Self::new(None, true)
-    }
-
-    pub const fn has_loaded(&self) -> bool {
-        self.has_loaded
-    }
-
-    pub const fn as_mut(&mut self) -> Option<&mut StatefulProtocol> {
-        self.image.as_mut()
-    }
-}
-
-pub enum Action {
-    None,
-    Render,
-    Route(Route),
-    Log(Log),
-    ApplySettings,
-    Quit,
+    world: World,
+    timers: Timers,
+    schedules: Schedules,
+    is_running: bool,
 }
 
 impl App {
-    pub fn new(
-        events: EventHandler,
-        database: Database,
-        jukebox: Jukebox,
-        picker: Picker,
-        settings_path: Option<PathBuf>,
-    ) -> Self {
-        let mut logs = LogsPage::new();
+    pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
+        let jukebox = Jukebox::new().map_err(|err| AppError::Jukebox(err))?;
+        let database =
+            Database::new(args.dir, args.in_memory).map_err(|err| AppError::Database(err))?;
 
-        let settings = Settings::read(settings_path.clone()).unwrap_or_else(|err| {
-            logs.enqueue(Log::new(err));
-            Settings::default().with_path(settings_path)
-        });
+        let mut logs = Logs::new();
 
-        let pages = Pages {
-            tracks: TracksPage::new(),
-            playing: PlayingPage::new(),
-            search: SearchPage::new(),
-            settings: SettingsPage::new(&settings),
-            logs,
+        let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
+            .unwrap_or_else(|error| {
+                logs.push_err(AppError::Config {
+                    path: args.settings.clone(),
+                    error,
+                });
+                Settings::new(args.settings)
+            });
+        settings.colors_mut().background =
+            Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+                .map(|rgb| rgb.slight_offset().as_color())
+                .unwrap_or_else(|error| {
+                    logs.push_err(AppError::QueryBg(error));
+                    Color::Default
+                });
+
+        let mut app = {
+            let mut world = World::new();
+            let timers = Timers::new(8, 1);
+            let schedules = Schedules::new();
+            setup_state_transitions_in_world(&mut world);
+
+            Self {
+                world,
+                timers,
+                schedules,
+                is_running: true,
+            }
         };
 
-        Self {
-            running: true,
-            pages,
-            route: Route::default(),
-            state: State::Route,
-            events,
-            settings,
-            database,
-            jukebox,
-            picker,
-            screen_size: ScreenSize::Large,
-            front_cover: FrontCover::default(),
-            front_cover_handle: None,
-            text: TextSpan::new().with_alignment(Alignment::Center),
-            shortcuts: Shortcuts::new(),
-        }
-    }
+        app.insert_non_send(database).insert_non_send(jukebox);
 
-    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
-        // Draw logo
-        terminal.draw(|frame| {
-            let color = self.settings.neutral();
-            frame.render_widget(crate::logo::LogoWidget(color), frame.area());
-            Ok(())
-        })?;
-
-        // Apply settings, read events, load music and enter first page
-        self.apply_settings();
-        self.events.start();
-        self.database.load();
-        self.on_enter();
-
-        // Run event loop
-        while self.running {
-            let action = match self.events.next()? {
-                Event::Update => self.update(),
-                Event::Render => Action::Render,
-                Event::Media(event) => self.handle_media_event(event),
-                Event::Terminal(event) => match event {
-                    CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => {
-                        self.handle_key_press(key)
-                    }
-                    _ => Action::None,
-                },
-            };
-
-            match action {
-                Action::None => {}
-                Action::Render => {
-                    self.render(terminal)?;
+        if args.media_controls {
+            match MediaControls::spawn() {
+                Ok(mc) => {
+                    app.insert_non_send(mc);
                 }
-                Action::Route(route) => {
-                    self.on_exit();
-                    self.route = route;
-                    self.on_enter();
-                    self.render(terminal)?;
-                }
-                Action::Log(log) => {
-                    self.pages.logs.enqueue(log);
-                    self.render(terminal)?;
-                }
-                Action::ApplySettings => {
-                    self.apply_settings();
-                    self.render(terminal)?;
-                }
-                Action::Quit => {
-                    self.running = false;
+                Err(err) => {
+                    logs.push_err(err.context("Failed to create media controls."));
                 }
             }
+        }
+
+        app.insert_resource(settings)
+            .insert_resource(logs)
+            .insert_resource(Frame::default())
+            .insert_resource(Input::default())
+            .insert_resource(Actions::default())
+            .insert_resource(PageArea::default())
+            .insert_resource(ModalColors::default())
+            .insert_resource(ShortcutsArea::default());
+
+        app.add_input(InputSet::App, input_app)
+            .add_render(
+                RenderSet::First,
+                (hide_cursor, swap_colors.run_if(is_in_modal)),
+            )
+            .add_render(RenderSet::App, render_app)
+            .add_render(RenderSet::BeforeModal, (hide_cursor, swap_colors))
+            .add_update(update_app);
+
+        PagesPlugin::build(&mut app);
+        ModalsPlugin::build(&mut app);
+
+        Ok(app)
+    }
+
+    pub fn run(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        self.update_size()?;
+
+        self.run_load_loop(terminal)?;
+        self.run_event_loop(terminal)?;
+
+        Ok(())
+    }
+
+    pub const fn world(&self) -> &World {
+        &self.world
+    }
+
+    pub fn insert_resource(&mut self, value: impl Resource) -> &mut Self {
+        self.world.insert_resource(value);
+        self
+    }
+
+    pub fn insert_non_send<R: 'static>(&mut self, value: R) -> &mut Self {
+        self.world.insert_non_send(value);
+        self
+    }
+
+    pub fn add_state<S: FreelyMutableState + Copy>(&mut self, state: S) -> &mut Self {
+        self.world.add_state(state);
+        self
+    }
+
+    pub fn add_enter<S: States, M>(
+        &mut self,
+        state: S,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.world.add_enter(state, systems);
+        self
+    }
+
+    pub fn add_exit<S: States, M>(
+        &mut self,
+        state: S,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.world.add_exit(state, systems);
+        self
+    }
+
+    pub fn add_input<M>(
+        &mut self,
+        set: InputSet,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.schedules.input.add_systems(systems.in_set(set));
+        self
+    }
+
+    pub fn add_update<M>(
+        &mut self,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.schedules.update.add_systems(systems);
+        self
+    }
+
+    pub fn add_render<M>(
+        &mut self,
+        set: RenderSet,
+        systems: impl IntoScheduleConfigs<ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.schedules.render.add_systems(systems.in_set(set));
+        self
+    }
+
+    fn run_load_loop(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        // Start loading
+        self.world.non_send_mut::<Database>().load();
+        self.timers.update.start();
+
+        let load_db_sid = self.world.register_system(load_database);
+
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.world.run_system(load_db_sid).unwrap();
+                self.world
+                    .resource_mut::<Frame>()
+                    .flush(&mut terminal.lock())
+                    .map_err(|err| AppError::Render(err))?;
+
+                if self.world.non_send::<Database>().has_finished_loading() {
+                    // Init first run
+                    self.run_state_transitions();
+                    self.run_render(terminal)?;
+                    break;
+                }
+            }
+
+            if let Some(event) =
+                TermEvent::poll(self.timers.update.timeout()).map_err(|err| AppError::Event(err))?
+            {
+                match event {
+                    TermEvent::Key(key) => {
+                        if let KeyCode::Esc = key.code {
+                            self.is_running = false;
+                            break;
+                        }
+                    }
+                    TermEvent::Resize => {
+                        self.update_size()?;
+                    }
+                }
+            };
+        }
+
+        self.world.unregister_system(load_db_sid).unwrap();
+
+        Ok(())
+    }
+
+    fn run_event_loop(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        while self.is_running {
+            if self.timers.update.tick() {
+                self.run_update(terminal)?;
+            }
+
+            if self.timers.render.tick() {
+                let is_paused = self.world.non_send::<Jukebox>().is_paused();
+                let is_tall = self.world.resource::<Frame>().screen_height().is_tall();
+
+                if is_tall && !is_paused {
+                    self.run_render(terminal)?;
+                }
+            }
+
+            if let Some(event) =
+                TermEvent::poll(self.timers.update.timeout()).map_err(|err| AppError::Event(err))?
+            {
+                match event {
+                    TermEvent::Key(key) => {
+                        self.insert_resource(Input(Some(key)));
+                        self.run_input(terminal)?;
+                    }
+                    TermEvent::Resize => {
+                        self.update_size()?;
+                        self.run_render(terminal)?;
+                    }
+                }
+            };
+
+            self.world.clear_trackers();
         }
 
         Ok(())
     }
 
-    pub fn quit(self) {
-        self.database.shutdown();
-    }
+    fn run_input(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        self.schedules.input.run(&mut self.world);
 
-    const fn apply_settings(&mut self) {
-        self.jukebox.set_skip(self.settings.skip_rating());
-        self.pages
-            .tracks
-            .set_keep_on_sort(self.settings.keep_on_sort());
-        self.pages
-            .search
-            .set_search_by_path(self.settings.search_by_path());
-    }
-
-    fn handle_media_event(&mut self, event: MediaEvent) -> Action {
-        match event {
-            MediaEvent::Play => self.jukebox.play(),
-            MediaEvent::Pause => self.jukebox.pause(),
-            MediaEvent::Toggle => self.jukebox.pause_or_play(),
-            MediaEvent::Next => self.jukebox.play_next(&self.database),
-            MediaEvent::Previous => self.jukebox.play_previous(&self.database),
-            MediaEvent::Stop => self.jukebox.stop(),
-            MediaEvent::Raise => {
-                // TODO: Focus terminal window.
-            }
-            MediaEvent::Quit => {
-                return Action::Quit;
-            }
+        if self.apply_actions() {
+            self.run_state_transitions();
+            self.run_render(terminal)?;
         }
 
-        Action::None
+        Ok(())
     }
 
-    fn handle_key_press(&mut self, key: KeyEvent) -> Action {
-        let alt = key.modifiers.contains(KeyModifiers::ALT);
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    fn run_update(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        self.schedules.update.run(&mut self.world);
 
-        match key.code {
-            KeyCode::Esc => {
-                return Action::Quit;
-            }
-            KeyCode::Tab | KeyCode::BackTab => match self.state {
-                State::Route => {
-                    let next_route = if key.code == KeyCode::Tab {
-                        self.route.next()
-                    } else {
-                        self.route.prev()
-                    };
-                    return Action::Route(next_route);
-                }
-                State::Search => {
-                    self.state = State::Route;
-                    self.pages.search.on_exit();
-                    return Action::Render;
-                }
-                State::Logs => {
-                    self.state = State::Route;
-                    self.pages.logs.on_exit();
-                    return Action::Render;
-                }
-            },
-            KeyCode::Up => {
-                if ctrl {
-                    self.jukebox.pause_or_play();
-                } else if alt {
-                    self.jukebox.set_volume(self.jukebox.volume() + 0.1);
-                    return Action::Render;
-                } else {
-                    return self.on_input(key);
-                }
-            }
-            KeyCode::Down => {
-                if ctrl {
-                    self.jukebox.stop();
-                } else if alt {
-                    self.jukebox.set_volume(self.jukebox.volume() - 0.1);
-                    return Action::Render;
-                } else {
-                    return self.on_input(key);
-                }
-            }
-            KeyCode::Right => {
-                if ctrl {
-                    self.jukebox.play_next(&self.database);
-                } else if alt {
-                    if let Some(track) = self
-                        .jukebox
-                        .current_track_id()
-                        .and_then(|id| self.database.get(id))
-                    {
-                        let pos = self.jukebox.current_track_pos();
-                        let min = Duration::from_secs(1);
-                        let secs = track.duration().mul_f32(0.10).max(min);
-                        self.jukebox.seek(pos + secs);
-                        return Action::Render;
-                    }
-                } else {
-                    return self.on_input(key);
-                }
-            }
-            KeyCode::Left => {
-                if ctrl {
-                    self.jukebox.play_previous(&self.database);
-                } else if alt {
-                    if let Some(track) = self
-                        .jukebox
-                        .current_track_id()
-                        .and_then(|id| self.database.get(id))
-                    {
-                        let pos = self.jukebox.current_track_pos();
-                        let min = Duration::from_secs(2);
-                        let secs = track.duration().mul_f32(0.10).max(min);
-                        self.jukebox.seek(pos.saturating_sub(secs));
-                        return Action::Render;
-                    }
-                } else {
-                    return self.on_input(key);
-                }
-            }
-            KeyCode::Char('f') => {
-                if ctrl {
-                    match self.state {
-                        State::Route => {
-                            self.state = State::Search;
-                            self.pages.search.on_enter();
-                        }
-                        State::Search => {
-                            self.state = State::Route;
-                            self.pages.search.on_exit();
-                        }
-                        State::Logs => {
-                            self.state = State::Search;
-                            self.pages.logs.on_exit();
-                            self.pages.search.on_enter();
-                        }
-                    }
-                    return Action::Render;
-                } else {
-                    return self.on_input(key);
-                }
-            }
-            KeyCode::Char('l') => {
-                if ctrl && !self.pages.logs.is_empty() {
-                    match self.state {
-                        State::Route => {
-                            self.state = State::Logs;
-                            self.pages.logs.on_enter();
-                        }
-                        State::Search => {
-                            self.state = State::Logs;
-                            self.pages.search.on_exit();
-                            self.pages.logs.on_enter();
-                        }
-                        State::Logs => {
-                            self.state = State::Route;
-                            self.pages.logs.on_exit();
-                        }
-                    }
-                    return Action::Render;
-                } else {
-                    return self.on_input(key);
-                }
-            }
-            _ => {
-                return self.on_input(key);
-            }
+        if self.apply_actions() {
+            self.run_render(terminal)?;
         }
 
-        Action::None
+        Ok(())
     }
 
-    fn update(&mut self) -> Action {
+    fn run_render(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        self.schedules.render.run(&mut self.world);
+        self.world
+            .resource_mut::<Frame>()
+            .flush(&mut terminal.lock())
+            .map_err(|err| AppError::Render(err))?;
+        self.timers.render.start();
+
+        Ok(())
+    }
+
+    fn run_state_transitions(&mut self) {
+        self.world.run_schedule(StateTransition);
+    }
+
+    fn update_size(&mut self) -> AppResult<()> {
+        self.world
+            .resource_mut::<Frame>()
+            .query_size()
+            .map_err(|err| AppError::QuerySize(err))
+    }
+
+    fn apply_actions(&mut self) -> bool {
+        if self.world.resource::<Actions>().is_empty() {
+            return false;
+        }
+
         let mut render = false;
+        let mut actions = self.world.remove_resource::<Actions>().unwrap();
 
-        // Update database
-        self.database.update(|event| {
-            render = true;
-            match event {
-                DatabaseEvent::Rating(_) => {}
-                DatabaseEvent::Error(err) => {
-                    self.pages.logs.enqueue(Log::new(err));
+        for action in actions.drain(..) {
+            match action {
+                Action::Render => {
+                    render = true;
                 }
-            }
-        });
+                Action::Route(route) => {
+                    render = true;
 
-        // Update jukebox
-        self.jukebox.update(&self.database, |event| {
-            render = true;
-            match event {
-                JukeboxEvent::Play(id) => {
-                    match id.and_then(|id| self.database.get(id)) {
-                        Some(track) => {
-                            // Start loading front cover
-                            let path = track.path().to_path_buf();
-                            let picker = self.picker.clone();
-                            let handle = load_front_cover(path, picker);
-                            self.front_cover_handle = Some(handle);
+                    if self.world.resource::<State<Modal>>().is_active() {
+                        self.world
+                            .resource_mut::<NextState<Modal>>()
+                            .set(Modal::None);
+                    }
 
-                            // Update metadata and playback status for system media
-                            self.events.set_media(
-                                track.title(),
-                                track.artist(),
-                                MediaPlayback::Playing,
-                            );
+                    self.world
+                        .resource_mut::<NextState<Page>>()
+                        .set(route.as_page());
+
+                    match route {
+                        Route::Tracks(Some(id)) => {
+                            self.world.resource_mut::<TracksParam>().set(id);
                         }
-                        None => {
-                            // Update only playback status for system media
-                            self.events.set_playback(MediaPlayback::Playing);
-                        }
+                        _ => {}
                     }
                 }
-                JukeboxEvent::Pause => {
-                    self.events.set_playback(MediaPlayback::Paused);
-                }
-                JukeboxEvent::Stop => {
-                    self.front_cover = FrontCover::default();
-                    self.front_cover_handle = None;
-                    self.events.reset_media();
-                }
-                JukeboxEvent::Error(err) => {
-                    self.pages.logs.enqueue(Log::new(err));
-                }
-            }
-        });
+                Action::Modal(modal) => {
+                    let current = **self.world.resource::<State<Modal>>();
+                    let next = match (current, modal) {
+                        (Modal::Search, Modal::Search) => Modal::None,
+                        (Modal::Logs, Modal::Logs) => Modal::None,
+                        (_, _) => modal,
+                    };
 
-        // Poll thread for finished image loading
-        if let Some(handle) = self.front_cover_handle.as_ref() {
-            if handle.is_finished() {
-                render = true;
-                let handle = self.front_cover_handle.take().unwrap();
-                match handle.join().unwrap() {
-                    Ok(cover) => {
-                        self.front_cover = cover;
+                    if current != next {
+                        render = true;
+                        self.world.resource_mut::<NextState<Modal>>().set(next);
                     }
-                    Err(err) => {
-                        self.front_cover = FrontCover::empty();
-                        self.pages.logs.enqueue(Log::new(err));
-                    }
+                }
+                Action::Quit => {
+                    self.is_running = false;
                 }
             }
         }
 
-        if render { Action::Render } else { Action::None }
+        self.world.insert_resource(actions);
+        render
     }
+}
 
-    fn render<'a>(&'a mut self, terminal: &'a mut Terminal) -> std::io::Result<CompletedFrame<'a>> {
-        terminal.draw(|frame| {
-            let area = frame.area();
-            let buf = frame.buffer_mut();
+struct Timers {
+    update: Timer,
+    render: Timer,
+}
 
-            const MARGIN: u16 = 1;
-            self.screen_size = ScreenSize::from_rect(area);
-            let colors = &self.settings.colors().clone();
-
-            match self.screen_size {
-                ScreenSize::Small => {
-                    // Body
-                    self.on_render(area, buf, colors);
-                }
-                ScreenSize::Medium => {
-                    // Layout
-                    let [
-                        nav_area,
-                        body_area,
-                        shortcuts_page_area,
-                        _,
-                        playback_area,
-                        shortcuts_play_area,
-                        shortcuts_app_area,
-                    ] = Layout::vertical([
-                        Constraint::Length(1),
-                        Constraint::Min(5),
-                        Constraint::Length(1),
-                        Constraint::Length(1),
-                        Constraint::Length(2),
-                        Constraint::Length(1),
-                        Constraint::Length(1),
-                    ])
-                    .areas(area);
-
-                    // Navigation
-                    render_navigation(nav_area, buf, &mut self.text, self.route, colors);
-
-                    // Body
-                    let body = body_area.inner(Margin::new(MARGIN, MARGIN));
-                    self.shortcuts.set_colors(Color::Reset, colors.secondary);
-                    self.on_render(body, buf, colors);
-                    self.shortcuts.render(shortcuts_page_area, buf);
-                    self.shortcuts.clear();
-
-                    // Playback
-                    render_playback(
-                        playback_area,
-                        buf,
-                        &mut self.text,
-                        self.jukebox.current_track_pos(),
-                        self.jukebox
-                            .current_track_id()
-                            .and_then(|id| self.database.get(id)),
-                        colors,
-                        self.jukebox.is_paused(),
-                    );
-
-                    // Shortcuts
-                    self.shortcuts.set_colors(Color::Reset, colors.primary);
-                    fill_play_shortcuts(&mut self.shortcuts, self.jukebox.volume());
-                    self.shortcuts.render(shortcuts_play_area, buf);
-                    self.shortcuts.clear();
-
-                    fill_app_shortcuts(&mut self.shortcuts, &self.pages.logs);
-                    self.shortcuts.render(shortcuts_app_area, buf);
-                    self.shortcuts.clear();
-                }
-                ScreenSize::Large => {
-                    // Layout
-                    let [
-                        title_area,
-                        _,
-                        nav_area,
-                        body_area,
-                        shortcuts_page_area,
-                        _,
-                        playback_area,
-                        shortcuts_area,
-                    ] = Layout::vertical([
-                        Constraint::Length(1),
-                        Constraint::Length(1),
-                        Constraint::Length(1),
-                        Constraint::Min(5),
-                        Constraint::Length(1),
-                        Constraint::Length(1),
-                        Constraint::Length(2),
-                        Constraint::Length(1),
-                    ])
-                    .areas(area);
-
-                    // Title
-                    widgets::print_asciis(
-                        title_area,
-                        buf,
-                        [crate::APP_NAME, " v", crate::APP_VERSION],
-                        colors.neutral,
-                        Some(widgets::Alignment::CenterHorizontal),
-                    );
-
-                    // Navigation
-                    render_navigation(nav_area, buf, &mut self.text, self.route, colors);
-
-                    // Body
-                    const MAX_WIDTH: u16 = 160;
-                    let body = body_area
-                        .centered_horizontally(Constraint::Length(MAX_WIDTH + MARGIN))
-                        .inner(Margin::new(MARGIN, MARGIN));
-                    self.shortcuts.set_colors(Color::Reset, colors.secondary);
-                    self.on_render(body, buf, colors);
-                    self.shortcuts.render(shortcuts_page_area, buf);
-                    self.shortcuts.clear();
-
-                    // Playback
-                    render_playback(
-                        playback_area,
-                        buf,
-                        &mut self.text,
-                        self.jukebox.current_track_pos(),
-                        self.jukebox
-                            .current_track_id()
-                            .and_then(|id| self.database.get(id)),
-                        colors,
-                        self.jukebox.is_paused(),
-                    );
-
-                    // Shortcuts
-                    self.shortcuts.set_colors(Color::Reset, colors.primary);
-                    fill_app_shortcuts(&mut self.shortcuts, &self.pages.logs);
-                    fill_play_shortcuts(&mut self.shortcuts, self.jukebox.volume());
-                    self.shortcuts.render(shortcuts_area, buf);
-                    self.shortcuts.clear();
-                }
-            }
-
-            Ok(())
-        })
-    }
-
-    fn on_render(&mut self, body: Rect, buf: &mut Buffer, colors: &Colors) {
-        match self.state {
-            State::Route => match self.route {
-                Route::Tracks(_) => {
-                    self.pages.tracks.on_render(
-                        body,
-                        buf,
-                        &self.database,
-                        &self.jukebox,
-                        colors,
-                        &mut self.shortcuts,
-                    );
-                }
-                Route::NowPlaying => {
-                    self.pages.playing.on_render(
-                        body,
-                        buf,
-                        &self.database,
-                        &self.jukebox,
-                        self.screen_size,
-                        &mut self.front_cover,
-                        colors,
-                        &mut self.shortcuts,
-                    );
-                }
-                Route::Settings => {
-                    self.pages.settings.on_render(
-                        body,
-                        buf,
-                        &mut self.settings,
-                        &mut self.shortcuts,
-                    );
-                }
-            },
-            State::Search => {
-                self.pages.search.on_render(
-                    body,
-                    buf,
-                    &mut self.database,
-                    &mut self.jukebox,
-                    colors,
-                    &mut self.shortcuts,
-                );
-            }
-            State::Logs => {
-                self.pages
-                    .logs
-                    .on_render(body, buf, colors, &mut self.shortcuts);
-            }
-        }
-    }
-
-    fn on_enter(&mut self) {
-        match self.route {
-            Route::Tracks(id) => self.pages.tracks.on_enter(id, &self.database),
-            Route::NowPlaying => self.pages.playing.on_enter(),
-            Route::Settings => self.pages.settings.on_enter(),
-        }
-    }
-
-    fn on_exit(&mut self) {
-        match self.route {
-            Route::Tracks(_) => self.pages.tracks.on_exit(),
-            Route::NowPlaying => self.pages.playing.on_exit(),
-            Route::Settings => self.pages.settings.on_exit(),
-        }
-    }
-
-    fn on_input(&mut self, key: KeyEvent) -> Action {
-        match self.state {
-            State::Route => match self.route {
-                Route::Tracks(_) => self.pages.tracks.on_input(
-                    key.code,
-                    key.modifiers,
-                    &mut self.database,
-                    &mut self.jukebox,
-                ),
-                Route::NowPlaying => self.pages.playing.on_input(
-                    key.code,
-                    key.modifiers,
-                    &mut self.database,
-                    &mut self.jukebox,
-                    self.screen_size,
-                ),
-                Route::Settings => {
-                    self.pages
-                        .settings
-                        .on_input(key.code, key.modifiers, &mut self.settings)
-                }
-            },
-            State::Search => {
-                match self.pages.search.on_input(
-                    key.code,
-                    key.modifiers,
-                    &self.database,
-                    &mut self.jukebox,
-                ) {
-                    SearchAction::None => Action::None,
-                    SearchAction::Render => Action::Render,
-                    SearchAction::Goto(id) => {
-                        self.state = State::Route;
-                        self.pages.search.on_exit();
-                        Action::Route(Route::Tracks(id))
-                    }
-                    SearchAction::Done => {
-                        self.state = State::Route;
-                        self.pages.search.on_exit();
-                        Action::Render
-                    }
-                }
-            }
-            State::Logs => match self.pages.logs.on_input(key.code, key.modifiers) {
-                LogsAction::None => Action::None,
-                LogsAction::Render => Action::Render,
-                LogsAction::Done => {
-                    self.state = State::Route;
-                    self.pages.logs.on_exit();
-                    Action::Render
-                }
-            },
+impl Timers {
+    fn new(update_fps: u8, render_fps: u8) -> Self {
+        Self {
+            update: Timer::new(update_fps).with_loop(),
+            render: Timer::new(render_fps).with_loop(),
         }
     }
 }
 
-fn render_navigation(
-    line: Rect,
-    buf: &mut Buffer,
-    text: &mut TextSpan,
-    current_route: Route,
-    colors: &Colors,
-) {
-    const SPACING: &str = "   ";
-    for (route, name, spacing) in [
-        (Route::Tracks(None), "Tracks", SPACING),
-        (Route::NowPlaying, "Now Playing", SPACING),
-        (Route::Settings, "Settings", ""),
-    ] {
-        let is_current = std::mem::discriminant(&route) == std::mem::discriminant(&current_route);
-        let style = if is_current {
-            Style::new().fg(colors.primary).bold()
-        } else {
-            Style::new()
-        };
-        text.extend([(name, style), (spacing, Style::new())]);
+struct Schedules {
+    input: Schedule,
+    update: Schedule,
+    render: Schedule,
+}
+
+impl Schedules {
+    fn new() -> Self {
+        let mut input = Schedule::default();
+        input.configure_sets(
+            (
+                InputSet::App,
+                InputSet::Page.run_if(not(is_in_modal)),
+                InputSet::Modal.run_if(is_in_modal),
+            )
+                .chain(),
+        );
+
+        let mut render = Schedule::default();
+        render.configure_sets(
+            (
+                RenderSet::First,
+                RenderSet::App,
+                RenderSet::Page,
+                RenderSet::BeforeModal.run_if(is_in_modal),
+                RenderSet::Modal.run_if(is_in_modal),
+            )
+                .chain(),
+        );
+
+        Self {
+            input,
+            render,
+            update: Schedule::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
+pub enum RenderSet {
+    First,
+    App,
+    Page,
+    BeforeModal,
+    Modal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
+pub enum InputSet {
+    App,
+    Page,
+    Modal,
+}
+
+#[derive(Debug, Default, Resource)]
+pub struct Input(Option<Key>);
+
+impl Input {
+    const fn take(&mut self) -> Key {
+        self.0.take().unwrap()
     }
 
-    text.render(line, buf);
-    text.clear();
+    const fn set(&mut self, key: Key) {
+        self.0 = Some(key);
+    }
+
+    pub const fn get(&self) -> Option<Key> {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Action {
+    Render,
+    Route(Route),
+    Modal(Modal),
+    Quit,
+}
+
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
+pub struct Actions(Vec<Action>);
+
+#[derive(Debug, Resource, Deref, DerefMut)]
+struct ModalColors(Colors);
+
+impl Default for ModalColors {
+    fn default() -> Self {
+        Self(Colors::all(Color::Indexed(240)))
+    }
+}
+
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct PageArea(Rect);
+
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct ShortcutsArea(Rect);
+
+fn input_app(
+    mut input: ResMut<Input>,
+    mut actions: ResMut<Actions>,
+    page: Res<State<Page>>,
+    modal: Res<State<Modal>>,
+    logs: Res<Logs>,
+    mut jukebox: NonSendMut<Jukebox>,
+    database: NonSend<Database>,
+    settings: Res<Settings>,
+) {
+    let key = input.take();
+
+    match key.code {
+        KeyCode::Esc => actions.push(Action::Quit),
+        KeyCode::Tab | KeyCode::BackTab => {
+            if modal.is_active() {
+                actions.push(Action::Modal(Modal::None));
+            } else {
+                let next_route = if let KeyCode::Tab = key.code {
+                    page.next()
+                } else {
+                    page.prev()
+                };
+                actions.push(Action::Route(next_route));
+            }
+        }
+        KeyCode::Left => {
+            if key.ctrl() {
+                jukebox.play_previous(&database, settings.skip_rating());
+            } else if key.alt() {
+                if jukebox.seek_backwards() {
+                    actions.push(Action::Render);
+                }
+            } else {
+                input.set(key);
+            }
+        }
+        KeyCode::Right => {
+            if key.ctrl() {
+                jukebox.play_next(&database, settings.skip_rating());
+            } else if key.alt() {
+                if jukebox.seek_forwards() {
+                    actions.push(Action::Render);
+                }
+            } else {
+                input.set(key);
+            }
+        }
+        KeyCode::Up => {
+            if key.ctrl() {
+                jukebox.pause_or_play();
+            } else if key.alt() {
+                let volume = jukebox.volume();
+                jukebox.set_volume(volume + 0.1);
+                actions.push(Action::Render);
+            } else {
+                input.set(key);
+            }
+        }
+        KeyCode::Down => {
+            if key.ctrl() {
+                jukebox.stop();
+            } else if key.alt() {
+                let volume = jukebox.volume();
+                jukebox.set_volume(volume - 0.1);
+                actions.push(Action::Render);
+            } else {
+                input.set(key);
+            }
+        }
+        KeyCode::Char('f') if key.ctrl() => {
+            actions.push(Action::Modal(Modal::Search));
+        }
+        KeyCode::Char('l') if key.ctrl() => {
+            if logs.is_empty() {
+                return;
+            }
+
+            actions.push(Action::Modal(Modal::Logs));
+        }
+        _ => {
+            input.set(key);
+        }
+    }
+}
+
+fn is_in_modal(modal: Res<State<Modal>>) -> bool {
+    modal.is_active()
+}
+
+fn swap_colors(mut settings: ResMut<Settings>, mut modal_colors: ResMut<ModalColors>) {
+    std::mem::swap(settings.colors_mut(), &mut modal_colors);
+}
+
+fn hide_cursor(mut frame: ResMut<Frame>) {
+    frame.set_cursor_visibility(false);
+}
+
+fn render_app(
+    mut frame: ResMut<Frame>,
+    mut page_area: ResMut<PageArea>,
+    mut shortcuts_area: ResMut<ShortcutsArea>,
+    settings: Res<Settings>,
+    current_page: Res<State<Page>>,
+    logs: Res<Logs>,
+    jukebox: NonSend<Jukebox>,
+) {
+    let area = frame.area();
+    let colors = settings.colors();
+
+    // TODO: Max width for page area?
+
+    match frame.screen_height() {
+        ScreenHeight::Short => {
+            **page_area = area;
+            **shortcuts_area = Rect::ZERO;
+        }
+        ScreenHeight::Normal => {
+            let (top, body, bottom) = area.split_ends(1, 1);
+
+            render_navigation(top, &mut frame, colors, **current_page);
+
+            **page_area = body.inner(Margin::all(1));
+            **shortcuts_area = bottom;
+        }
+        ScreenHeight::Tall => {
+            let (top, body, mut bottom) = area.split_ends(1, 7);
+
+            render_navigation(top, &mut frame, colors, **current_page);
+
+            **page_area = body.inner(Margin::all(1));
+            **shortcuts_area = bottom.with_rows(1);
+
+            bottom.shrink_down(2);
+
+            let [
+                title_area,
+                status_area,
+                play_shortcuts_area,
+                _,
+                app_shortcuts_area,
+            ] = bottom.split_lines();
+
+            render_playback(title_area, status_area, &mut frame, colors, &jukebox);
+
+            render_shortcuts(
+                play_shortcuts_area,
+                app_shortcuts_area,
+                &mut frame,
+                colors,
+                jukebox.volume(),
+                &logs,
+            );
+        }
+    }
+}
+
+fn render_navigation(area: Rect, frame: &mut Frame, colors: &Colors, current_page: Page) {
+    for (page, name, gap) in [
+        (Page::Tracks, "Tracks", 3),
+        (Page::NowPlaying, "Now Playing", 3),
+        (Page::Settings, "Settings", 0),
+    ] {
+        if current_page == page {
+            frame.push_fmt(Styled::new(name, Style::fg(colors.primary).with_bold()));
+        } else {
+            frame.push_str_fg(name, colors.normal);
+        }
+        frame.push_ch_repeat(' ', gap);
+    }
+    frame.render(area, TextOptions::span_center_top());
 }
 
 fn render_playback(
-    area: Rect,
-    buf: &mut Buffer,
-    text: &mut TextSpan,
-    audio_position: Duration,
-    track: Option<&Track>,
+    title_area: Rect,
+    status_area: Rect,
+    frame: &mut Frame,
     colors: &Colors,
-    is_paused: bool,
+    jukebox: &Jukebox,
 ) {
-    let normal_style = if track.is_none() || is_paused {
-        Style::new().fg(colors.neutral)
-    } else {
-        Style::new()
-    };
-    let highlight_style = Style::new().fg(colors.primary);
-
-    let title_line = Rect { height: 1, ..area };
-    let status_line = Rect {
-        y: area.y + 1,
-        ..title_line
-    };
-
-    let status_width = (0.64 * status_line.width as f32).ceil() as u16;
+    let status_width = status_area.cols().saturating_sub(12) * 80 / 100;
     let progress_ch = '─';
-    let progress_highlight_ch = '━';
+    let highlight_ch = '━';
 
-    match track {
-        Some(track) => {
-            // Stats
-            text.push_str_iter(["[", track.extension().as_upper_case()], normal_style);
+    let Some(track) = jukebox.track() else {
+        // Neutral playback status
+        frame.push_fmt(Sgr::Fg(colors.neutral));
+        frame.push_str("00:00 ");
+        frame.push_ch_repeat(progress_ch, status_width);
+        frame.push_str(" 00:00");
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(status_area, TextOptions::span_center_top());
+        return;
+    };
 
-            if let Some(bit_depth) = track.bit_depth()
-                && let Some(sample_rate) = track.sample_rate()
-            {
-                utils::format_int2(bit_depth, sample_rate, |bit_depth, sample_rate| {
-                    text.push_str_iter([" ", bit_depth, "bit/", sample_rate, "kHz"], normal_style);
-                });
-            }
+    let (normal, primary) = if jukebox.is_paused() {
+        (colors.neutral, colors.neutral)
+    } else {
+        (colors.normal, colors.primary)
+    };
 
-            utils::format_int(track.bit_rate(), |bit_rate| {
-                text.push_str_iter([" ", bit_rate, "kbps] "], normal_style);
-            });
+    // Stats
+    frame.push_fmt(Sgr::Fg(normal));
+    frame.push_fmt(format_args!("[{}", track.ext().as_upper_case()));
 
-            // Title
-            text.push_str(track.artist(), normal_style);
-            if !(track.artist().is_empty() || track.title().is_empty()) {
-                text.push_str(" - ", normal_style);
-            }
-            text.push_str(track.title(), normal_style);
-
-            text.render(title_line, buf);
-            text.clear();
-
-            // Status
-            text.push_chars(
-                &utils::format_duration_on_stack(audio_position),
-                normal_style,
-            );
-            text.push_char(' ', Style::new());
-
-            let progress = audio_position.as_secs_f32() / track.duration().as_secs_f32();
-            let max_highlight_bound = (status_width as f32 * progress) as u16;
-            for i in 0..status_width {
-                let (ch, style) = if i <= max_highlight_bound {
-                    (progress_highlight_ch, highlight_style)
-                } else {
-                    (progress_ch, normal_style)
-                };
-                text.push_char(ch, style);
-            }
-
-            text.push_char(' ', Style::new());
-            text.push_chars(
-                &utils::format_duration_on_stack(track.duration()),
-                normal_style,
-            );
-        }
-        None => {
-            text.push_str("00:00 ", normal_style);
-            text.repeat_char(progress_ch, status_width as usize, normal_style);
-            text.push_str(" 00:00", normal_style);
-        }
+    if let Some(bit_depth) = track.bit_depth()
+        && let Some(sample_rate) = track.sample_rate()
+    {
+        frame.push_fmt(format_args!(" {bit_depth}bit/{}kHz", sample_rate / 1000));
     }
 
-    text.render(status_line, buf);
-    text.clear();
+    frame.push_fmt(format_args!(" {}kbps] ", track.bit_rate_kbps()));
+
+    // Title
+    let title = track.title();
+    let artists = track.artists();
+
+    frame.push_str(artists);
+    if !(artists.is_empty() || title.is_empty()) {
+        frame.push_str(": ");
+    }
+    frame.push_str(title);
+    frame.render(title_area, TextOptions::span_center_top());
+
+    // Playback status
+    let track_pos = jukebox.track_pos();
+    let track_dur = track.duration();
+
+    frame.push_fmt(track_pos);
+    frame.push_ch(' ');
+
+    let progress = track_pos.progress(track_dur);
+    let highlights = (status_width as f32 * progress) as u16;
+    let remaining = status_width.saturating_sub(highlights);
+    frame.push_fmt(Sgr::Fg(primary));
+    frame.push_ch_repeat(highlight_ch, highlights);
+    frame.push_fmt(Sgr::Fg(normal));
+    frame.push_ch_repeat(progress_ch, remaining);
+
+    frame.push_ch(' ');
+    frame.push_fmt(track_dur);
+
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(status_area, TextOptions::span_center_top());
 }
 
-fn fill_play_shortcuts(shortcuts: &mut Shortcuts, volume: f32) {
-    shortcuts.extend([
-        Shortcut::new("Play/Pause", symbols::ctrl!(symbols::ARROW_UP)),
-        Shortcut::new("Next/Prev", symbols::ctrl!(symbols::ARROW_RIGHT_LEFT)),
-        Shortcut::new("Stop", symbols::ctrl!(symbols::ARROW_DOWN)),
-        Shortcut::new("Seek", symbols::alt!(symbols::ARROW_RIGHT_LEFT)),
-    ]);
+fn render_shortcuts(
+    play_area: Rect,
+    app_area: Rect,
+    frame: &mut Frame,
+    colors: &Colors,
+    volume: f32,
+    logs: &Logs,
+) {
+    let key_color = colors.primary;
+    let name_color = colors.normal;
+    let gap = 1;
 
-    let volume = (volume * 100.0).round() as u8;
-    utils::format_int(volume, |volume| {
-        shortcuts.push_iter(
-            ["Volume ", volume, "%"],
-            symbols::alt!(symbols::ARROW_DOWN_UP),
-        );
-    });
-}
+    // Shortcuts for playback
+    for (key, name, gap) in [
+        ("^￪", "Play/Pause", gap),
+        ("^⇄", "Next/Prev", gap),
+        ("^￬", "Stop", gap),
+        ("⎇⇄", "Seek", gap),
+        ("⎇⇵", "Volume", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
+    frame.push_fmt(format_args!(" {}%", (volume * 100.0).round() as u8));
+    frame.render(play_area, TextOptions::span_center_top());
 
-fn fill_app_shortcuts(shortcuts: &mut Shortcuts, logs: &LogsPage) {
-    shortcuts.extend([
-        Shortcut::new("Quit", symbols::ESCAPE),
-        Shortcut::new("Navigate", symbols::shift!(symbols::TAB)),
-        Shortcut::new("Find", symbols::ctrl!("f")),
-    ]);
+    // Shortcuts for app
+    for (key, name, gap) in [
+        ("Esc", "Quit", gap),
+        ("(⇧)Tab", "Navigate", gap),
+        ("^f", "Find", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
 
-    if !logs.is_empty() {
-        let key = symbols::ctrl!("l");
-        let new_logs = logs.queue_len();
-        if new_logs > 0 {
-            utils::format_int(new_logs, |new_logs| {
-                shortcuts.push_iter(["Logs(", new_logs, ")"], key);
-            });
+    if logs.len() > 0 {
+        frame.push_ch_repeat(' ', gap);
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str("^l");
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        if logs.len_new() > 0 {
+            frame.push_fmt(format_args!("Logs({})", logs.len_new()));
         } else {
-            shortcuts.push(Shortcut::new("Logs", key));
+            frame.push_str("Logs");
+        }
+    }
+
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(app_area, TextOptions::span_center_top());
+}
+
+fn update_app(
+    mut database: NonSendMut<Database>,
+    mut jukebox: NonSendMut<Jukebox>,
+    mut logs: ResMut<Logs>,
+    mut actions: ResMut<Actions>,
+    media_controls: Option<NonSend<MediaControls>>,
+    settings: Res<Settings>,
+) {
+    let mut render = false;
+
+    database.poll_writer(jukebox.track_id(), |err| {
+        logs.push_err(err);
+        render = true;
+    });
+
+    if let Some(cmd) = media_controls.as_ref().and_then(|mc| mc.recv()) {
+        match cmd {
+            MprisCommand::Play => jukebox.play(),
+            MprisCommand::Pause => jukebox.pause(),
+            MprisCommand::PlayPause => jukebox.pause_or_play(),
+            MprisCommand::Stop => jukebox.stop(),
+            MprisCommand::Next => jukebox.play_next(&database, settings.skip_rating()),
+            MprisCommand::Previous => jukebox.play_previous(&database, settings.skip_rating()),
+        }
+    }
+
+    jukebox.update(&database, settings.skip_rating(), |jb, event| {
+        render = true;
+
+        match event {
+            JukeboxEvent::Play(id) => {
+                if let Some(mc) = media_controls.as_ref() {
+                    let mpris_event = id
+                        .and_then(|_| jb.track())
+                        .map(|track| {
+                            MprisEvent::Both(MprisStatus::Playing, Some(MprisMetadata::new(track)))
+                        })
+                        .unwrap_or(MprisEvent::Status(MprisStatus::Playing));
+                    mc.send(mpris_event);
+                }
+            }
+            JukeboxEvent::Pause => {
+                if let Some(mc) = media_controls.as_ref() {
+                    mc.send(MprisEvent::Status(MprisStatus::Paused));
+                }
+            }
+            JukeboxEvent::Stop => {
+                if let Some(mc) = media_controls.as_ref() {
+                    mc.send(MprisEvent::Both(MprisStatus::Stopped, None));
+                }
+            }
+            JukeboxEvent::Error(err) => {
+                logs.push_err(err);
+            }
+        }
+    });
+
+    if render {
+        actions.push(Action::Render);
+    }
+}
+
+fn load_database(
+    mut database: NonSendMut<Database>,
+    mut frame: ResMut<Frame>,
+    mut logs: ResMut<Logs>,
+    settings: Res<Settings>,
+    mut len: Local<u32>,
+    mut progress: Local<u32>,
+) {
+    // Poll database for scanning progress
+    database.poll_receiver(|event| match event {
+        DatabaseLoadEvent::Start(total_files) => {
+            *len = total_files;
+        }
+        DatabaseLoadEvent::Progress(i) => {
+            *progress = i;
+        }
+        DatabaseLoadEvent::ScanError(err) => {
+            logs.push_err(err);
+        }
+    });
+
+    // Render
+    let (len, progress) = (*len, *progress);
+    let area = frame.area();
+
+    if len == 0 {
+        // Not started yet
+        let logo = Logo::from_size(area.size);
+        frame.push_str(logo.ascii());
+        frame.render(
+            area.with_size(logo.size()).center(area),
+            TextOptions::paragraph(),
+        );
+        return;
+    }
+
+    let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
+
+    let colors = settings.colors();
+    frame.print_fmt(Sgr::Fg(colors.neutral));
+
+    // Logo
+    let logo = Logo::from_size(logo_area.size);
+    frame.push_str(logo.ascii());
+    frame.render(
+        logo_area.with_size(logo.size()).center(logo_area),
+        TextOptions::paragraph(),
+    );
+
+    // Progress
+    frame.push_fmt(format_args!("{progress} / {len}"));
+    frame.render(progress_area, TextOptions::span_center_top());
+
+    frame.print_fmt(Sgr::reset_fg());
+
+    // Shortcut
+    frame.push_str_fg("Esc", colors.primary);
+    frame.push_ch(' ');
+    frame.push_str_fg("Quit", colors.normal);
+    frame.render(shortcut_area, TextOptions::span_center_top());
+}
+
+#[derive(Debug)]
+pub enum AppError {
+    Jukebox(crate::jukebox::JukeboxError),
+    Database(crate::database::DatabaseError),
+    Config {
+        path: Option<PathBuf>,
+        error: crate::settings::ConfigError,
+    },
+    QueryBg(RgbQueryError),
+    QuerySize(std::io::Error),
+    Render(std::io::Error),
+    Event(std::io::Error),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Jukebox(_) => f.write_str("Failed to create audio player."),
+            Self::Database(_) => f.write_str("Failed to open database."),
+            Self::Config { path, .. } => f.write_fmt(format_args!(
+                "Failed to read or create settings at {path:?}. \
+                A default one will be used instead."
+            )),
+            Self::QueryBg(_) => f.write_str(
+                "Failed to query background color. \
+                Assuming dark mode with default color instead. \
+                Images will not be blocked in modals.",
+            ),
+            Self::QuerySize(_) => f.write_str("Failed to query terminal for window size."),
+            Self::Render(_) => f.write_str("Failed to render/flush to stdout."),
+            Self::Event(_) => f.write_str("Failed to read event from stdin."),
         }
     }
 }
 
-// TODO: Also do resize and encoding in another thread.
-// https://github.com/ratatui/ratatui-image/blob/master/examples/thread.rs
-fn load_front_cover(path: PathBuf, picker: Picker) -> FrontCoverHandle {
-    std::thread::spawn(move || {
-        let front_cover = crate::database::AudioFrontCover::read(&path)?;
+impl std::error::Error for AppError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Jukebox(err) => err.source(),
+            Self::Database(err) => Some(err),
+            Self::Config { error, .. } => Some(error),
+            Self::QueryBg(err) => Some(err),
+            Self::QuerySize(err) => Some(err),
+            Self::Render(err) => Some(err),
+            Self::Event(err) => Some(err),
+        }
+    }
+}
 
-        let Some((bytes, mime_type)) = front_cover.bytes_and_mime_type() else {
-            return Ok(FrontCover::empty());
-        };
+enum Logo {
+    Tiny,
+    Small,
+    Medium,
+    Large,
+}
 
-        let Some(mime_type) = mime_type else {
-            return Err(format!(
-                "Unable to load front cover from \"{}\" due to no mime type found",
-                path.display()
-            ))?;
-        };
+impl Logo {
+    const TINY_WIDTH: u16 = 9;
+    const TINY_HEIGHT: u16 = 1;
+    const TINY: &str = "TROLLSTOV";
 
-        let image_format = match mime_type {
-            crate::database::MimeType::Jpeg => image::ImageFormat::Jpeg,
-            crate::database::MimeType::Png => image::ImageFormat::Png,
-            _ => {
-                return Err(format!(
-                    "Unable to load front cover from \"{}\" due to unsupported or unknown mime type: {}",
-                    path.display(),
-                    mime_type.as_str()
-                ))?;
-            }
-        };
+    const SMALL_WIDTH: u16 = 28;
+    const SMALL_HEIGHT: u16 = 5;
+    const SMALL: &str = r#"
+┌┬┐┬─┐┌─┐┬  ┬  ┌─┐┌┬┐┌─┐┬  ┬
+ │ ├┬┘│ ││  │  └─┐ │ │ │└┐┌┘
+ ┴ ┴└─└─┘┴─┘┴─┘└─┘ ┴ └─┘ └┘ 
+"#;
 
-        let image = image::load_from_memory_with_format(bytes, image_format).map_err(|err| {
-            format!(
-                "Failed to load front cover from \"{}\" due to {}. The mime type is {}, perhaps this is wrong?",
-                path.display(),
-                err,
-                mime_type.as_str()
-            )
-        })?;
+    const MEDIUM_WIDTH: u16 = 66;
+    const MEDIUM_HEIGHT: u16 = 6;
+    const MEDIUM: &str = r#"
+888888 88""Yb  dP"Yb  88     88     .dP"Y8 888888  dP"Yb  Yb    dP
+  88   88__dP dP   Yb 88     88     `Ybo."   88   dP   Yb  Yb  dP 
+  88   88"Yb  Yb   dP 88  .o 88  .o o.`Y8b   88   Yb   dP   YbdP  
+  88   88  Yb  YbodP  88ood8 88ood8 8bodP'   88    YbodP     YP   
+"#;
 
-        Ok(FrontCover::new(
-            Some(picker.new_resize_protocol(image)),
-            true,
-        ))
-    })
+    const BIG_WIDTH: u16 = 98;
+    const BIG_HEIGHT: u16 = 9;
+    const BIG: &str = r#"
+::::::::::: :::::::::   ::::::::  :::        :::        :::::::: ::::::::::: ::::::::  :::     :::
+    :+:     :+:    :+: :+:    :+: :+:        :+:       :+:    :+:    :+:    :+:    :+: :+:     :+:
+    +:+     +:+    +:+ +:+    +:+ +:+        +:+       +:+           +:+    +:+    +:+ +:+     +:+
+    +#+     +#++:++#:  +#+    +:+ +#+        +#+       +#++:++#++    +#+    +#+    +:+ +#+     +:+
+    +#+     +#+    +#+ +#+    +#+ +#+        +#+              +#+    +#+    +#+    +#+  +#+   +#+ 
+    #+#     #+#    #+# #+#    #+# #+#        #+#       #+#    #+#    #+#    #+#    #+#   #+#+#+#  
+    ###     ###    ###  ########  ########## ########## ########     ###     ########      ###    
+"#;
+
+    const fn from_size(size: Size) -> Self {
+        if size.cols > Self::BIG_WIDTH + 8 && size.rows > Self::BIG_HEIGHT + 4 {
+            Self::Large
+        } else if size.cols > Self::MEDIUM_WIDTH + 4 && size.rows > Self::MEDIUM_HEIGHT + 2 {
+            Self::Medium
+        } else if size.cols > Self::SMALL_WIDTH + 2 && size.rows > Self::SMALL_HEIGHT + 1 {
+            Self::Small
+        } else {
+            Self::Tiny
+        }
+    }
+
+    const fn size(&self) -> Size {
+        match self {
+            Self::Tiny => Size::new(Self::TINY_WIDTH, Self::TINY_HEIGHT),
+            Self::Small => Size::new(Self::SMALL_WIDTH, Self::SMALL_HEIGHT),
+            Self::Medium => Size::new(Self::MEDIUM_WIDTH, Self::MEDIUM_HEIGHT),
+            Self::Large => Size::new(Self::BIG_WIDTH, Self::BIG_HEIGHT),
+        }
+    }
+
+    const fn ascii(&self) -> &'static str {
+        match self {
+            Self::Tiny => Self::TINY,
+            Self::Small => Self::SMALL,
+            Self::Medium => Self::MEDIUM,
+            Self::Large => Self::BIG,
+        }
+    }
 }

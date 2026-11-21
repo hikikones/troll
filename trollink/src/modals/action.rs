@@ -1,5 +1,5 @@
 use terminal::*;
-use widgets2::{Block, Prompt};
+use widgets::{Block, Prompt};
 
 use crate::{
     app::Action,
@@ -173,7 +173,7 @@ impl ActionModal {
         match self.action {
             ModalAction::AddTag | ModalAction::EditTag(_) => {
                 if let Some(msg) = self.message {
-                    let (left, right) = body.split_vertically_with_gap(0);
+                    let (left, right) = body.split_vertically(0, 1);
                     frame.push_str_fg(msg.get(), colors.red);
                     frame.render(right, TextOptions::span_center_top());
                     body = left;

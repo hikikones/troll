@@ -114,6 +114,7 @@ impl Modals {
         }
     }
 
+    // TODO: Pass in area for pages?
     pub fn render(&mut self, modal: Modal, frame: &mut Frame, colors: &Colors, db: &Database) {
         match modal {
             Modal::Search => self.search.render(frame, colors),

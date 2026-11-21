@@ -1,6 +1,6 @@
 use shared::sqlite::SqliteError;
 use terminal::*;
-use widgets2::{AnsiViewer, Block, Prompt};
+use widgets::{AnsiViewer, Block, Prompt};
 
 use crate::{
     app::Action,

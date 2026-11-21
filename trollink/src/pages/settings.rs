@@ -1,32 +1,22 @@
-use std::str::FromStr;
-
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::{KeyCode, KeyModifiers},
-    layout::{Constraint, Rect},
-    style::{Color, Style},
-};
-use shared::symbols;
-use widgets::{CursorMove, List, ListItem, ScrollMargins, Shortcut, Shortcuts, TextInput};
+use shared::logs::Logs;
+use terminal::*;
+use utils::ResultExt;
+use widgets::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
-    app::{Action, AppInput, AppRender},
-    pages::Log,
+    app::Action,
     settings::{Colors, Config, Settings},
 };
 
 pub struct SettingsPage {
-    default: Config,
-    saved: Config,
-    saved_hash: u64,
-    is_saved: bool,
+    config: Config,
+    primary: Prompt,
+    secondary: Prompt,
+    neutral: Prompt,
     list: List,
-    primary: ColorSetting,
-    secondary: ColorSetting,
-    neutral: ColorSetting,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Setting {
     General,
     DesiredRetention,
@@ -65,233 +55,227 @@ const SETTINGS: [Setting; 9] = [
 
 impl SettingsPage {
     pub fn new(settings: &Settings) -> Self {
-        let colors = settings.colors();
-        let hash = settings.hash();
-        let selected = if SETTINGS[0].filter() {
-            0
-        } else {
-            next(0).unwrap()
-        };
+        let config = settings.config().clone();
+        let mut primary = Prompt::from(config.colors.primary.to_string());
+        primary.move_to_end(false);
+        let mut secondary = Prompt::from(config.colors.secondary.to_string());
+        secondary.move_to_end(false);
+        let mut neutral = Prompt::from(config.colors.neutral.to_string());
+        neutral.move_to_end(false);
 
         Self {
-            default: Config::new(settings.theme()),
-            saved: settings.config().clone(),
-            saved_hash: hash,
-            is_saved: true,
+            config,
+            primary,
+            secondary,
+            neutral,
             list: List::new()
-                .with_index(selected)
-                .with_scrolloff(ScrollMargins::vertical(3)),
-            primary: ColorSetting::new(colors.primary),
-            secondary: ColorSetting::new(colors.secondary),
-            neutral: ColorSetting::new(colors.neutral),
+                .with_index(2)
+                .with_scrollbar(0)
+                .with_scrolloff(ScrollMargins::vertical(3))
+                .with_padding(Margin::proportional(1)),
         }
     }
 
-    pub fn on_enter(&self) {}
+    pub fn enter(&self) {}
 
-    pub fn on_render(&mut self, render: AppRender, settings: &Settings, shortcuts: &mut Shortcuts) {
-        let area = render.area().centered_horizontally(Constraint::Max(80));
-        let buf = render.buffer();
-        let colors = settings.colors();
+    pub fn exit(&self) {}
 
-        let mut last_y = area.y;
-        let current_setting = self.current();
+    pub fn refresh(&self) {}
 
-        self.list.set_colors(colors.list()).render(
-            area,
-            buf,
-            SETTINGS,
-            |line, buf, setting, index| {
-                last_y = line.y;
-
-                let setting_area = Rect {
-                    width: line.width / 2,
-                    ..line
-                };
-                let input_area = Rect {
-                    x: setting_area.x + setting_area.width + 1,
-                    width: setting_area.width.saturating_sub(1),
-                    ..setting_area
-                };
-
-                let (symbol, style) = if index == ListItem::Selected {
-                    (
-                        symbols::concat!(symbols::SELECTED, " "),
-                        Style::new().bold(),
-                    )
-                } else {
-                    ("", Style::new())
-                };
-
-                match setting {
-                    Setting::General => {
-                        print_section(line, buf, "GENERAL", colors.neutral);
-                    }
-                    Setting::DesiredRetention => {
-                        print_desired_retention(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Desired retention",
-                            style,
-                            settings.desired_retention(),
-                        );
-                    }
-                    Setting::Colors => {
-                        print_section(line, buf, "COLORS", colors.neutral);
-                    }
-                    Setting::PrimaryColor => {
-                        print_color(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Primary color",
-                            style,
-                            &mut self.primary,
-                            current_setting == Setting::PrimaryColor,
-                            colors,
-                        );
-                    }
-                    Setting::SecondaryColor => {
-                        print_color(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Secondary color",
-                            style,
-                            &mut self.secondary,
-                            current_setting == Setting::SecondaryColor,
-                            colors,
-                        );
-                    }
-                    Setting::NeutralColor => {
-                        print_color(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Neutral color",
-                            style,
-                            &mut self.neutral,
-                            current_setting == Setting::NeutralColor,
-                            colors,
-                        );
-                    }
-                    Setting::Empty => {}
-                }
-            },
-        );
-
-        // Description and shortcuts
-        const COLOR_DESCRIPTION: &str = "Set color by name, hex code or indexed value";
-        let description = match current_setting {
-            Setting::DesiredRetention => {
-                shortcuts.push(Shortcut::new(
-                    "Increment/Decrement",
-                    symbols::ARROW_RIGHT_LEFT,
-                ));
-                "Set desired retention in percent"
-            }
-            Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor => {
-                shortcuts.push(Shortcut::new("Set color", symbols::ENTER));
-                COLOR_DESCRIPTION
-            }
-            Setting::General | Setting::Colors | Setting::Empty => "",
-        };
-
-        if !description.is_empty() {
-            let description_area = Rect {
-                y: area.y + area.height.saturating_sub(1),
-                height: 1,
-                ..area
-            };
-            if description_area.y >= last_y + 2 {
-                widgets::print_asciis(
-                    description_area,
-                    buf,
-                    [" ", description, " "],
-                    colors.neutral,
-                    Some(widgets::Alignment::CenterHorizontal),
-                );
-            }
-        }
-
-        if !self.is_saved {
-            shortcuts.push(Shortcut::new("Save", symbols::ctrl!("s")));
-        }
-
-        // Always show reset all
-        shortcuts.push(Shortcut::new("Reset all", symbols::ctrl!("r")));
-    }
-
-    pub fn on_input(&mut self, input: AppInput, settings: &mut Settings) -> Action {
-        let (key, modifiers) = input.key_pressed_and_modifiers();
-        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
-
-        match key {
+    pub fn input(&mut self, key: Key, settings: &mut Settings, logs: &mut Logs) -> Action {
+        match key.code {
             KeyCode::Down => {
-                if let Some(next) = next(self.list.index()) {
-                    self.list.set_index(next);
+                if self.down() {
                     return Action::Render;
                 }
             }
             KeyCode::Up => {
-                if let Some(prev) = previous(self.list.index()) {
-                    self.list.set_index(prev);
+                if self.up() {
                     return Action::Render;
                 }
             }
-            KeyCode::Char('s') => {
-                if ctrl && !self.is_saved {
+            KeyCode::Char('s') if key.ctrl() => {
+                if settings.hash() != self.config.hash() {
                     match settings.save() {
                         Ok(_) => {
-                            self.saved = settings.config().clone();
-                            self.saved_hash = settings.hash();
-                            self.is_saved = true;
-                            return Action::Render;
+                            self.config = settings.config().clone();
                         }
                         Err(err) => {
-                            return Action::EnqueueLog(Log::new(err));
+                            logs.push_err(err);
                         }
                     }
-                } else {
-                    return self.handle_setting(key, modifiers, settings);
+                    return Action::Render;
                 }
             }
-            KeyCode::Char('r') => {
-                if ctrl {
-                    settings.set_config(self.default.clone());
-                    self.primary.reset_with(settings.primary());
-                    self.secondary.reset_with(settings.secondary());
-                    self.neutral.reset_with(settings.neutral());
-                    self.update_is_saved(settings);
-                    return Action::ApplySettings;
-                } else {
-                    return self.handle_setting(key, modifiers, settings);
-                }
+            KeyCode::Char('r') if key.ctrl() => {
+                self.config = Config::default();
+                settings.set_config(&self.config);
+
+                self.primary.clear();
+                self.secondary.clear();
+                self.neutral.clear();
+
+                let colors = settings.colors();
+                self.primary.push_fmt(colors.primary);
+                self.secondary.push_fmt(colors.secondary);
+                self.neutral.push_fmt(colors.neutral);
+
+                return Action::Render;
             }
-            _ => return self.handle_setting(key, modifiers, settings),
+            _ => {
+                return self.handle_setting(key, settings, logs);
+            }
         }
 
         Action::None
     }
 
-    pub fn on_exit(&self) {}
+    pub fn render(&mut self, area: Rect, frame: &mut Frame, settings: &Settings) {
+        let colors = settings.colors();
 
-    fn handle_setting(
-        &mut self,
-        key: KeyCode,
-        modifiers: KeyModifiers,
-        settings: &mut Settings,
-    ) -> Action {
+        frame.print_fmt(Sgr::Fg(colors.secondary));
+        Block::rectangle().render(area, frame);
+        frame.print_fmt(Sgr::Fg(colors.normal));
+
+        let (top, body, bottom) = area.inner(Margin::horizontal(1)).split_ends(1, 1);
+
+        frame.print_span(top, " Settings ", SpanOptions::center_top());
+
+        let Some((list_area, lines)) = self
+            .list
+            .set_len(SETTINGS.len())
+            .set_colors(colors.list())
+            .render(body, frame)
+        else {
+            return;
+        };
+
+        let mut line = list_area.with_rows(1);
+        let (mut left, mut right) = line.split_vertically(0, 1);
+        let selected = self.list.index();
+        let current = self.current();
+        let mut row = line.row();
+
+        for (index, setting) in lines.zip(SETTINGS.into_iter().skip(self.list.scroll())) {
+            line.set_row(row);
+            left.set_row(row);
+            right.set_row(row);
+
+            if index == selected {
+                frame.print_fmt(Sgr::Bold);
+                frame.push_str("> ");
+            }
+
+            frame.print_fmt(Sgr::Fg(colors.normal));
+
+            match setting {
+                Setting::General => {
+                    print_section("GENERAL", line, frame, colors);
+                }
+                Setting::DesiredRetention => {
+                    frame.push_str("Desired retention:");
+                    frame.render(left, TextOptions::span_right());
+
+                    frame.push_fmt(format_args!("{}%", settings.desired_retention()));
+                    frame.render(right, TextOptions::span());
+                }
+                Setting::Colors => {
+                    print_section("COLORS", line, frame, colors);
+                }
+                Setting::PrimaryColor => {
+                    print_color(
+                        "Primary:",
+                        &mut self.primary,
+                        left,
+                        right,
+                        frame,
+                        colors,
+                        current == Setting::PrimaryColor,
+                    );
+                }
+                Setting::SecondaryColor => {
+                    print_color(
+                        "Secondary:",
+                        &mut self.secondary,
+                        left,
+                        right,
+                        frame,
+                        colors,
+                        current == Setting::SecondaryColor,
+                    );
+                }
+                Setting::NeutralColor => {
+                    print_color(
+                        "Neutral:",
+                        &mut self.neutral,
+                        left,
+                        right,
+                        frame,
+                        colors,
+                        current == Setting::NeutralColor,
+                    );
+                }
+                Setting::Empty => {}
+            }
+
+            frame.print_fmt(Sgr::NotBold);
+            row += 1;
+        }
+
+        let description = match current {
+            Setting::DesiredRetention => "Set desired retention in percent",
+            Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor => {
+                "Set color by name, hex code or indexed value"
+            }
+            Setting::General | Setting::Colors | Setting::Empty => "",
+        };
+
+        frame.print_fmt(Sgr::Fg(colors.neutral));
+        frame.push_ch(' ');
+        frame.push_str(description);
+        frame.push_ch(' ');
+        frame.render(bottom, TextOptions::span_center_top());
+    }
+
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Frame, settings: &Settings) {
+        let gap = 1;
+        let key_color = settings.colors().secondary;
+        let name_color = settings.colors().normal;
+        let current = self.current();
+        let is_dr = current == Setting::DesiredRetention;
+        let is_color = matches!(
+            current,
+            Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor
+        );
+        let is_hash_neq = settings.hash() != self.config.hash();
+
+        for (key, name, gap, _show) in [
+            ("⇄", "Increment/Decrement", gap, is_dr),
+            ("↵", "Set color", gap, is_color),
+            ("^s", "Save", gap, is_hash_neq),
+            ("^r", "Reset all", 0, is_hash_neq),
+        ]
+        .into_iter()
+        .filter(|s| s.3)
+        {
+            frame.push_fmt(Sgr::Fg(key_color));
+            frame.push_str(key);
+            frame.push_fmt(Sgr::Fg(name_color));
+            frame.push_ch(' ');
+            frame.push_str(name);
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(area, TextOptions::span_center_top());
+    }
+
+    fn handle_setting(&mut self, key: Key, settings: &mut Settings, logs: &mut Logs) -> Action {
         match self.current() {
             Setting::DesiredRetention => {
-                if let KeyCode::Left | KeyCode::Right = key {
-                    let increment = key == KeyCode::Right;
+                if let KeyCode::Left | KeyCode::Right = key.code {
                     let current_retention = settings.desired_retention();
+                    let increment = key.code == KeyCode::Right;
                     let new_retention = if increment {
                         (current_retention + 1).min(100)
                     } else {
@@ -299,209 +283,140 @@ impl SettingsPage {
                     };
                     if current_retention != new_retention {
                         settings.set_desired_retention(new_retention);
-                        self.update_is_saved(settings);
-                        return Action::ApplySettings;
+                        return Action::Render;
                     }
                 }
             }
-            Setting::PrimaryColor => {
-                if let KeyCode::Enter = key {
-                    match self.primary.parse_color() {
+            Setting::PrimaryColor => match key.code {
+                KeyCode::Enter => {
+                    let name = self.primary.as_str_trim();
+                    match name
+                        .parse::<Color>()
+                        .with_context(|| format!("Failed to parse color \"{name}\"."))
+                    {
                         Ok(color) => {
-                            if settings.primary() != color {
-                                settings.set_primary(color);
-                                self.update_is_saved(settings);
-                                return Action::Render;
-                            }
+                            settings.colors_mut().primary = color;
                         }
                         Err(err) => {
-                            let log = Log::new(err);
-                            return Action::EnqueueLog(log);
+                            logs.push_err(err);
                         }
                     }
-                } else if self.primary.input(key, modifiers) {
                     return Action::Render;
                 }
-            }
-            Setting::SecondaryColor => {
-                if let KeyCode::Enter = key {
-                    match self.secondary.parse_color() {
+                _ => {
+                    if self.primary.input(key) {
+                        return Action::Render;
+                    }
+                }
+            },
+            Setting::SecondaryColor => match key.code {
+                KeyCode::Enter => {
+                    let name = self.secondary.as_str_trim();
+                    match name
+                        .parse::<Color>()
+                        .with_context(|| format!("Failed to parse color \"{name}\"."))
+                    {
                         Ok(color) => {
-                            if settings.secondary() != color {
-                                settings.set_secondary(color);
-                                self.update_is_saved(settings);
-                                return Action::Render;
-                            }
+                            settings.colors_mut().secondary = color;
                         }
                         Err(err) => {
-                            let log = Log::new(err);
-                            return Action::EnqueueLog(log);
+                            logs.push_err(err);
                         }
                     }
-                } else if self.secondary.input(key, modifiers) {
                     return Action::Render;
                 }
-            }
-            Setting::NeutralColor => {
-                if let KeyCode::Enter = key {
-                    match self.neutral.parse_color() {
+                _ => {
+                    if self.secondary.input(key) {
+                        return Action::Render;
+                    }
+                }
+            },
+            Setting::NeutralColor => match key.code {
+                KeyCode::Enter => {
+                    let name = self.neutral.as_str_trim();
+                    match name
+                        .parse::<Color>()
+                        .with_context(|| format!("Failed to parse color \"{name}\"."))
+                    {
                         Ok(color) => {
-                            if settings.neutral() != color {
-                                settings.set_neutral(color);
-                                self.update_is_saved(settings);
-                                return Action::Render;
-                            }
+                            settings.colors_mut().neutral = color;
                         }
                         Err(err) => {
-                            let log = Log::new(err);
-                            return Action::EnqueueLog(log);
+                            logs.push_err(err);
                         }
                     }
-                } else if self.neutral.input(key, modifiers) {
                     return Action::Render;
                 }
-            }
+                _ => {
+                    if self.neutral.input(key) {
+                        return Action::Render;
+                    }
+                }
+            },
             Setting::General | Setting::Colors | Setting::Empty => {}
         }
 
         Action::None
     }
 
-    fn update_is_saved(&mut self, settings: &Settings) {
-        self.is_saved = self.saved_hash == settings.hash();
-    }
-
     const fn current(&self) -> Setting {
         SETTINGS[self.list.index()]
     }
-}
 
-struct ColorSetting(TextInput);
-
-impl ColorSetting {
-    fn new(color: Color) -> Self {
-        let mut input = TextInput::from(color.to_string());
-        input.move_cursor(CursorMove::End, false);
-        Self(input)
-    }
-
-    fn parse_color(&self) -> Result<Color, String> {
-        let input = self.0.as_str_trim();
-        Color::from_str(input).map_err(|_| format!("Failed to parse \"{input}\" as a color"))
-    }
-
-    const fn set_active(&mut self, active: bool, colors: &Colors) {
-        self.0.set_disabled(!active).set_colors(colors.text_input());
-    }
-
-    fn input(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
-        self.0.input(key, modifiers)
-    }
-
-    fn render(&mut self, line: Rect, buf: &mut Buffer) {
-        self.0.render(line, buf);
-    }
-
-    fn reset_with(&mut self, color: Color) {
-        self.0.clear();
-        self.0.push_str(color.to_string().as_str());
-    }
-}
-
-fn next(current: usize) -> Option<usize> {
-    let mut next = current + 1;
-    while next < SETTINGS.len() {
-        if SETTINGS[next].filter() {
-            return Some(next);
-        }
-        next += 1;
-    }
-
-    None
-}
-
-fn previous(current: usize) -> Option<usize> {
-    if current == 0 {
-        return None;
-    }
-
-    let mut prev = current.saturating_sub(1);
-    loop {
-        if SETTINGS[prev].filter() {
-            return Some(prev);
+    const fn down(&mut self) -> bool {
+        let mut next = self.list.index() + 1;
+        while next < SETTINGS.len() {
+            if SETTINGS[next].filter() {
+                self.list.set_index(next);
+                return true;
+            }
+            next += 1;
         }
 
-        if prev == 0 {
-            break;
-        }
-
-        prev -= 1;
+        false
     }
 
-    None
+    const fn up(&mut self) -> bool {
+        if self.list.index() == 0 {
+            return false;
+        }
+
+        let mut prev = self.list.index().saturating_sub(1);
+        loop {
+            if SETTINGS[prev].filter() {
+                self.list.set_index(prev);
+                return true;
+            }
+
+            if prev == 0 {
+                break;
+            }
+
+            prev -= 1;
+        }
+
+        false
+    }
 }
 
-fn print_section(line: Rect, buf: &mut Buffer, ascii: &str, color: Color) {
-    widgets::print_ascii(
-        line,
-        buf,
-        ascii,
-        color,
-        Some(widgets::Alignment::CenterHorizontal),
-    );
-}
-
-fn print_desired_retention(
-    text_area: Rect,
-    input_area: Rect,
-    buf: &mut Buffer,
-    symbol: &str,
-    text: &str,
-    style: Style,
-    desired_retention: u8,
-) {
-    // Text
-    widgets::print_asciis(
-        text_area,
-        buf,
-        [symbol, text, ":"],
-        style,
-        Some(widgets::Alignment::Right),
-    );
-
-    // Desired retention
-    utils::format_int(desired_retention, |desired_retention| {
-        widgets::print_asciis(
-            input_area,
-            buf,
-            [desired_retention, "%"],
-            Style::new(),
-            None,
-        );
-    });
+fn print_section(title: &str, line: Rect, frame: &mut Frame, colors: &Colors) {
+    frame.print_span_fg(line, title, colors.neutral, SpanOptions::center_top());
 }
 
 fn print_color(
-    text_area: Rect,
-    input_area: Rect,
-    buf: &mut Buffer,
-    symbol: &str,
-    text: &str,
-    style: Style,
-    color_setting: &mut ColorSetting,
-    color_is_active: bool,
+    description: &str,
+    prompt: &mut Prompt,
+    left: Rect,
+    right: Rect,
+    frame: &mut Frame,
     colors: &Colors,
+    is_active: bool,
 ) {
-    // Text
-    widgets::print_asciis(
-        text_area,
-        buf,
-        [symbol, text, ":"],
-        style,
-        Some(widgets::Alignment::Right),
-    );
+    frame.push_str(description);
+    frame.render(left, TextOptions::span_right());
 
-    // Input
-    color_setting.set_active(color_is_active, colors);
-    color_setting.render(input_area, buf);
+    prompt
+        .set_colors(colors.prompt())
+        .set_disabled(!is_active)
+        .render(right, frame);
 }

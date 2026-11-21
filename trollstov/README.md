@@ -20,9 +20,22 @@ The name is a norwegian word play for a substance with magical properties. You h
 - Your music is the database — your files and their metadata are all you need.
 - Portable rating — the rating is part of the metadata.
 
+## 💻 Platform Support
+
+Linux only on any ANSI-compatible terminal that supports the [kitty graphics protocol][kitty_graphics_protocol], such as [kitty][kitty_terminal], [ghostty][ghostty_terminal], [wezterm][wezterm_terminal] and so on.
+
+## 🎵 Audio Format Support
+
+| Format | Metadata | Playback |
+| ------ | -------- | -------- |
+| FLAC | Vorbis Comments | Yes |
+| Opus | Vorbis Comments | Yes[^1] |
+| Ogg Vorbis | Vorbis Comments | Yes |
+| MP3 | ID3v2 | Yes |
+
 ## 🔖 Install
 
-The application is only available on GitHub for now, but will probably come to `crates.io` at a later time. Do note that for `opus` support you need `libopus` installed along with `cmake`.
+Note that for `opus` support you need `libopus` installed along with `cmake`.
 
 ```sh
 cargo install --git https://github.com/hikikones/troll trollstov --features opus
@@ -47,24 +60,16 @@ Options:
   -V, --version               Print version.
 ```
 
-## 🎵 Audio Format Support
-
-| Format | Metadata | Playback |
-| ------ | -------- | -------- |
-| FLAC | Vorbis Comments | Yes |
-| Opus | Vorbis Comments | Yes[^1] |
-| Ogg Vorbis | Vorbis Comments | Yes |
-| MP3 | ID3v2 | Yes |
-
-
-## 💻 Platform Support
-
-The application is mainly developed on Linux, as that is what I use, but hopefully it also works on Windows and macOS. I try to keep cross-platform in mind when developing, but have no means of testing it.
-
 ## ⚠️ Non-goals
 
+- Supporting most terminals.
 - Supporting most audio formats.
 - Metadata editing, except for the rating.
 - Gapless playback.
 
 [^1]: Requires the `opus` feature.
+
+[kitty_terminal]: https://sw.kovidgoyal.net/kitty
+[ghostty_terminal]: https://ghostty.org
+[wezterm_terminal]: https://wezterm.org
+[kitty_graphics_protocol]: https://sw.kovidgoyal.net/kitty/graphics-protocol

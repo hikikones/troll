@@ -1,38 +1,124 @@
-use std::str::FromStr;
-
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::{KeyCode, KeyModifiers},
-    layout::{Alignment, Constraint, Rect},
-    style::{Color, Style},
-    widgets::{Block, Padding, Widget},
-};
-use shared::symbols;
-use widgets::{
-    CursorMove, List, ListItem, ScrollMargins, Shortcut, Shortcuts, TextInput, TextInputColors,
-    TextSpan,
-};
+use ecs::*;
+use shared::logs::Logs;
+use terminal::*;
+use utils::ResultExt;
+use widgets::{Block, List, Prompt, ScrollMargins};
 
 use crate::{
-    app::Action,
-    database::AudioRating,
-    pages::Log,
-    settings::{Colors, Settings},
+    app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
+    database::TrackRating,
+    pages::Page,
+    settings::{Colors, Config, Settings},
 };
 
-pub struct SettingsPage {
-    default: Settings,
-    saved: Settings,
-    saved_hash: u64,
-    is_saved: bool,
-    list: List,
-    text: TextSpan,
-    primary: ColorSetting,
-    secondary: ColorSetting,
-    neutral: ColorSetting,
+pub struct SettingsPagePlugin;
+
+impl SettingsPagePlugin {
+    pub fn build(app: &mut App) {
+        let page = SettingsPage::new(app.world().resource::<Settings>());
+
+        app.insert_resource(page)
+            .insert_resource(SettingsList::default())
+            .add_input(
+                InputSet::Page,
+                input_settings.run_if(in_state(Page::Settings)),
+            )
+            .add_render(
+                RenderSet::Page,
+                render_settings.run_if(in_state(Page::Settings)),
+            );
+    }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Resource)]
+struct SettingsPage {
+    config: Config,
+    primary: Prompt,
+    secondary: Prompt,
+    neutral: Prompt,
+}
+
+impl SettingsPage {
+    fn new(settings: &Settings) -> Self {
+        let config = settings.config().clone();
+        let mut primary = Prompt::from(config.colors.primary.to_string());
+        primary.move_to_end(false);
+        let mut secondary = Prompt::from(config.colors.secondary.to_string());
+        secondary.move_to_end(false);
+        let mut neutral = Prompt::from(config.colors.neutral.to_string());
+        neutral.move_to_end(false);
+
+        Self {
+            config,
+            primary,
+            secondary,
+            neutral,
+        }
+    }
+}
+
+#[derive(Debug, Resource, Deref, DerefMut)]
+struct SettingsList(List);
+
+impl SettingsList {
+    const fn current(&self) -> Setting {
+        SETTINGS[self.0.index()]
+    }
+
+    const fn down(&mut self) -> bool {
+        let mut next = self.0.index() + 1;
+        while next < SETTINGS.len() {
+            if SETTINGS[next].filter() {
+                self.0.set_index(next);
+                return true;
+            }
+            next += 1;
+        }
+
+        false
+    }
+
+    const fn up(&mut self) -> bool {
+        if self.0.index() == 0 {
+            return false;
+        }
+
+        let mut prev = self.0.index().saturating_sub(1);
+        loop {
+            if SETTINGS[prev].filter() {
+                self.0.set_index(prev);
+                return true;
+            }
+
+            if prev == 0 {
+                break;
+            }
+
+            prev -= 1;
+        }
+
+        false
+    }
+}
+
+impl Default for SettingsList {
+    fn default() -> Self {
+        let mut list = Self(
+            List::new()
+                .with_scrollbar(0)
+                .with_scrolloff(ScrollMargins::vertical(3))
+                .with_padding(Margin::proportional(1)),
+        );
+
+        if !SETTINGS[0].filter() {
+            list.down();
+        }
+
+        list
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Setting {
     General,
     SkipRating,
@@ -75,543 +161,412 @@ const SETTINGS: [Setting; 11] = [
     Setting::NeutralColor,
 ];
 
-impl SettingsPage {
-    pub fn new(settings: &Settings) -> Self {
-        let colors = settings.colors();
-        let hash = settings.hash();
-        let selected = if SETTINGS[0].filter() {
-            0
-        } else {
-            next(0).unwrap()
-        };
+fn input_settings(
+    input: Res<Input>,
+    mut list: ResMut<SettingsList>,
+    mut settings: ResMut<Settings>,
+    mut page: ResMut<SettingsPage>,
+    mut logs: ResMut<Logs>,
+    mut actions: ResMut<Actions>,
+) {
+    let Some(key) = input.get() else {
+        return;
+    };
 
-        Self {
-            default: Settings::default(),
-            saved: settings.clone(),
-            saved_hash: hash,
-            is_saved: true,
-            list: List::new()
-                .with_index(selected)
-                .with_scrolloff(ScrollMargins::vertical(3)),
-            text: TextSpan::new().with_alignment(Alignment::Center),
-            primary: ColorSetting::new(colors.primary),
-            secondary: ColorSetting::new(colors.secondary),
-            neutral: ColorSetting::new(colors.neutral),
+    match key.code {
+        KeyCode::Down => {
+            if list.down() {
+                actions.push(Action::Render);
+            }
         }
-    }
-
-    pub fn on_enter(&self) {}
-
-    pub fn on_render(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        settings: &mut Settings,
-        shortcuts: &mut Shortcuts,
-    ) {
-        let area = area.centered_horizontally(Constraint::Max(80));
-        let colors = settings.colors();
-
-        let block = Block::bordered()
-            .title(" Settings ")
-            .title_alignment(Alignment::Center)
-            .title_style(Color::Reset)
-            .border_style(colors.secondary)
-            .padding(Padding::uniform(1));
-        let settings_area = block.inner(area);
-        block.render(area, buf);
-
-        let mut setting_area = Rect {
-            width: settings_area.width / 2,
-            ..settings_area
-        };
-        let mut input_area = Rect {
-            x: setting_area.x + setting_area.width + 1,
-            width: setting_area.width.saturating_sub(1),
-            ..setting_area
-        };
-
-        let description_area = Rect {
-            y: area.y + area.height.saturating_sub(1),
-            height: 1,
-            ..settings_area
-        };
-
-        let current_setting = self.current();
-        self.list.set_colors(colors.list()).render(
-            settings_area,
-            buf,
-            SETTINGS,
-            |line, buf, setting, index| {
-                setting_area.y = line.y;
-                input_area.y = line.y;
-
-                let (symbol, style) = if index == ListItem::Selected {
-                    (
-                        symbols::concat!(symbols::SELECTED, " "),
-                        Style::new().bold(),
-                    )
-                } else {
-                    ("", Style::new())
-                };
-
-                match setting {
-                    Setting::General => {
-                        print_section(line, buf, "GENERAL", colors.neutral);
+        KeyCode::Up => {
+            if list.up() {
+                actions.push(Action::Render);
+            }
+        }
+        KeyCode::Char('s') if key.ctrl() => {
+            if settings.hash() != page.config.hash() {
+                match settings.save() {
+                    Ok(_) => {
+                        page.config = settings.config().clone();
                     }
-                    Setting::SkipRating => {
-                        print_rating(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Skip tracks with rating",
-                            style,
-                            settings.skip_rating(),
-                            colors,
-                        );
+                    Err(err) => {
+                        logs.push_err(err);
                     }
-                    Setting::KeepTrackSort => {
-                        print_checkmark(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Keep selected track on sort",
-                            style,
-                            settings.keep_on_sort(),
-                            colors,
-                        );
-                    }
-                    Setting::SearchByPath => {
-                        print_checkmark(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Search by path",
-                            style,
-                            settings.search_by_path(),
-                            colors,
-                        );
-                    }
-                    Setting::Colors => {
-                        print_section(line, buf, "COLORS", colors.neutral);
-                    }
-                    Setting::PrimaryColor => {
-                        print_color(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Set primary color",
-                            style,
-                            &mut self.primary,
-                            current_setting == Setting::PrimaryColor,
-                            colors,
-                        );
-                    }
-                    Setting::SecondaryColor => {
-                        print_color(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Set secondary color",
-                            style,
-                            &mut self.secondary,
-                            current_setting == Setting::SecondaryColor,
-                            colors,
-                        );
-                    }
-                    Setting::NeutralColor => {
-                        print_color(
-                            setting_area,
-                            input_area,
-                            buf,
-                            symbol,
-                            "Set neutral color",
-                            style,
-                            &mut self.neutral,
-                            current_setting == Setting::NeutralColor,
-                            colors,
-                        );
-                    }
-                    Setting::Empty => {}
                 }
+                actions.push(Action::Render);
+            }
+        }
+        KeyCode::Char('r') if key.ctrl() => {
+            page.config = Config::default();
+            settings.set_config(&page.config);
 
-                self.text.clear();
-            },
-        );
+            page.primary.clear();
+            page.primary.push_fmt(&settings.colors().primary);
+            page.secondary.clear();
+            page.secondary.push_fmt(&settings.colors().secondary);
+            page.neutral.clear();
+            page.neutral.push_fmt(&settings.colors().neutral);
 
-        // Description and shortcuts
-        const COLOR_DESCRIPTION: &str = "Set color by name, hex code or indexed value";
-        let description = match current_setting {
-            Setting::SkipRating => {
-                shortcuts.push(Shortcut::new("Rating", "0-5"));
-                "Skips tracks that are less than or equal to set rating"
-            }
-            Setting::KeepTrackSort => {
-                shortcuts.push(Shortcut::new("Toggle", symbols::SPACE));
-                "Scrolls to selected track when sorting"
-            }
-            Setting::SearchByPath => {
-                shortcuts.push(Shortcut::new("Toggle", symbols::SPACE));
-                "Includes directories and filename when searching"
-            }
-            Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor => {
-                shortcuts.push(Shortcut::new("Set color", symbols::ENTER));
-                COLOR_DESCRIPTION
-            }
-            Setting::General | Setting::Colors | Setting::Empty => "",
-        };
-
-        if !description.is_empty() {
-            widgets::print_asciis(
-                description_area,
-                buf,
-                [" ", description, " "],
-                colors.neutral,
-                Some(widgets::Alignment::CenterHorizontal),
+            actions.push(Action::Render);
+        }
+        _ => {
+            handle_setting(
+                key,
+                list.current(),
+                &mut settings,
+                &mut page,
+                &mut logs,
+                &mut actions,
             );
         }
-
-        if !self.is_saved {
-            shortcuts.push(Shortcut::new("Save", symbols::ctrl!("s")));
-        }
-
-        // Always show reset all
-        shortcuts.push(Shortcut::new("Reset all", symbols::ctrl!("r")));
     }
+}
 
-    pub fn on_input(
-        &mut self,
-        key: KeyCode,
-        modifiers: KeyModifiers,
-        settings: &mut Settings,
-    ) -> Action {
-        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
-
-        match key {
-            KeyCode::Down => {
-                if let Some(next) = next(self.list.index()) {
-                    self.list.set_index(next);
-                    return Action::Render;
-                }
+fn handle_setting(
+    key: Key,
+    current: Setting,
+    settings: &mut Settings,
+    page: &mut SettingsPage,
+    logs: &mut Logs,
+    actions: &mut Actions,
+) {
+    match current {
+        Setting::SkipRating => {
+            if let KeyCode::Char(c) = key.code
+                && let Some(rating) = TrackRating::from_char(c)
+                && settings.general().skip_rating != rating
+            {
+                settings.general_mut().skip_rating = rating;
+                actions.push(Action::Render);
             }
-            KeyCode::Up => {
-                if let Some(prev) = previous(self.list.index()) {
-                    self.list.set_index(prev);
-                    return Action::Render;
-                }
-            }
-            KeyCode::Char('s') => {
-                if ctrl && !self.is_saved {
-                    match settings.save() {
-                        Ok(_) => {
-                            self.saved = settings.clone();
-                            self.saved_hash = settings.hash();
-                            self.is_saved = true;
-                            return Action::Render;
-                        }
-                        Err(err) => {
-                            return Action::Log(Log::new(err));
-                        }
-                    }
-                } else {
-                    return self.handle_setting(key, modifiers, settings);
-                }
-            }
-            KeyCode::Char('r') => {
-                if ctrl {
-                    *settings = self.default.clone();
-                    self.primary.reset_with(settings.primary());
-                    self.secondary.reset_with(settings.secondary());
-                    self.neutral.reset_with(settings.neutral());
-                    self.update_is_saved(settings);
-                    return Action::ApplySettings;
-                } else {
-                    return self.handle_setting(key, modifiers, settings);
-                }
-            }
-            _ => return self.handle_setting(key, modifiers, settings),
         }
-
-        Action::None
-    }
-
-    pub fn on_exit(&self) {}
-
-    fn handle_setting(
-        &mut self,
-        key: KeyCode,
-        modifiers: KeyModifiers,
-        settings: &mut Settings,
-    ) -> Action {
-        match self.current() {
-            Setting::SkipRating => {
-                if let KeyCode::Char(c) = key
-                    && let Some(rating) = AudioRating::from_char(c)
-                    && settings.skip_rating() != rating
+        Setting::KeepTrackSort => {
+            if let KeyCode::Char(' ') = key.code {
+                let toggle = !settings.general().keep_selected;
+                settings.general_mut().keep_selected = toggle;
+                actions.push(Action::Render);
+            }
+        }
+        Setting::SearchByPath => {
+            if let KeyCode::Char(' ') = key.code {
+                let toggle = !settings.general().search_by_path;
+                settings.general_mut().search_by_path = toggle;
+                actions.push(Action::Render);
+            }
+        }
+        Setting::PrimaryColor => match key.code {
+            KeyCode::Enter => {
+                let name = page.primary.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
                 {
-                    settings.set_skip_rating(rating);
-                    self.update_is_saved(settings);
-                    return Action::ApplySettings;
+                    Ok(color) => {
+                        settings.colors_mut().primary = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
                 }
+                actions.push(Action::Render);
+            }
+            _ => {
+                if page.primary.input(key) {
+                    actions.push(Action::Render);
+                }
+            }
+        },
+        Setting::SecondaryColor => match key.code {
+            KeyCode::Enter => {
+                let name = page.secondary.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
+                {
+                    Ok(color) => {
+                        settings.colors_mut().secondary = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
+                }
+                actions.push(Action::Render);
+            }
+            _ => {
+                if page.secondary.input(key) {
+                    actions.push(Action::Render);
+                }
+            }
+        },
+        Setting::NeutralColor => match key.code {
+            KeyCode::Enter => {
+                let name = page.neutral.as_str_trim();
+                match name
+                    .parse::<Color>()
+                    .with_context(|| format!("Failed to parse color \"{name}\"."))
+                {
+                    Ok(color) => {
+                        settings.colors_mut().neutral = color;
+                    }
+                    Err(err) => {
+                        logs.push_err(err);
+                    }
+                }
+                actions.push(Action::Render);
+            }
+            _ => {
+                if page.neutral.input(key) {
+                    actions.push(Action::Render);
+                }
+            }
+        },
+        Setting::General | Setting::Colors | Setting::Empty => {}
+    }
+}
+
+fn render_settings(
+    area: Res<PageArea>,
+    shortcuts_area: Res<ShortcutsArea>,
+    mut frame: ResMut<Frame>,
+    mut list: ResMut<SettingsList>,
+    mut page: ResMut<SettingsPage>,
+    settings: Res<Settings>,
+) {
+    let area = **area;
+    let colors = settings.colors();
+
+    frame.print_fmt(Sgr::Fg(colors.secondary));
+    Block::rectangle().render(area, &mut frame);
+    frame.print_fmt(Sgr::Fg(colors.normal));
+
+    let (top, body, bottom) = area.inner(Margin::horizontal(1)).split_ends(1, 1);
+
+    frame.print_span(top, " Settings ", SpanOptions::center_top());
+
+    let Some((list_area, lines)) = list
+        .set_len(SETTINGS.len())
+        .set_colors(colors.list())
+        .render(body, &mut frame)
+    else {
+        return;
+    };
+
+    let mut line = list_area.with_rows(1);
+    let (mut left, mut right) = line.split_vertically(0, 1);
+    let selected = list.index();
+    let current = list.current();
+    let mut row = line.row();
+
+    for (index, setting) in lines.zip(SETTINGS.into_iter().skip(list.scroll())) {
+        line = line.with_row(row);
+        left = left.with_row(row);
+        right = right.with_row(row);
+
+        if index == selected {
+            frame.print_fmt(Sgr::Bold);
+            frame.push_str("> ");
+        }
+
+        frame.print_fmt(Sgr::Fg(colors.normal));
+
+        match setting {
+            Setting::General => {
+                print_section("GENERAL", line, &mut frame, colors);
+            }
+            Setting::SkipRating => {
+                frame.push_str("Skip tracks with rating:");
+                frame.render(left, TextOptions::span_right());
+
+                let stars = settings
+                    .skip_rating()
+                    .stars_split(colors.primary, colors.neutral);
+                frame.push_fmt(stars);
+                frame.render(right, TextOptions::span());
             }
             Setting::KeepTrackSort => {
-                if let KeyCode::Char(' ') = key {
-                    let toggle = !settings.keep_on_sort();
-                    settings.set_keep_on_sort(toggle);
-                    self.update_is_saved(settings);
-                    return Action::ApplySettings;
-                }
+                print_toggle(
+                    "Keep selected track on sort:",
+                    settings.general().keep_selected,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                );
             }
             Setting::SearchByPath => {
-                if let KeyCode::Char(' ') = key {
-                    let toggle = !settings.search_by_path();
-                    settings.set_search_by_path(toggle);
-                    self.update_is_saved(settings);
-                    return Action::ApplySettings;
-                }
+                print_toggle(
+                    "Search by path:",
+                    settings.general().search_by_path,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                );
+            }
+            Setting::Colors => {
+                print_section("COLORS", line, &mut frame, colors);
             }
             Setting::PrimaryColor => {
-                if let KeyCode::Enter = key {
-                    match self.primary.parse_color() {
-                        Ok(color) => {
-                            if settings.primary() != color {
-                                settings.set_primary(color);
-                                self.update_is_saved(settings);
-                                return Action::Render;
-                            }
-                        }
-                        Err(err) => {
-                            let log = Log::new(err);
-                            return Action::Log(log);
-                        }
-                    }
-                } else if self.primary.input(key, modifiers) {
-                    return Action::Render;
-                }
+                print_color(
+                    "Primary:",
+                    &mut page.primary,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                    current == Setting::PrimaryColor,
+                );
             }
             Setting::SecondaryColor => {
-                if let KeyCode::Enter = key {
-                    match self.secondary.parse_color() {
-                        Ok(color) => {
-                            if settings.secondary() != color {
-                                settings.set_secondary(color);
-                                self.update_is_saved(settings);
-                                return Action::Render;
-                            }
-                        }
-                        Err(err) => {
-                            let log = Log::new(err);
-                            return Action::Log(log);
-                        }
-                    }
-                } else if self.secondary.input(key, modifiers) {
-                    return Action::Render;
-                }
+                print_color(
+                    "Secondary:",
+                    &mut page.secondary,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                    current == Setting::SecondaryColor,
+                );
             }
             Setting::NeutralColor => {
-                if let KeyCode::Enter = key {
-                    match self.neutral.parse_color() {
-                        Ok(color) => {
-                            if settings.neutral() != color {
-                                settings.set_neutral(color);
-                                self.update_is_saved(settings);
-                                return Action::Render;
-                            }
-                        }
-                        Err(err) => {
-                            let log = Log::new(err);
-                            return Action::Log(log);
-                        }
-                    }
-                } else if self.neutral.input(key, modifiers) {
-                    return Action::Render;
-                }
+                print_color(
+                    "Neutral:",
+                    &mut page.neutral,
+                    left,
+                    right,
+                    &mut frame,
+                    colors,
+                    current == Setting::NeutralColor,
+                );
             }
-            Setting::General | Setting::Colors | Setting::Empty => {}
+            Setting::Empty => {}
         }
 
-        Action::None
+        frame.print_fmt(Sgr::NotBold);
+        row += 1;
     }
 
-    fn update_is_saved(&mut self, settings: &Settings) {
-        self.is_saved = self.saved_hash == settings.hash();
-    }
-
-    const fn current(&self) -> Setting {
-        SETTINGS[self.list.index()]
-    }
-}
-
-struct ColorSetting(TextInput);
-
-impl ColorSetting {
-    fn new(color: Color) -> Self {
-        let mut input = TextInput::from(color.to_string());
-        input.move_cursor(CursorMove::End, false);
-        Self(input)
-    }
-
-    fn parse_color(&self) -> Result<Color, String> {
-        let input = self.0.as_str_trim();
-        Color::from_str(input).map_err(|_| format!("Failed to parse \"{input}\" as a color"))
-    }
-
-    const fn set_active(&mut self, active: bool, colors: &Colors) {
-        self.0.set_disabled(!active).set_colors(TextInputColors {
-            normal: Color::Reset,
-            cursor: colors.primary,
-            selector: colors.neutral,
-            placeholder: colors.neutral,
-            disabled: colors.neutral,
-        });
-    }
-
-    fn input(&mut self, key: KeyCode, modifiers: KeyModifiers) -> bool {
-        self.0.input(key, modifiers)
-    }
-
-    fn render(&mut self, line: Rect, buf: &mut Buffer) {
-        self.0.render(line, buf);
-    }
-
-    fn reset_with(&mut self, color: Color) {
-        self.0.clear();
-        self.0.push_str(color.to_string().as_str());
-    }
-}
-
-fn next(current: usize) -> Option<usize> {
-    let mut next = current + 1;
-    while next < SETTINGS.len() {
-        if SETTINGS[next].filter() {
-            return Some(next);
+    let description = match current {
+        Setting::SkipRating => "Skips tracks that are less than or equal to set rating",
+        Setting::KeepTrackSort => "Scrolls to selected track when sorting",
+        Setting::SearchByPath => "Includes directories and filename when searching",
+        Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor => {
+            "Set color by name, hex code or indexed value"
         }
-        next += 1;
-    }
-
-    None
-}
-
-fn previous(current: usize) -> Option<usize> {
-    if current == 0 {
-        return None;
-    }
-
-    let mut prev = current.saturating_sub(1);
-    loop {
-        if SETTINGS[prev].filter() {
-            return Some(prev);
-        }
-
-        if prev == 0 {
-            break;
-        }
-
-        prev -= 1;
-    }
-
-    None
-}
-
-fn print_section(line: Rect, buf: &mut Buffer, ascii: &str, color: Color) {
-    widgets::print_ascii(
-        line,
-        buf,
-        ascii,
-        color,
-        Some(widgets::Alignment::CenterHorizontal),
-    );
-}
-
-fn print_rating(
-    text_area: Rect,
-    input_area: Rect,
-    buf: &mut Buffer,
-    symbol: &str,
-    text: &str,
-    style: Style,
-    rating: AudioRating,
-    colors: &Colors,
-) {
-    // Text
-    widgets::print_asciis(
-        text_area,
-        buf,
-        [symbol, text, ":"],
-        style,
-        Some(widgets::Alignment::Right),
-    );
-
-    // Stars
-    let (filled_stars, empty_stars) = rating.stars_split();
-    widgets::print_texts_with_styles(
-        input_area,
-        buf,
-        [
-            (filled_stars, Style::new().fg(colors.primary)),
-            (empty_stars, Style::new().fg(colors.neutral)),
-        ],
-        None,
-        None,
-    );
-}
-
-fn print_checkmark(
-    text_area: Rect,
-    input_area: Rect,
-    buf: &mut Buffer,
-    symbol: &str,
-    text: &str,
-    style: Style,
-    checkmark: bool,
-    colors: &Colors,
-) {
-    // Text
-    widgets::print_asciis(
-        text_area,
-        buf,
-        [symbol, text, ":"],
-        style,
-        Some(widgets::Alignment::Right),
-    );
-
-    // Checkmark
-    let (checkmark, color) = match checkmark {
-        true => (symbols::CHECKMARK_YES, colors.primary),
-        false => (symbols::CHECKMARK_NO, colors.neutral),
+        Setting::General | Setting::Colors | Setting::Empty => "",
     };
-    let Rect { x, y, .. } = input_area;
-    if let Some(cell) = buf.cell_mut((x, y)) {
-        cell.set_symbol(checkmark).set_style(color);
+
+    frame.print_fmt(Sgr::Fg(colors.neutral));
+    frame.push_ch(' ');
+    frame.push_str(description);
+    frame.push_ch(' ');
+    frame.render(bottom, TextOptions::span_center_top());
+
+    render_shortcuts(
+        **shortcuts_area,
+        &mut frame,
+        colors,
+        current,
+        &settings,
+        &page.config,
+    );
+}
+
+fn render_shortcuts(
+    area: Rect,
+    frame: &mut Frame,
+    colors: &Colors,
+    current: Setting,
+    settings: &Settings,
+    config: &Config,
+) {
+    let key_color = colors.secondary;
+    let name_color = colors.normal;
+    let gap = 1;
+
+    fn push_shortcut(
+        key: &str,
+        name: &str,
+        key_color: Color,
+        name_color: Color,
+        frame: &mut Frame,
+    ) {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
     }
+
+    match current {
+        Setting::SkipRating => {
+            push_shortcut("0-5", "Rating", key_color, name_color, frame);
+            frame.push_ch_repeat(' ', gap);
+        }
+        Setting::KeepTrackSort => {
+            push_shortcut("Space", "Toggle", key_color, name_color, frame);
+            frame.push_ch_repeat(' ', gap);
+        }
+        Setting::SearchByPath => {
+            push_shortcut("Space", "Toggle", key_color, name_color, frame);
+            frame.push_ch_repeat(' ', gap);
+        }
+        Setting::PrimaryColor | Setting::SecondaryColor | Setting::NeutralColor => {
+            push_shortcut("↵", "Set Color", key_color, name_color, frame);
+            frame.push_ch_repeat(' ', gap);
+        }
+        Setting::General | Setting::Colors | Setting::Empty => {}
+    };
+
+    if settings.hash() != config.hash() {
+        push_shortcut("^s", "Save", key_color, name_color, frame);
+        frame.push_ch_repeat(' ', gap);
+    }
+
+    push_shortcut("^r", "Reset All", key_color, name_color, frame);
+
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(area, TextOptions::span_center_top());
+}
+
+fn print_section(title: &str, line: Rect, frame: &mut Frame, colors: &Colors) {
+    frame.print_span_fg(line, title, colors.neutral, SpanOptions::center_top());
+}
+
+fn print_toggle(
+    description: &str,
+    value: bool,
+    left: Rect,
+    right: Rect,
+    frame: &mut Frame,
+    colors: &Colors,
+) {
+    frame.push_str(description);
+    frame.render(left, TextOptions::span_right());
+
+    let (checkmark, color) = if value {
+        ("🗸", colors.primary)
+    } else {
+        ("✗", colors.neutral)
+    };
+    frame.print_span_fg(right, checkmark, color, SpanOptions::left());
 }
 
 fn print_color(
-    text_area: Rect,
-    input_area: Rect,
-    buf: &mut Buffer,
-    symbol: &str,
-    text: &str,
-    style: Style,
-    color_setting: &mut ColorSetting,
-    color_is_active: bool,
+    description: &str,
+    prompt: &mut Prompt,
+    left: Rect,
+    right: Rect,
+    frame: &mut Frame,
     colors: &Colors,
+    is_active: bool,
 ) {
-    // Text
-    widgets::print_asciis(
-        text_area,
-        buf,
-        [symbol, text, ":"],
-        style,
-        Some(widgets::Alignment::Right),
-    );
+    frame.push_str(description);
+    frame.render(left, TextOptions::span_right());
 
-    // Input
-    color_setting.set_active(color_is_active, colors);
-    color_setting.render(input_area, buf);
+    prompt
+        .set_colors(colors.prompt())
+        .set_disabled(!is_active)
+        .render(right, frame);
 }

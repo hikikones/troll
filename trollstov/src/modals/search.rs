@@ -1,6 +1,6 @@
 use ecs::*;
 use terminal::*;
-use widgets2::{Block, List, Prompt};
+use widgets::{Block, List, Prompt};
 
 use crate::{
     app::{Action, Actions, App, Input, InputSet, RenderSet},
@@ -173,6 +173,7 @@ fn render_search(
     mut database: NonSendMut<Database>,
     jukebox: NonSend<Jukebox>,
 ) {
+    // TODO: Use PageArea instead?
     let area = frame.area().scale_and_center(0.7);
     let colors = settings.colors();
     let state = modal.state;

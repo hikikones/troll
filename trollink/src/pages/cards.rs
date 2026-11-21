@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
-use ratatui::{buffer::Buffer, crossterm::event::KeyCode, layout::Rect, style::Color};
-use shared::symbols;
-use utils::Formatter;
-use widgets::{KittyGraphics, List, ListItem, Markup, RectExt, ScrollMove, Shortcut, Shortcuts};
+use terminal::*;
+use utils::StringExt;
+use widgets::{List, Markup, MarkupScroll};
 
 use crate::{
-    app::{Action, AppInput, AppRender},
+    app::Action,
     database::{CardId, Database, TagId},
+    modals::Modal,
     pages::{CardsParam, Route},
     settings::Colors,
 };
@@ -29,7 +29,7 @@ impl CardsPage {
         }
     }
 
-    pub fn on_enter(&mut self, db: &mut Database, param: Option<CardsParam>) {
+    pub fn enter(&mut self, db: &mut Database, param: Option<CardsParam>) {
         match param {
             Some(param) => {
                 match param {
@@ -39,7 +39,7 @@ impl CardsPage {
                         db.get_tags_for_card(cid, |tid| {
                             self.tags.includes.insert(tid);
                         });
-                        self.update_cards(db);
+                        self.update_cards(db, true);
                         self.select_card(cid);
                     }
                     CardsParam::Tag(tid) => {
@@ -47,91 +47,26 @@ impl CardsPage {
                         self.tags.refresh(db);
                         self.tags.includes.insert(tid);
                         self.tags.select(tid);
-                        self.update_cards(db);
+                        self.update_cards(db, true);
                     }
                 }
                 self.show_tags = true;
             }
             None => {
-                self.tags.refresh(db);
-                self.update_cards(db);
+                self.refresh(db);
             }
         }
     }
 
-    pub fn on_render(
-        &mut self,
-        render: AppRender,
-        db: &Database,
-        colors: &Colors,
-        markup: &mut Markup,
-        kitty: &mut KittyGraphics,
-        shortcuts: &mut Shortcuts,
-    ) {
-        let (mut area, buf) = render.area_and_buffer();
+    pub fn exit(&self) {}
 
-        if self.show_tags {
-            let tags_width = (0.30 * area.width as f32).round() as u16;
-            self.tags.render(
-                Rect {
-                    width: tags_width,
-                    ..area
-                },
-                buf,
-                colors,
-            );
-
-            area.width = area.width.saturating_sub(tags_width);
-            area.x += tags_width + 2;
-
-            if !self.tags.is_empty() {
-                shortcuts.extend([
-                    Shortcut::new("Toggle", symbols::SPACE),
-                    Shortcut::new("Reset", "r"),
-                ]);
-            }
-        }
-
-        match self.current_card() {
-            Some(id) => {
-                utils::format_int2(self.index + 1, self.cards.len(), |index, cards_len| {
-                    widgets::print_asciis(
-                        area,
-                        buf,
-                        [index, " / ", cards_len],
-                        colors.neutral,
-                        Some(widgets::Alignment::CenterHorizontal),
-                    );
-                });
-
-                area.shrink_down(2);
-
-                db.get_card_content(id, |content| {
-                    markup.render(area, buf, content, kitty);
-                });
-            }
-            None => {
-                widgets::print_ascii(
-                    area,
-                    buf,
-                    "No cards",
-                    colors.neutral,
-                    Some(widgets::Alignment::Center),
-                );
-            }
-        }
-
-        shortcuts.extend([
-            Shortcut::new("Edit", "e"),
-            Shortcut::new("Delete", symbols::DELETE),
-            Shortcut::new("Tags", "t"),
-        ]);
+    pub fn refresh(&mut self, db: &mut Database) {
+        self.tags.refresh(db);
+        self.update_cards(db, false);
     }
 
-    pub fn on_input(&mut self, input: AppInput, markup: &mut Markup, db: &mut Database) -> Action {
-        let (key, modifiers) = input.key_pressed_and_modifiers();
-
-        match key {
+    pub fn input(&mut self, key: Key, db: &mut Database, markup: &mut Markup) -> Action {
+        match key.code {
             KeyCode::Right => {
                 return self.next_card(markup);
             }
@@ -139,20 +74,36 @@ impl CardsPage {
                 return self.previous_card(markup);
             }
             KeyCode::Delete => {
-                return self.delete_card(db, markup);
-            }
-            KeyCode::Char('e') => {
-                if let Some(id) = self.current_card() {
-                    return Action::Route(Route::Editor(Some(id)));
+                if self.show_tags {
+                    if let Some(id) = self.tags.current() {
+                        return Action::Modal(Some(Modal::DeleteTag(id)));
+                    }
+                } else {
+                    if let Some(id) = self.current_card() {
+                        return Action::Modal(Some(Modal::DeleteCard(id)));
+                    }
                 }
             }
+            KeyCode::Char('e') => {
+                if self.show_tags {
+                    if let Some(id) = self.tags.current() {
+                        return Action::Modal(Some(Modal::EditTag(id)));
+                    }
+                } else {
+                    if let Some(id) = self.current_card() {
+                        return Action::Route(Route::Editor(Some(id)));
+                    }
+                }
+            }
+            KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::AddTag)),
             KeyCode::Char('t') => {
-                return self.toggle_show_tags();
+                self.show_tags = !self.show_tags;
+                return Action::Render;
             }
             KeyCode::Char(' ') => {
                 if self.show_tags {
                     if self.tags.toggle_selection() {
-                        self.update_cards(db);
+                        self.update_cards(db, true);
                         return Action::Render;
                     }
                 }
@@ -160,18 +111,18 @@ impl CardsPage {
             KeyCode::Char('r') => {
                 if self.show_tags && !self.tags.is_empty() {
                     if self.tags.reset() {
-                        self.update_cards(db);
+                        self.update_cards(db, true);
                         return Action::Render;
                     }
                 }
             }
             _ => {
                 if self.show_tags {
-                    if self.tags.list.input(key, modifiers) {
+                    if self.tags.list.input(key) {
                         return Action::Render;
                     }
                 } else {
-                    if markup.input(key) {
+                    if markup.input(key.code) {
                         return Action::Render;
                     }
                 }
@@ -181,7 +132,69 @@ impl CardsPage {
         Action::None
     }
 
-    pub fn on_exit(&self) {}
+    pub fn render(
+        &mut self,
+        mut area: Rect,
+        frame: &mut Frame,
+        db: &Database,
+        colors: &Colors,
+        markup: &mut Markup,
+    ) {
+        if self.show_tags {
+            let (left, right) = area.split_left(area.cols() / 3, 2);
+            self.tags.render(left, frame, colors);
+            area = right;
+        }
+
+        match self.current_card() {
+            Some(id) => {
+                frame.push_fmt_fg(
+                    format_args!("{} / {}", self.index + 1, self.cards.len()),
+                    colors.neutral,
+                );
+                frame.render(area, TextOptions::span_center_top());
+
+                area.shrink_down(2);
+
+                db.get_card_content(id, |content| {
+                    markup
+                        .set_colors(colors.markup())
+                        .render(area, frame, content);
+                });
+            }
+            None => {
+                frame.push_str_fg("No cards", colors.neutral);
+                frame.render(area, TextOptions::span_center());
+            }
+        }
+    }
+
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Frame, colors: &Colors) {
+        let gap = 1;
+        let has_tags = self.show_tags && !self.tags.is_empty();
+
+        for (key, name, gap, _show) in [
+            ("n", "New", gap, self.show_tags),
+            ("e", "Edit", gap, true),
+            ("Space", "Toggle", gap, has_tags),
+            ("r", "Reset", gap, has_tags),
+            ("t", "Tags", gap, true),
+            ("Del", "Delete", 0, true),
+        ]
+        .into_iter()
+        .filter(|s| s.3)
+        {
+            frame.push_fmt(Sgr::Fg(colors.secondary));
+            frame.push_str(key);
+            frame.push_fmt(Sgr::Fg(colors.normal));
+            frame.push_ch(' ');
+            frame.push_str(name);
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(area, TextOptions::span_center_top());
+    }
 
     fn current_card(&self) -> Option<CardId> {
         self.cards.get(self.index).copied()
@@ -190,7 +203,7 @@ impl CardsPage {
     fn next_card(&mut self, markup: &mut Markup) -> Action {
         if self.cards.len() > 1 {
             self.index = (self.index + 1) % self.cards.len();
-            markup.scroll(ScrollMove::Start);
+            markup.scroll(MarkupScroll::Start);
             return Action::Render;
         }
         Action::None
@@ -203,7 +216,7 @@ impl CardsPage {
             } else {
                 self.index -= 1;
             }
-            markup.scroll(ScrollMove::Start);
+            markup.scroll(MarkupScroll::Start);
             return Action::Render;
         }
         Action::None
@@ -222,39 +235,24 @@ impl CardsPage {
         }
     }
 
-    fn delete_card(&mut self, db: &Database, markup: &mut Markup) -> Action {
-        if self.index < self.cards.len() {
-            let id = self.cards.remove(self.index);
-            db.delete_card(id);
-
-            if !self.cards.is_empty() {
-                self.index = self.index.min(self.cards.len() - 1);
-                markup.scroll(ScrollMove::Start);
-            }
-
-            return Action::Render;
-        }
-        Action::None
-    }
-
-    fn update_cards(&mut self, db: &mut Database) {
+    fn update_cards(&mut self, db: &mut Database, reset_index: bool) {
         self.cards.clear();
-        self.index = 0;
 
         db.get_cards_with_tags(self.tags.includes(), self.tags.excludes(), |id| {
             self.cards.push(id);
         });
-    }
 
-    fn toggle_show_tags(&mut self) -> Action {
-        self.show_tags = !self.show_tags;
-        return Action::Render;
+        if reset_index {
+            self.index = 0;
+        } else if self.index >= self.cards.len() {
+            self.index = self.cards.len().saturating_sub(1);
+        }
     }
 }
 
 struct TagsSidebar {
     tags: Vec<TagItem>,
-    names: Formatter,
+    names: String,
     includes: HashSet<TagId>,
     excludes: HashSet<TagId>,
     list: List,
@@ -264,11 +262,15 @@ impl TagsSidebar {
     fn new() -> Self {
         Self {
             tags: Vec::new(),
-            names: Formatter::new(),
+            names: String::new(),
             includes: HashSet::new(),
             excludes: HashSet::new(),
             list: List::new(),
         }
+    }
+
+    fn current(&self) -> Option<TagId> {
+        self.tags.get(self.list.index()).map(|tag| tag.id)
     }
 
     fn refresh(&mut self, db: &Database) {
@@ -353,65 +355,70 @@ impl TagsSidebar {
         self.list.reset();
     }
 
-    fn render(&mut self, mut area: Rect, buf: &mut Buffer, colors: &Colors) {
-        widgets::print_ascii(
-            area,
-            buf,
-            "Tags",
-            Color::Reset,
-            Some(widgets::Alignment::CenterHorizontal),
-        );
+    fn render(&mut self, mut area: Rect, frame: &mut Frame, colors: &Colors) {
+        frame.print_fmt(Sgr::Fg(colors.normal));
+        frame.print_span(area, "Tags", SpanOptions::center_top());
 
         if self.tags.is_empty() {
-            widgets::print_ascii(
-                area,
-                buf,
-                "No tags",
-                colors.neutral,
-                Some(widgets::Alignment::CenterHorizontal),
-            );
+            frame.push_str_fg("No tags", colors.neutral);
+            frame.render(area, TextOptions::span_center());
             return;
         }
 
         area.shrink_down(2);
 
         // Render tags
-        self.list.set_colors(colors.list()).render(
-            area,
-            buf,
-            self.tags.iter(),
-            |line, buf, tag, item| {
-                let id = tag.id;
-                let name = self.names.slice(tag.name.clone());
-                let symbol = match item {
-                    ListItem::Selected => symbols::concat!(symbols::SELECTED, " "),
-                    ListItem::Selection => symbols::concat!(symbols::SELECTION, " "),
-                    ListItem::Normal => "",
-                };
-                let color = if self.includes.contains(&id) {
-                    Color::Green
-                } else if self.excludes.contains(&id) {
-                    Color::Red
-                } else {
-                    Color::Reset
-                };
+        let Some((area, lines)) = self
+            .list
+            .set_len(self.tags.len())
+            .set_colors(colors.list())
+            .render(area, frame)
+        else {
+            return;
+        };
 
-                widgets::print_texts(line, buf, [symbol, name], color, false, None);
-            },
-        );
+        let mut line = area.with_rows(1);
+        let selected = self.list.index();
+        let selection = self.list.selection_inclusive();
+
+        for (index, tag) in lines.zip(self.tags.iter().skip(self.list.scroll())) {
+            let id = tag.id;
+
+            let color = if self.includes.contains(&id) {
+                colors.green
+            } else if self.excludes.contains(&id) {
+                colors.red
+            } else {
+                colors.normal
+            };
+
+            frame.push_fmt(Sgr::Fg(color));
+
+            if index == selected {
+                frame.push_str("> ");
+            } else if selection.contains(&index) {
+                frame.push_str("| ");
+            }
+
+            frame.push_str(self.names.slice(tag.name));
+            frame.push_fmt(Sgr::reset_fg());
+            frame.render(line, TextOptions::span());
+
+            line.add_row(1);
+        }
     }
 }
 
 struct TagItem {
     id: TagId,
-    name: std::ops::Range<usize>,
+    name: std::range::Range<usize>,
 }
 
 impl TagItem {
-    fn new(id: TagId, name: &str, cards_count: u32, formatter: &mut Formatter) -> Self {
+    fn new(id: TagId, name: &str, cards_count: u32, writer: &mut String) -> Self {
         Self {
             id,
-            name: formatter.push_fmt(format_args!("{name} ({cards_count})")),
+            name: writer.push_fmt_get_range(format_args!("{name} ({cards_count})")),
         }
     }
 }

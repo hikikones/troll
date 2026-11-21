@@ -5,40 +5,31 @@ edition.workspace = true
 rust-version.workspace = true
 description = "A music player for the terminal where your files and their metadata are all you need."
 homepage = "https://github.com/hikikones/troll/trollstov"
-repository = "https://github.com/hikikones/troll/trollstov"
+repository = "https://github.com/hikikones/troll"
 license.workspace = true
 keywords = ["audio", "music", "player", "terminal", "tui"]
 categories = ["command-line-utilities", "multimedia::audio"]
 
 [dependencies]
+bevy_derive = { workspace = true }
+bevy_ecs = { workspace = true }
+bevy_state = { workspace = true }
 clap = { workspace = true }
 clap-cargo = { workspace = true }
 directories = { workspace = true }
+ecs = { workspace = true }
 fastrand = { workspace = true }
-ignore = { workspace = true }
-image = { workspace = true }
-indexmap = { workspace = true }
 lofty = { workspace = true }
-nucleo-matcher = { workspace = true }
-ratatui = { workspace = true }
-ratatui-image = { workspace = true }
 rodio = { workspace = true }
-seahash = { workspace = true }
 serde = { workspace = true }
 serde_repr = { workspace = true }
-shared = { workspace = true }
-souvlaki = { workspace = true }
-terminal-colorsaurus = { workspace = true }
+shared = { workspace = true, features = ["bevy"] }
+terminal = { workspace = true, features = ["bevy"] }
 toml = { workspace = true }
-unicode-segmentation = { workspace = true }
-unicode-width = { workspace = true }
 utils = { workspace = true }
 walkdir = { workspace = true }
 widgets = { workspace = true }
-
-[target.'cfg(target_os = "windows")'.dependencies.windows]
-version = "0.44"
-features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"]
+zbus = { workspace = true }
 
 [features]
 default = []

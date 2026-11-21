@@ -127,6 +127,7 @@ impl<'a> DoubleEndedIterator for GraphemeIndices<'a> {
     }
 }
 
+// TODO: Move to terminal module.
 #[derive(Debug)]
 pub struct GraphemeAnsiIter<'a> {
     text: &'a str,
@@ -166,3 +167,93 @@ impl<'a> Iterator for GraphemeAnsiIter<'a> {
         }
     }
 }
+
+pub struct WordsIter<'a> {
+    text: &'a str,
+    graphemes: GraphemeIndices<'a>,
+    event: Option<(usize, &'a str, WordsEvent)>,
+    word: Option<usize>,
+}
+
+#[derive(Debug)]
+pub enum WordsEvent {
+    Newline,
+    Whitespace,
+    Word,
+}
+
+impl<'a> WordsIter<'a> {
+    pub fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            graphemes: GraphemeIndices::new(text),
+            event: None,
+            word: None,
+        }
+    }
+}
+
+impl<'a> Iterator for WordsIter<'a> {
+    type Item = (usize, &'a str, WordsEvent);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(event) = self.event.take() {
+            return Some(event);
+        }
+
+        while let Some((i, g)) = self.graphemes.next() {
+            if g.is_whitespace() {
+                let next_event = if g.is_newline() {
+                    WordsEvent::Newline
+                } else {
+                    WordsEvent::Whitespace
+                };
+
+                if let Some(ws) = self.word.take() {
+                    self.event = Some((i, g.0, next_event));
+                    return Some((ws, &self.text[ws..i], WordsEvent::Word));
+                } else {
+                    return Some((i, g.0, next_event));
+                }
+            } else {
+                if self.word.is_none() {
+                    self.word = Some(i);
+                }
+            }
+        }
+
+        self.word
+            .take()
+            .map(|i| (i, &self.text[i..], WordsEvent::Word))
+    }
+}
+
+#[macro_export]
+macro_rules! repeat {
+    ($s:expr, 0) => {{
+        const _: &str = $s;
+        ""
+    }};
+    ($s:expr, 1) => {{
+        const _: &str = $s;
+        $s
+    }};
+    ($s:expr, 2) => {{
+        const _: &str = $s;
+        utils::concat!($s, $s)
+    }};
+    ($s:expr, 3) => {{
+        const _: &str = $s;
+        utils::concat!($s, $s, $s)
+    }};
+    ($s:expr, 4) => {{
+        const _: &str = $s;
+        utils::concat!($s, $s, $s, $s)
+    }};
+    ($s:expr, 5) => {{
+        const _: &str = $s;
+        utils::concat!($s, $s, $s, $s, $s)
+    }};
+}
+
+pub use constcat::concat;

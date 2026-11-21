@@ -1,40 +1,72 @@
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::{KeyCode, KeyModifiers},
-    layout::{Rect, Size},
-    widgets::Padding,
+use std::{
+    cmp::Ordering,
+    ops::{Range, RangeInclusive},
 };
 
-use crate::{
-    RectExt, ScrollData, ScrollMargins, ScrollableData, Scrollbar, ScrollbarColors, ScrollbarData,
-};
+use terminal::*;
 
+use crate::{Scroll, ScrollData, ScrollMargins, Scrollbar, ScrollbarColors, ScrollbarData};
+
+#[derive(Debug)]
 pub struct List {
     index: usize,
     selector: Option<usize>,
     scroll: usize,
     options: ListOptions,
     colors: ListColors,
-    last_height: u16,
     list_height: u16,
+    last_height: u16,
     len: usize,
 }
 
-pub enum ListMove {
-    Up(usize),
-    Down(usize),
-    PageUp,
-    PageDown,
-    Start,
-    End,
-    Custom(usize),
+impl Default for List {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ListItem {
-    Selected,
-    Selection,
-    Normal,
+#[derive(Debug, Clone, Copy)]
+pub struct ListOptions {
+    pub scrolloff: ScrollMargins,
+    pub padding: Margin,
+    pub scrollbar: bool,
+    pub scrollbar_margin: u16,
+}
+
+impl ListOptions {
+    pub const fn new() -> Self {
+        Self {
+            scrolloff: ScrollMargins::ZERO,
+            padding: Margin::ZERO,
+            scrollbar: false,
+            scrollbar_margin: 0,
+        }
+    }
+}
+
+impl Default for ListOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ListColors {
+    pub scrollbar: ScrollbarColors,
+}
+
+impl ListColors {
+    pub const fn new() -> Self {
+        Self {
+            scrollbar: ScrollbarColors::DEFAULT,
+        }
+    }
+}
+
+impl Default for ListColors {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl List {
@@ -45,8 +77,8 @@ impl List {
             scroll: 0,
             options: ListOptions::new(),
             colors: ListColors::new(),
-            last_height: 0,
             list_height: 0,
+            last_height: 0,
             len: 0,
         }
     }
@@ -56,24 +88,24 @@ impl List {
         self
     }
 
-    pub const fn with_scrolloff(mut self, margins: ScrollMargins) -> Self {
-        self.set_scrolloff(margins);
+    pub const fn with_scroll(mut self, scroll: usize) -> Self {
+        self.scroll = scroll;
         self
     }
 
-    pub const fn with_padding(mut self, padding: Padding) -> Self {
-        self.set_padding(padding);
+    pub const fn with_scrolloff(mut self, margins: ScrollMargins) -> Self {
+        self.options.scrolloff = margins;
+        self
+    }
+
+    pub const fn with_padding(mut self, padding: Margin) -> Self {
+        self.options.padding = padding;
         self
     }
 
     pub const fn with_scrollbar(mut self, margin: u16) -> Self {
         self.options.scrollbar = true;
         self.options.scrollbar_margin = margin;
-        self
-    }
-
-    pub const fn with_colors(mut self, colors: ListColors) -> Self {
-        self.set_colors(colors);
         self
     }
 
@@ -85,29 +117,14 @@ impl List {
         self.selector
     }
 
+    // TODO: Maybe rename to offset? List movement then becomes scrolling.
     pub const fn scroll(&self) -> usize {
         self.scroll
     }
 
-    pub fn selection(&self) -> Option<std::ops::Range<usize>> {
-        self.selector
-            .and_then(|selector| match self.index.cmp(&selector) {
-                std::cmp::Ordering::Less => Some((self.index + 1)..(selector + 1)),
-                std::cmp::Ordering::Greater => Some(selector..self.index),
-                std::cmp::Ordering::Equal => None,
-            })
-    }
-
-    pub fn selection_inclusive(&self) -> std::ops::RangeInclusive<usize> {
-        self.selector
-            .map(|selector| {
-                if self.index < selector {
-                    self.index..=selector
-                } else {
-                    selector..=self.index
-                }
-            })
-            .unwrap_or(self.index..=self.index)
+    pub const fn set_len(&mut self, len: usize) -> &mut Self {
+        self.len = len;
+        self
     }
 
     pub const fn set_index(&mut self, i: usize) -> &mut Self {
@@ -125,7 +142,7 @@ impl List {
         self
     }
 
-    pub const fn set_padding(&mut self, padding: Padding) -> &mut Self {
+    pub const fn set_padding(&mut self, padding: Margin) -> &mut Self {
         self.options.padding = padding;
         self
     }
@@ -140,22 +157,39 @@ impl List {
         self
     }
 
-    pub fn move_index(&mut self, lm: ListMove, shift: bool) -> bool {
-        match lm {
-            ListMove::Up(n) => self.set_index_and_selector(self.index.saturating_sub(n), shift),
-            ListMove::Down(n) => self.set_index_and_selector(self.index + n, shift),
-            ListMove::PageUp => {
-                let n = self.list_height as usize;
-                self.set_index_and_selector(self.index.saturating_sub(n), shift)
+    pub fn input(&mut self, key: Key) -> bool {
+        match key.code {
+            KeyCode::Down => self.move_down(1, key.shift()),
+            KeyCode::Up => self.move_up(1, key.shift()),
+            KeyCode::PageDown => self.move_down(self.list_height as usize, key.shift()),
+            KeyCode::PageUp => self.move_up(self.list_height as usize, key.shift()),
+            KeyCode::End => self.move_to_end(key.shift()),
+            KeyCode::Home => self.move_to_start(key.shift()),
+            KeyCode::Char('a') => {
+                if key.ctrl() {
+                    self.select_all()
+                } else {
+                    false
+                }
             }
-            ListMove::PageDown => {
-                let n = self.list_height as usize;
-                self.set_index_and_selector(self.index + n, shift)
-            }
-            ListMove::Start => self.set_index_and_selector(0, shift),
-            ListMove::End => self.set_index_and_selector(usize::MAX, shift),
-            ListMove::Custom(i) => self.set_index_and_selector(i, shift),
+            _ => false,
         }
+    }
+
+    pub fn move_down(&mut self, n: usize, shift: bool) -> bool {
+        self.set_index_and_selector(self.index + n, shift)
+    }
+
+    pub fn move_up(&mut self, n: usize, shift: bool) -> bool {
+        self.set_index_and_selector(self.index.saturating_sub(n), shift)
+    }
+
+    pub fn move_to_end(&mut self, shift: bool) -> bool {
+        self.set_index_and_selector(usize::MAX, shift)
+    }
+
+    pub fn move_to_start(&mut self, shift: bool) -> bool {
+        self.set_index_and_selector(0, shift)
     }
 
     pub fn move_selection_up(&mut self) -> bool {
@@ -206,99 +240,50 @@ impl List {
         old_index != self.index || old_selector != self.selector
     }
 
-    pub fn input(&mut self, key_pressed: KeyCode, key_modifiers: KeyModifiers) -> bool {
-        let ctrl = key_modifiers.contains(KeyModifiers::CONTROL);
-        let shift = key_modifiers.contains(KeyModifiers::SHIFT);
+    pub fn selection(&self) -> Option<Range<usize>> {
+        self.selector
+            .and_then(|selector| match self.index.cmp(&selector) {
+                Ordering::Less => Some((self.index + 1)..(selector + 1)),
+                Ordering::Greater => Some(selector..self.index),
+                Ordering::Equal => None,
+            })
+    }
 
-        match key_pressed {
-            KeyCode::Down => self.move_index(ListMove::Down(1), shift),
-            KeyCode::Up => self.move_index(ListMove::Up(1), shift),
-            KeyCode::PageDown => self.move_index(ListMove::PageDown, shift),
-            KeyCode::PageUp => self.move_index(ListMove::PageUp, shift),
-            KeyCode::End => self.move_index(ListMove::End, shift),
-            KeyCode::Home => self.move_index(ListMove::Start, shift),
-            KeyCode::Char('a') => {
-                if ctrl {
-                    self.select_all()
+    pub fn selection_inclusive(&self) -> RangeInclusive<usize> {
+        self.selector
+            .map(|selector| {
+                if self.index < selector {
+                    self.index..=selector
                 } else {
-                    false
+                    selector..=self.index
                 }
-            }
-            _ => false,
+            })
+            .unwrap_or(self.index..=self.index)
+    }
+
+    pub fn render(&mut self, area: Rect, frame: &mut Frame) -> Option<(Rect, Range<usize>)> {
+        let mut inner = area.inner(self.options.padding);
+
+        self.list_height = inner.size.rows;
+
+        if inner.is_empty() {
+            return None;
         }
+
+        self.clamp_index_and_selector();
+        self.update_scroll(area.rows());
+        self.render_scrollbar(area, &mut inner, frame);
+
+        let start = self.scroll;
+        let end = (start + self.list_height as usize).min(self.len);
+
+        Some((inner, start..end))
     }
 
     pub const fn reset(&mut self) {
         self.index = 0;
         self.scroll = 0;
         self.selector = None;
-    }
-
-    pub fn render<T>(
-        &mut self,
-        mut area: Rect,
-        buf: &mut Buffer,
-        items: impl IntoIterator<Item = T, IntoIter: ExactSizeIterator>,
-        mut render_line: impl FnMut(Rect, &mut Buffer, T, ListItem),
-    ) {
-        let mut inner = area.inner_padding(self.options.padding);
-
-        if inner.is_empty() {
-            return;
-        }
-
-        let items = items.into_iter();
-        self.len = items.len();
-
-        let scroll_area = if self.is_scrollable(inner.as_size()) {
-            let scroll_area =
-                Scrollbar::make_scroll_area_with_margin(&mut area, self.options.scrollbar_margin);
-            inner.width = inner
-                .width
-                .saturating_sub(scroll_area.width + self.options.scrollbar_margin);
-            Some(scroll_area)
-        } else {
-            None
-        };
-
-        // Update state
-        self.list_height = inner.height;
-        self.clamp_index_and_selector();
-        self.update_scroll(area.height);
-        self.last_height = area.height;
-
-        // Render list
-        let selection = self.selection_inclusive();
-        let mut line = Rect { height: 1, ..inner };
-
-        items
-            .enumerate()
-            .skip(self.scroll)
-            .take(inner.height as usize)
-            .for_each(|(i, item)| {
-                let list_item = if i == self.index {
-                    ListItem::Selected
-                } else if selection.contains(&i) {
-                    ListItem::Selection
-                } else {
-                    ListItem::Normal
-                };
-
-                render_line(line, buf, item, list_item);
-
-                line.y += 1;
-            });
-
-        // Render scrollbar
-        if let Some(scroll_area) = scroll_area {
-            Scrollbar::new(ScrollbarData {
-                viewport_height: inner.height,
-                current_scroll: self.scroll,
-                total_items: self.len,
-            })
-            .with_colors(self.colors.scrollbar)
-            .render(scroll_area, buf);
-        }
     }
 
     fn set_index_and_selector(&mut self, i: usize, shift: bool) -> bool {
@@ -319,10 +304,6 @@ impl List {
         old_index != self.index || old_selector != self.selector
     }
 
-    const fn is_scrollable(&self, list_size: Size) -> bool {
-        self.options.scrollbar && Scrollbar::is_scrollable(ScrollableData::new(self.len, list_size))
-    }
-
     fn clamp_index_and_selector(&mut self) {
         let max_idx = self.len.saturating_sub(1);
         self.index = self.index.min(max_idx);
@@ -336,58 +317,32 @@ impl List {
         } else {
             self.scroll
         };
-        self.scroll = Scrollbar::calculate_scroll_with_margins(
-            ScrollData {
-                current_index: self.index,
-                current_scroll: scroll,
-                total_lines: self.len,
-                viewport_height: self.list_height,
-            },
-            self.options.scrolloff,
-        );
+        self.scroll = Scroll::calc(ScrollData {
+            current_index: self.index,
+            current_scroll: scroll,
+            total_lines: self.len,
+            viewport_height: self.list_height,
+            margins: self.options.scrolloff,
+        });
+        self.last_height = area_height;
     }
-}
 
-#[derive(Debug, Clone, Copy)]
-pub struct ListOptions {
-    pub scrolloff: ScrollMargins,
-    pub padding: Padding,
-    pub scrollbar: bool,
-    pub scrollbar_margin: u16,
-}
+    fn render_scrollbar(&self, area: Rect, inner: &mut Rect, frame: &mut Frame) {
+        let is_scrollable = self.options.scrollbar && Scroll::is_scrollable(self.len, inner.size);
 
-impl ListOptions {
-    pub const fn new() -> Self {
-        Self {
-            scrolloff: ScrollMargins::ZERO,
-            padding: Padding::ZERO,
-            scrollbar: false,
-            scrollbar_margin: 1,
+        if !is_scrollable {
+            return;
         }
-    }
-}
 
-impl Default for ListOptions {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+        let scroll_area = area.right_edge();
+        inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
 
-#[derive(Debug, Clone, Copy)]
-pub struct ListColors {
-    pub scrollbar: ScrollbarColors,
-}
-
-impl ListColors {
-    pub const fn new() -> Self {
-        Self {
-            scrollbar: ScrollbarColors::DEFAULT,
-        }
-    }
-}
-
-impl Default for ListColors {
-    fn default() -> Self {
-        Self::new()
+        Scrollbar::new(ScrollbarData {
+            current_scroll: self.scroll,
+            total_items: self.len,
+            viewport_height: self.list_height,
+        })
+        .with_colors(self.colors.scrollbar)
+        .render(scroll_area, frame);
     }
 }

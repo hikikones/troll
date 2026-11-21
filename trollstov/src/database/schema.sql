@@ -1,14 +1,18 @@
 CREATE TABLE tracks (
     id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL,
+
+    -- Metadata
     title TEXT NOT NULL,
     number INTEGER NOT NULL,
     rating INTEGER NOT NULL,
+    album_id INTEGER NOT NULL,
+
+    -- Properties
     duration INTEGER NOT NULL,
     bit_rate_kbps INTEGER NOT NULL,
     bit_depth INTEGER,
-    sample_rate INTEGER,
-    path TEXT NOT NULL,
-    album_id INTEGER NOT NULL
+    sample_rate INTEGER
 );
 
 CREATE TABLE artists (
@@ -50,6 +54,6 @@ CREATE VIRTUAL TABLE track_fts USING fts5(
 --     DELETE FROM track_fts WHERE rowid = old.id;
 -- END;
 
--- Indexes
-CREATE INDEX idx_tracks_album_id ON tracks(album_id);
-CREATE INDEX idx_artist_tracks_track_id ON artist_tracks(track_id);
+-- More indexes
+CREATE INDEX idx_tracks_aid ON tracks(album_id);
+CREATE INDEX idx_artist_tracks_tid ON artist_tracks(track_id);

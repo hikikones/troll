@@ -1,20 +1,19 @@
-use std::path::Path;
+use std::{fmt::NumBuffer, path::Path};
 
-use shared::sqlite::*;
+use shared::{env::AppDirRef, sqlite::*};
 
 mod scheduler;
 
-pub use scheduler::*;
+use scheduler::*;
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
-// TODO: When searching, also include tag names?
 // TODO: Add tests.
 
 pub struct Database {
     sqlite: Sqlite,
     scheduler: Scheduler,
-    s: String,
+    sql: String,
 }
 
 impl Database {
@@ -22,17 +21,32 @@ impl Database {
         Self {
             sqlite,
             scheduler: Scheduler::new(),
-            s: String::new(),
+            sql: String::new(),
         }
     }
 
-    pub fn open(path: impl AsRef<Path>) -> DatabaseResult<Self> {
+    pub fn open(path: Option<&Path>, app_dir: AppDirRef) -> DatabaseResult<Self> {
+        #[cfg(debug_assertions)]
+        if path.is_none() {
+            return Self::open_in_memory();
+        }
+
+        match path {
+            Some(path) => Self::open_in_path(path),
+            None => match app_dir {
+                Ok(dir) => Self::open_in_path(&dir.join("database.db")),
+                Err(err) => return Err(DatabaseError::NoPath(err)),
+            },
+        }
+    }
+
+    fn open_in_path(path: &Path) -> DatabaseResult<Self> {
         let db = Self::new(Sqlite::open(path)?);
         db.migrate()?;
         Ok(db)
     }
 
-    pub fn open_in_memory() -> DatabaseResult<Self> {
+    fn open_in_memory() -> DatabaseResult<Self> {
         let db = Self::new(Sqlite::open_in_memory()?);
         db.migrate()?;
         Ok(db)
@@ -57,7 +71,7 @@ impl Database {
                 (content, CardKind::from_markup(content)),
             )
             .unwrap();
-        CardId(self.sqlite.last_insert_rowid())
+        CardId(self.sqlite.last_insert_rowid() as u32)
     }
 
     pub fn get_cards(&self, mut f: impl FnMut(CardId)) {
@@ -76,24 +90,29 @@ impl Database {
         excludes: impl ExactSizeIterator<Item = TagId>,
         mut f: impl FnMut(CardId),
     ) {
-        self.s.clear();
-        let mut itoa = itoa::Buffer::new();
+        self.sql.clear();
 
         // All cards
-        self.s.push_str("SELECT c.id FROM cards c");
+        self.sql.push_str("SELECT c.id FROM cards c");
 
         // Filter by include tags
         let next_token = if includes.len() > 0 {
             let len = includes.len();
-            self.s
+
+            self.sql
                 .push_str(" JOIN card_tags ct ON ct.card_id = c.id WHERE ct.tag_id IN (");
+
+            let buf = &mut NumBuffer::new();
             for tid in includes {
-                self.s.extend([itoa.format(tid.0), ","]);
+                self.sql.extend([tid.0.format_into(buf), ","]);
             }
-            self.s.pop();
-            self.s
+
+            self.sql.pop();
+
+            self.sql
                 .push_str(") GROUP BY c.id HAVING COUNT(DISTINCT ct.tag_id) = ");
-            self.s.push_str(itoa.format(len));
+            self.sql.push_str(len.format_into(&mut NumBuffer::new()));
+
             " AND "
         } else {
             " WHERE "
@@ -101,22 +120,25 @@ impl Database {
 
         // Filter by exclude tags
         if excludes.len() > 0 {
-            self.s.push_str(next_token);
-            self.s.push_str(
+            self.sql.push_str(next_token);
+            self.sql.push_str(
                 "NOT EXISTS (SELECT 1 FROM card_tags ct2 WHERE ct2.card_id = c.id AND ct2.tag_id IN (",
             );
+
+            let buf = &mut NumBuffer::new();
             for tid in excludes {
-                self.s.extend([itoa.format(tid.0), ","]);
+                self.sql.extend([tid.0.format_into(buf), ","]);
             }
-            self.s.pop();
-            self.s.push_str("))");
+
+            self.sql.pop();
+            self.sql.push_str("))");
         }
 
         // Sort by newest
-        self.s.push_str(" ORDER BY c.create_time DESC");
+        self.sql.push_str(" ORDER BY c.create_time DESC");
 
         self.sqlite
-            .for_each(self.s.as_str(), (), |row| Ok(f(row.get(0)?)))
+            .for_each(self.sql.as_str(), (), |row| Ok(f(row.get(0)?)))
             .unwrap();
     }
 
@@ -203,7 +225,7 @@ impl Database {
         const ANSI_NOT_REVERSE: &str = "\x1b[27m";
 
         self.sqlite.single(
-            shared::symbols::concat!(
+            utils::concat!(
                 "SELECT rowid, highlight(cards_fts, 0, '",
                 ANSI_REVERSE,
                 "', '",
@@ -275,7 +297,7 @@ impl Database {
             )
             .unwrap();
 
-        ReviewId(self.sqlite.last_insert_rowid())
+        ReviewId(self.sqlite.last_insert_rowid() as u32)
     }
 
     pub fn delete_card(&self, id: CardId) {
@@ -307,7 +329,7 @@ impl Database {
         self.sqlite
             .execute("INSERT INTO tags (name) VALUES (?)", [name])
             .unwrap();
-        Some(TagId(self.sqlite.last_insert_rowid()))
+        Some(TagId(self.sqlite.last_insert_rowid() as u32))
     }
 
     pub fn get_tags(&self, mut f: impl FnMut(TagId)) {
@@ -455,7 +477,7 @@ impl Database {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CardId(SqliteId);
+pub struct CardId(u32);
 
 impl CardId {
     const ZERO: Self = Self(0);
@@ -463,13 +485,13 @@ impl CardId {
 
 impl ToSql for CardId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
     }
 }
 
 impl FromSql for CardId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(|n| Self(n as u32))
     }
 }
 
@@ -482,10 +504,10 @@ pub enum CardKind {
 
 impl CardKind {
     pub fn from_markup(markup: &str) -> Self {
-        let breaks = widgets::MarkupBlockParser::new(markup)
-            .filter(|(b, _)| matches!(b, widgets::MarkupBlock::Break))
-            .count();
-        if breaks > 0 {
+        let has_break = widgets::MarkupBlockParser::new(markup)
+            .any(|(mb, _)| matches!(mb, widgets::MarkupBlock::Break));
+
+        if has_break {
             Self::Flashcard
         } else {
             Self::Note
@@ -495,7 +517,7 @@ impl CardKind {
 
 impl ToSql for CardKind {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(*self as i64)))
+        Ok(ToSqlOutput::Owned(Value::Integer(*self as SqliteId)))
     }
 }
 
@@ -506,39 +528,39 @@ impl FromSql for CardKind {
             1 => Ok(Self::Note),
             _ => Err(FromSqlError::Other(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("invalid card kind: {n}"),
+                format!("Invalid card kind: {n}."),
             )))),
         })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ReviewId(SqliteId);
+pub struct ReviewId(u32);
 
 impl ToSql for ReviewId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
     }
 }
 
 impl FromSql for ReviewId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(|n| Self(n as u32))
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TagId(SqliteId);
+pub struct TagId(u32);
 
 impl ToSql for TagId {
     fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0 as SqliteId)))
     }
 }
 
 impl FromSql for TagId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(|n| Self(n as u32))
     }
 }
 
@@ -546,18 +568,28 @@ impl FromSql for TagId {
 pub enum DatabaseError {
     Sqlite(SqliteError),
     Version(SqliteId),
+    NoPath(&'static str),
 }
 
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DatabaseError::Sqlite(err) => err.fmt(f),
-            DatabaseError::Version(v) => f.write_fmt(format_args!("unknown version: {v}")),
+            Self::Sqlite(err) => err.fmt(f),
+            Self::Version(v) => f.write_fmt(format_args!("Unknown version: {v}.")),
+            Self::NoPath(s) => f.write_str(s),
         }
     }
 }
 
-impl std::error::Error for DatabaseError {}
+impl std::error::Error for DatabaseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sqlite(err) => err.source(),
+            Self::Version(_) => None,
+            Self::NoPath(_) => None,
+        }
+    }
+}
 
 impl From<SqliteError> for DatabaseError {
     fn from(err: SqliteError) -> Self {
@@ -617,7 +649,7 @@ const MARKUP: &str = r#"
 
 : center paragraph
 
-![ image description text ]( assets/wallpaper.jpg )
+![ image description text ]( wallpaper.jpg )
 
 ```rust
 fn main() {
@@ -628,7 +660,7 @@ fn main() {
 ---
 
 =; Heading 2
-![  ]( assets/meow.png )
+![  ]( meow.png )
 
 ---
 
@@ -672,7 +704,7 @@ $$
 
 ---
 
-![ image description text ]( assets/tall2.jpg )
+![ image description text ]( tall2.jpg )
 
 ---
 
@@ -682,7 +714,7 @@ another one
 
 and another one
 
-![ image description text ]( assets/tall.gif )
+![ image description text ]( tall.gif )
 
 = Final Heading
 "#;

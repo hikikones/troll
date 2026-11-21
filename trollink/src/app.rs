@@ -1,195 +1,179 @@
-use ratatui::{
-    CompletedFrame,
-    buffer::Buffer,
-    crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    layout::{Margin, Rect},
-    style::Color,
-};
-use shared::{symbols, terminal::Terminal};
-use widgets::{KittyGraphics, Markup, RectExt, Shortcut, Shortcuts};
+use std::path::PathBuf;
+
+use shared::{env::AppDir, logs::Logs};
+use terminal::*;
+use widgets::{KittyDeleteAll, Markup};
 
 use crate::{
     database::Database,
-    pages::{Log, PageState, Pages, Route},
+    modals::{Modal, Modals},
+    pages::{Pages, Route},
     settings::Settings,
 };
 
-// TODO: Add modals for tag editing? If so, remove tags page.
-// TODO: Remove settings page? Just edit raw config file like a real terminal warrior.
+pub type AppResult<T> = Result<T, AppError>;
 
 pub struct App {
-    pages: Pages,
     database: Database,
     settings: Settings,
+    frame: Frame,
+    pages: Pages,
+    modals: Modals,
     markup: Markup,
-    kitty: KittyGraphics,
-    shortcuts: Shortcuts,
     is_running: bool,
 }
 
-pub enum Action {
-    None,
-    Render,
-    Forward,
-    Backward,
-    Route(Route),
-    ToggleSearch,
-    ToggleLogs,
-    EnqueueLog(Log),
-    ApplySettings,
-    Quit,
-}
-
-pub struct AppInput(KeyEvent);
-
-impl AppInput {
-    pub const fn key_pressed(&self) -> KeyCode {
-        self.0.code
-    }
-
-    pub const fn key_pressed_and_modifiers(self) -> (KeyCode, KeyModifiers) {
-        (self.0.code, self.0.modifiers)
-    }
-}
-
-pub struct AppRender<'a> {
-    area: Rect,
-    buffer: &'a mut Buffer,
-}
-
-impl<'a> AppRender<'a> {
-    pub const fn area(&self) -> Rect {
-        self.area
-    }
-
-    pub const fn buffer(self) -> &'a mut Buffer {
-        self.buffer
-    }
-
-    pub const fn area_and_buffer(self) -> (Rect, &'a mut Buffer) {
-        (self.area, self.buffer)
-    }
-}
-
 impl App {
-    pub fn new(mut database: Database, settings: Settings) -> Self {
-        let mut markup = Markup::new(
-            settings.assets_dir().to_path_buf(),
-            settings.cell_size(),
-            settings.palette(),
-        );
-        let pages = Pages::new(Route::DEFAULT, &settings, &mut database, &mut markup);
+    pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
+        let database =
+            Database::open(args.database.as_deref(), app_dir.as_deref()).map_err(|error| {
+                AppError::Database {
+                    path: args.database,
+                    error,
+                }
+            })?;
 
-        Self {
-            pages,
+        let mut logs = Logs::new();
+
+        let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
+            .unwrap_or_else(|error| {
+                logs.push_err(AppError::Config {
+                    path: args.settings.clone(),
+                    error,
+                });
+                Settings::new(args.settings)
+            });
+
+        let (bg, theme) =
+            Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+                .map(|rgb| (rgb.slight_offset().as_color(), TermTheme::from_bg(rgb)))
+                .unwrap_or_else(|error| {
+                    logs.push_err(AppError::QueryBg(error));
+                    (Color::Default, TermTheme::default())
+                });
+        let fg = Rgb::query_fg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+            .unwrap_or_else(|error| {
+                logs.push_err(AppError::QueryFg(error));
+                match theme {
+                    TermTheme::Dark => Rgb::WHITE,
+                    TermTheme::Light => Rgb::BLACK,
+                }
+            });
+
+        let colors = settings.colors_mut();
+        colors.background = bg;
+        colors.foreground = fg;
+
+        let pages = Pages::new(Route::Review, &settings);
+        let markup = Markup::new(args.assets)
+            .with_scrollbar(0)
+            .with_padding(Margin::horizontal(1));
+
+        Ok(Self {
             database,
-            markup,
-            kitty: KittyGraphics::new(settings.cell_size()),
-            shortcuts: Shortcuts::new(),
             settings,
+            frame: Frame::new(),
+            pages,
+            modals: Modals::new(logs),
+            markup,
             is_running: true,
-        }
+        })
     }
 
-    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
-        // Apply settings
-        self.apply_settings();
-
-        // Render default page
+    pub fn run(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        self.frame
+            .query_size()
+            .map_err(|err| AppError::QuerySize(err))?;
+        self.pages.enter(&mut self.database, &mut self.markup);
         self.render(terminal)?;
 
-        // Run event loop
         while self.is_running {
-            let event = ratatui::crossterm::event::read()?;
-            let action = self.read_event(event, terminal);
+            let Some(event) = TermEvent::read().map_err(|err| AppError::Event(err))? else {
+                continue;
+            };
+
+            let action = self.handle_event(event, terminal)?;
             self.apply_action(action, terminal)?;
         }
 
         Ok(())
     }
 
-    pub fn quit(self) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
-    }
-
-    const fn apply_settings(&mut self) {
-        self.pages.apply_settings(&self.settings);
-    }
-
-    fn read_event(&mut self, event: Event, terminal: &mut Terminal) -> Action {
-        match event {
-            Event::Key(key) => {
-                if key.kind != KeyEventKind::Press {
-                    return Action::None;
-                }
-
-                match key.code {
-                    KeyCode::Esc => Action::Quit,
-                    KeyCode::Tab => Action::Forward,
-                    KeyCode::BackTab => Action::Backward,
-                    KeyCode::Char('f') => {
-                        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-                        if ctrl {
-                            Action::ToggleSearch
-                        } else {
-                            self.on_input(key, terminal)
-                        }
+    fn handle_event(&mut self, event: TermEvent, terminal: &mut Terminal) -> AppResult<Action> {
+        let action = match event {
+            TermEvent::Key(key) => match key.code {
+                KeyCode::Esc => Action::Quit,
+                KeyCode::Tab => {
+                    if self.modals.is_active() {
+                        Action::Modal(None)
+                    } else {
+                        Action::Route(self.pages.forward())
                     }
-                    KeyCode::Char('l') => {
-                        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-                        if ctrl && !self.pages.is_logs_empty() {
-                            Action::ToggleLogs
-                        } else {
-                            self.on_input(key, terminal)
-                        }
-                    }
-                    _ => self.on_input(key, terminal),
                 }
-            }
-            Event::Resize(_, _) => {
-                self.kitty.increase_generation();
+                KeyCode::BackTab => {
+                    if self.modals.is_active() {
+                        Action::Modal(None)
+                    } else {
+                        Action::Route(self.pages.backward())
+                    }
+                }
+                KeyCode::Char('f') if key.ctrl() => Action::Modal(Some(Modal::Search)),
+                KeyCode::Char('l') if key.ctrl() => {
+                    if self.modals.logs().is_empty() {
+                        Action::None
+                    } else {
+                        Action::Modal(Some(Modal::Logs))
+                    }
+                }
+                _ => match self.modals.current() {
+                    Some(modal) => self.modals.input(modal, key, &mut self.database),
+                    None => self.pages.input(
+                        key,
+                        &mut self.database,
+                        &mut self.markup,
+                        &mut self.settings,
+                        terminal,
+                        self.modals.logs_mut(),
+                    ),
+                },
+            },
+            TermEvent::Resize => {
+                self.frame
+                    .query_size()
+                    .map_err(|err| AppError::QuerySize(err))?;
                 Action::Render
             }
-            _ => Action::None,
-        }
+        };
+
+        Ok(action)
     }
 
-    fn apply_action(
-        &mut self,
-        action: Action,
-        terminal: &mut Terminal,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn apply_action(&mut self, action: Action, terminal: &mut Terminal) -> AppResult<()> {
         match action {
             Action::None => {}
             Action::Render => {
                 self.render(terminal)?;
             }
-            Action::Forward => {
-                self.set_page(self.pages.forward());
-                self.render(terminal)?;
-            }
-            Action::Backward => {
-                self.set_page(self.pages.backward());
-                self.render(terminal)?;
-            }
             Action::Route(route) => {
-                self.set_page(PageState::Route(route));
+                if self.modals.is_active() {
+                    self.modals.set(None, &self.database);
+                }
+
+                self.pages.set(route, &mut self.database, &mut self.markup);
                 self.render(terminal)?;
             }
-            Action::ToggleSearch => {
-                self.set_page(PageState::Search);
+            Action::Modal(modal) => {
+                self.modals.set(modal, &self.database);
                 self.render(terminal)?;
             }
-            Action::ToggleLogs => {
-                self.set_page(PageState::Logs);
+            Action::Refresh => {
+                self.modals.set(None, &self.database);
+                self.pages.refresh(&mut self.database, &mut self.markup);
                 self.render(terminal)?;
             }
-            Action::EnqueueLog(log) => {
-                self.pages.enqueue_log(log);
-                self.render(terminal)?;
-            }
-            Action::ApplySettings => {
-                self.apply_settings();
+            Action::Clear => {
+                self.frame.increment_generation();
+                self.frame.reset_cursor_visibility();
                 self.render(terminal)?;
             }
             Action::Quit => {
@@ -200,118 +184,158 @@ impl App {
         Ok(())
     }
 
-    fn set_page(&mut self, state: PageState) {
-        self.markup.clear();
+    fn render(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+        self.frame.set_cursor_visibility(false);
+        self.frame.print_fmt(KittyDeleteAll);
+
+        let (top, body, bottom) = self.frame.area().split_ends(1, 2);
+
+        // Swap colors for modal
+        let colors = self
+            .modals
+            .is_active()
+            .then(|| self.settings.replace_colors_with_dimmed());
+
+        // Navigation
         self.pages
-            .set_state(state, &mut self.database, &mut self.markup);
-    }
+            .render_navigation(top, &mut self.frame, self.settings.colors());
 
-    fn render<'a>(&'a mut self, terminal: &'a mut Terminal) -> std::io::Result<CompletedFrame<'a>> {
-        terminal.draw(|frame| {
-            let mut area = frame.area();
-            let buf = frame.buffer_mut();
-
-            let colors = &self.settings.colors().clone();
-
-            // Navigation
-            if area.height > 0 {
-                self.pages.render_navigation(area, buf, colors);
-                area.shrink_down(1);
-            }
-
-            // Clear any rendered image from markup
-            self.markup.delete_images(&self.kitty)?;
-
-            // Page content
-            if area.height > 0 {
-                const MAX_WIDTH: u16 = 64;
-                const MARGIN: u16 = 1;
-                const SHORTCUTS_HEIGHT: u16 = 2;
-
-                let height_removal = if area.height > SHORTCUTS_HEIGHT * 4 {
-                    SHORTCUTS_HEIGHT
-                } else {
-                    0
-                };
-
-                let body = widgets::align(
-                    Rect {
-                        width: area.width.min(MAX_WIDTH + MARGIN * 2),
-                        height: area.height.saturating_sub(height_removal),
-                        ..area
-                    }
-                    .inner(Margin::new(MARGIN, MARGIN)),
-                    area,
-                    widgets::Alignment::CenterHorizontal,
-                );
-                self.on_render(body, buf);
-
-                let body_height = body.height + MARGIN * 2;
-                area.shrink_down(body_height);
-            }
-
-            // Page shortcuts
-            if area.y > 0 {
-                self.shortcuts
-                    .set_colors(Color::Reset, colors.secondary)
-                    .render(area, buf);
-                self.shortcuts.clear();
-                area.shrink_down(1);
-            }
-
-            // App shortcuts
-            if area.y > 0 {
-                self.shortcuts.extend([
-                    Shortcut::new("Quit", symbols::ESCAPE),
-                    Shortcut::new("Navigate", symbols::shift!(symbols::TAB)),
-                    Shortcut::new("Find", symbols::ctrl!("f")),
-                ]);
-
-                if !self.pages.is_logs_empty() {
-                    let key = symbols::ctrl!("l");
-                    let new_logs = self.pages.logs_queue_len();
-                    if new_logs > 0 {
-                        utils::format_int(new_logs, |new_logs| {
-                            self.shortcuts.push_iter(["Logs(", new_logs, ")"], key);
-                        });
-                    } else {
-                        self.shortcuts.push(Shortcut::new("Logs", key));
-                    }
-                }
-
-                self.shortcuts
-                    .set_colors(Color::Reset, colors.primary)
-                    .render(area, buf);
-                self.shortcuts.clear();
-            }
-
-            Ok(())
-        })
-    }
-
-    fn on_render(&mut self, body: Rect, buf: &mut Buffer) {
-        let render = AppRender {
-            area: body,
-            buffer: buf,
-        };
-        self.pages.on_render(
-            render,
+        // Page
+        // TODO: Max width for page area?
+        self.pages.render(
+            body.inner(Margin::all(1)),
+            &mut self.frame,
             &self.settings,
-            &mut self.database,
+            &self.database,
             &mut self.markup,
-            &mut self.kitty,
-            &mut self.shortcuts,
         );
+
+        let [page_shortcuts_area, app_shortcuts_area] = bottom.split_lines();
+        self.pages
+            .render_shortcuts(page_shortcuts_area, &mut self.frame, &self.settings);
+        self.render_shortcuts(app_shortcuts_area);
+
+        // Modal
+        if let Some((modal, colors)) = self.modals.current().zip(colors) {
+            self.frame.set_cursor_visibility(false);
+            self.settings.set_colors(colors);
+            self.modals.render(
+                modal,
+                &mut self.frame,
+                self.settings.colors(),
+                &self.database,
+            );
+        }
+
+        self.frame
+            .flush(&mut terminal.lock())
+            .map_err(|err| AppError::Render(err))
     }
 
-    fn on_input(&mut self, key_event: KeyEvent, terminal: &mut Terminal) -> Action {
-        let input = AppInput(key_event);
-        self.pages.on_input(
-            input,
-            &mut self.database,
-            &mut self.markup,
-            terminal,
-            &mut self.settings,
-        )
+    fn render_shortcuts(&mut self, area: Rect) {
+        let (key_color, name_color) = {
+            let colors = self.settings.colors();
+            (colors.primary, colors.normal)
+        };
+        let gap = 1;
+
+        for (key, name, gap) in [
+            ("Esc", "Quit", gap),
+            ("(⇧)Tab", "Navigate", gap),
+            ("^f", "Find", 0),
+        ] {
+            self.frame.push_fmt(Sgr::Fg(key_color));
+            self.frame.push_str(key);
+            self.frame.push_fmt(Sgr::Fg(name_color));
+            self.frame.push_ch(' ');
+            self.frame.push_str(name);
+            self.frame.push_ch_repeat(' ', gap);
+        }
+
+        if !self.modals.logs().is_empty() {
+            self.frame.push_ch_repeat(' ', gap);
+            self.frame.push_fmt(Sgr::Fg(key_color));
+            self.frame.push_str("^l");
+            self.frame.push_fmt(Sgr::Fg(name_color));
+            self.frame.push_ch(' ');
+            self.frame.push_str("Logs");
+
+            let len = self.modals.logs().len_new();
+            if len > 0 {
+                let mut buf = std::fmt::NumBuffer::new();
+                self.frame.push_iter(["(", len.format_into(&mut buf), ")"]);
+            }
+        }
+
+        self.frame.push_fmt(Sgr::reset_fg());
+        self.frame.render(area, TextOptions::span_center_top());
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Action {
+    None,
+    Render,
+    Route(Route),
+    Modal(Option<Modal>),
+    Refresh,
+    Clear,
+    Quit,
+}
+
+#[derive(Debug)]
+pub enum AppError {
+    Database {
+        path: Option<PathBuf>,
+        error: crate::database::DatabaseError,
+    },
+    Config {
+        path: Option<PathBuf>,
+        error: crate::settings::ConfigError,
+    },
+    QueryBg(RgbQueryError),
+    QueryFg(RgbQueryError),
+    QuerySize(std::io::Error),
+    Render(std::io::Error),
+    Event(std::io::Error),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Database { path, .. } => {
+                f.write_fmt(format_args!("Failed to open database at {path:?}."))
+            }
+            Self::Config { path, .. } => f.write_fmt(format_args!(
+                "Failed to read or create settings at {path:?}. \
+                A default one will be used instead."
+            )),
+            Self::QueryBg(_) => f.write_str(
+                "Failed to query background color. \
+                Assuming dark mode with default color instead. \
+                Images will not be blocked in modals.",
+            ),
+            Self::QueryFg(_) => f.write_str(
+                "Failed to query foreground color. \
+                Using default color instead based on background for math.",
+            ),
+            Self::QuerySize(_) => f.write_str("Failed to query terminal for window size."),
+            Self::Render(_) => f.write_str("Failed to render/flush to stdout."),
+            Self::Event(_) => f.write_str("Failed to read event from stdin."),
+        }
+    }
+}
+
+impl std::error::Error for AppError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Database { error, .. } => Some(error),
+            Self::Config { error, .. } => Some(error),
+            Self::QueryBg(error) => Some(error),
+            Self::QueryFg(error) => Some(error),
+            Self::QuerySize(error) => Some(error),
+            Self::Render(error) => Some(error),
+            Self::Event(error) => Some(error),
+        }
     }
 }
