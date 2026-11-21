@@ -279,7 +279,7 @@ fn render_playing(
             render_cover(**area, &mut frame, colors, &database, &jukebox, &mut cover);
             return;
         }
-        ViewLayout::Horizontal => area.split_vertically_with_gap(0),
+        ViewLayout::Horizontal => area.split_vertically_with_gap(1),
         ViewLayout::Vertical => area.split_top(area.rows() * 60 / 100, 1),
     };
 

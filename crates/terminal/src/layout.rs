@@ -427,30 +427,18 @@ impl Rect {
         )
     }
 
-    pub const fn split_horizontally_with_gap(self, extra_gaps: u16) -> (Self, Self) {
-        let top_rows = (self.size.rows / 2).saturating_sub(extra_gaps);
-        (
-            self.with_rows(top_rows),
-            Self {
-                pos: self
-                    .pos
-                    .with_row(self.pos.row + top_rows + 1 + extra_gaps * 2),
-                size: self.size.with_rows(top_rows),
-            },
-        )
+    pub const fn split_horizontally_with_gap(self, gap: u16) -> (Self, Self) {
+        let (mut top, mut bot) = self.split_horizontally();
+        top.sub_rows(gap);
+        bot.shrink_down(gap);
+        (top, bot)
     }
 
-    pub const fn split_vertically_with_gap(self, extra_gaps: u16) -> (Self, Self) {
-        let left_cols = (self.size.cols / 2).saturating_sub(extra_gaps);
-        (
-            self.with_cols(left_cols),
-            Self {
-                pos: self
-                    .pos
-                    .with_col(self.pos.col + left_cols + 1 + extra_gaps * 2),
-                size: self.size.with_cols(left_cols),
-            },
-        )
+    pub const fn split_vertically_with_gap(self, gap: u16) -> (Self, Self) {
+        let (mut left, mut right) = self.split_vertically();
+        left.sub_cols(gap);
+        right.shrink_right(gap);
+        (left, right)
     }
 
     pub const fn split_lines<const N: usize>(self) -> [Self; N] {

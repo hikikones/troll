@@ -353,7 +353,8 @@ fn render_settings(
     };
 
     let mut line = list_area.with_rows(1);
-    let (mut left, mut right) = line.split_vertically_with_gap(0);
+    let (mut left, mut right) = line.split_vertically();
+    right.shrink_right(1);
     let selected = list.index();
     let current = list.current();
     let mut row = line.row();
