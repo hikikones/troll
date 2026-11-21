@@ -416,14 +416,12 @@ where
                 frames.push(frame?);
             }
         }
-
         ImageFormat::WebP => {
             let decoder = WebPDecoder::new(reader.into_inner())?;
             for frame in decoder.into_frames() {
                 frames.push(frame?);
             }
         }
-
         _ => {
             let image = reader.decode()?.into_rgba8();
             frames.push(Frame::new(image));

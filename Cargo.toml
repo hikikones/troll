@@ -24,18 +24,7 @@ ecs = { path = "crates/ecs", default-features = false }
 edit = { version = "0.1", default-features = false, features = ["better-path"] }
 fastrand = { version = "2.5", default-features = false, features = ["std"] }
 fsrs = { version = "6.6", default-features = false }
-image = {
-  version = "0.25",
-  default-features = false,
-  features = [
-    "bmp",
-    "gif",
-    "jpeg",
-    "png",
-    "rayon",
-    "webp",
-  ]
-}
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "rayon", "webp"] }
 lofty = { version = "0.25", default-features = false, features = ["id3v2_compression_support"] }
 ouroboros = { version = "0.18", default-features = false, features = ["std"] }
 ratex-layout = { version = "0.1", default-features = false }
