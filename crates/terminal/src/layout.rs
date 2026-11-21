@@ -405,39 +405,27 @@ impl Rect {
         )
     }
 
-    pub const fn split_horizontally(self) -> (Self, Self) {
-        let top_rows = self.size.rows / 2;
-        (
-            self.with_rows(top_rows),
-            Self {
-                pos: self.pos.with_row(self.pos.row + top_rows),
-                size: self.size.with_rows(self.size.rows - top_rows),
-            },
-        )
-    }
-
-    pub const fn split_vertically(self) -> (Self, Self) {
-        let left_cols = self.size.cols / 2;
-        (
-            self.with_cols(left_cols),
-            Self {
-                pos: self.pos.with_col(self.pos.col + left_cols),
-                size: self.size.with_cols(self.size.cols - left_cols),
-            },
-        )
-    }
-
-    pub const fn split_horizontally_with_gap(self, gap: u16) -> (Self, Self) {
-        let (mut top, mut bot) = self.split_horizontally();
-        top.sub_rows(gap);
-        bot.shrink_down(gap);
+    pub const fn split_horizontally(self, top_gap: u16, bot_gap: u16) -> (Self, Self) {
+        let half = self.size.rows / 2;
+        let mut top = self.with_rows(half);
+        let mut bot = Self {
+            pos: self.pos.with_row(self.pos.row + half),
+            size: self.size.with_rows(self.size.rows - half),
+        };
+        top.sub_rows(top_gap);
+        bot.shrink_down(bot_gap);
         (top, bot)
     }
 
-    pub const fn split_vertically_with_gap(self, gap: u16) -> (Self, Self) {
-        let (mut left, mut right) = self.split_vertically();
-        left.sub_cols(gap);
-        right.shrink_right(gap);
+    pub const fn split_vertically(self, left_gap: u16, right_gap: u16) -> (Self, Self) {
+        let half = self.size.cols / 2;
+        let mut left = self.with_cols(half);
+        let mut right = Self {
+            pos: self.pos.with_col(self.pos.col + half),
+            size: self.size.with_cols(self.size.cols - half),
+        };
+        left.sub_cols(left_gap);
+        right.shrink_right(right_gap);
         (left, right)
     }
 

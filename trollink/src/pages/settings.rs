@@ -151,8 +151,7 @@ impl SettingsPage {
         };
 
         let mut line = list_area.with_rows(1);
-        let (mut left, mut right) = line.split_vertically();
-        right.shrink_right(1);
+        let (mut left, mut right) = line.split_vertically(0, 1);
         let selected = self.list.index();
         let current = self.current();
         let mut row = line.row();
