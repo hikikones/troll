@@ -400,9 +400,8 @@ fn render_queue(
             frame.push_fmt(Sgr::CrossedOut);
         }
 
-        // TODO: Add back artist and album name?
-        database.track_title(id, |title| {
-            frame.push_str(title);
+        database.track_play_queue(id, |info| {
+            frame.push_str(info);
         });
 
         frame.push_fmt(Sgr::Reset);

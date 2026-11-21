@@ -127,23 +127,23 @@ impl Database {
             .unwrap()
     }
 
-    pub fn track_info(&self, id: TrackId, f: impl FnOnce(TrackInfo)) {
+    pub fn track_data(&self, id: TrackId, f: impl FnOnce(TrackData)) {
         self.sqlite
             .single(
                 "SELECT \
-            title, rating, duration, bit_rate_kbps, bit_depth, sample_rate, path, album_id \
+            path, title, rating, album_id, duration, bit_rate_kbps, bit_depth, sample_rate \
             FROM tracks WHERE id = ?",
                 [id],
                 |row| {
-                    Ok(f(TrackInfo {
-                        title: row.get_ref(0)?.as_str()?,
-                        rating: row.get(1)?,
-                        duration: row.get(2)?,
-                        bit_rate_kbps: row.get(3)?,
-                        bit_depth: row.get(4)?,
-                        sample_rate: row.get(5)?,
-                        path: Path::new(row.get_ref(6)?.as_str()?),
-                        album_id: row.get(7)?,
+                    Ok(f(TrackData {
+                        path: Path::new(row.get_ref(0)?.as_str()?),
+                        title: row.get_ref(1)?.as_str()?,
+                        rating: row.get(2)?,
+                        album_id: row.get(3)?,
+                        duration: row.get(4)?,
+                        bit_rate_kbps: row.get(5)?,
+                        bit_depth: row.get(6)?,
+                        sample_rate: row.get(7)?,
                     }))
                 },
             )
@@ -194,6 +194,27 @@ impl Database {
                     rating: row.get(4)?,
                 }))
             })
+            .unwrap();
+    }
+
+    pub fn track_play_queue(&self, id: TrackId, f: impl FnOnce(&str)) {
+        self.sqlite
+            .single(
+                "SELECT \
+                concat_ws(' · ', \
+                    NULLIF(t.title, ''), \
+                    NULLIF(GROUP_CONCAT(ar.name, ', '), ''), \
+                    NULLIF(al.name, '') \
+                ) \
+                FROM tracks t \
+                JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
+                JOIN artists ar ON ar.id = ar_t.artist_id \
+                JOIN albums al ON al.id = t.album_id \
+                WHERE t.id = ? \
+                GROUP BY t.id",
+                [id],
+                |row| Ok(f(row.get_ref(0)?.as_str()?)),
+            )
             .unwrap();
     }
 

@@ -48,17 +48,17 @@ impl Metadata {
         self.text.clear();
         self.path.clear();
 
-        db.track_info(id, |info| {
-            self.path.push(info.path);
-            self.ext = AudioFileExt::from_path(info.path).unwrap_or_default();
-            self.rating = info.rating;
-            self.duration = info.duration;
-            self.bit_rate_kbps = info.bit_rate_kbps;
-            self.bit_depth = info.bit_depth;
-            self.sample_rate = info.sample_rate;
-            self.title = self.text.push_str_get_range(info.title);
+        db.track_data(id, |data| {
+            self.path.push(data.path);
+            self.ext = AudioFileExt::from_path(data.path).unwrap_or_default();
+            self.rating = data.rating;
+            self.duration = data.duration;
+            self.bit_rate_kbps = data.bit_rate_kbps;
+            self.bit_depth = data.bit_depth;
+            self.sample_rate = data.sample_rate;
+            self.title = self.text.push_str_get_range(data.title);
 
-            db.album_name(info.album_id, |album| {
+            db.album_name(data.album_id, |album| {
                 self.album = self.text.push_str_get_range(album)
             });
         });

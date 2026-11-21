@@ -1,14 +1,18 @@
 CREATE TABLE tracks (
     id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL,
+
+    -- Metadata
     title TEXT NOT NULL,
     number INTEGER NOT NULL,
     rating INTEGER NOT NULL,
+    album_id INTEGER NOT NULL,
+
+    -- Properties
     duration INTEGER NOT NULL,
     bit_rate_kbps INTEGER NOT NULL,
     bit_depth INTEGER,
-    sample_rate INTEGER,
-    path TEXT NOT NULL,
-    album_id INTEGER NOT NULL
+    sample_rate INTEGER
 );
 
 CREATE TABLE artists (

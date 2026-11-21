@@ -6,27 +6,6 @@ use shared::sqlite::{
 
 use super::{AlbumId, TrackDuration, TrackRating};
 
-#[derive(Debug)]
-pub struct TrackInfo<'a> {
-    pub title: &'a str,
-    pub duration: TrackDuration,
-    pub rating: TrackRating,
-    pub bit_rate_kbps: u32,
-    pub bit_depth: Option<u8>,
-    pub sample_rate: Option<u32>,
-    pub path: &'a Path,
-    pub album_id: AlbumId,
-}
-
-#[derive(Debug)]
-pub struct TrackTable<'a> {
-    pub title: &'a str,
-    pub artists: &'a str,
-    pub album: &'a str,
-    pub duration: TrackDuration,
-    pub rating: TrackRating,
-}
-
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TrackId(pub u32);
 
@@ -80,4 +59,23 @@ impl TrackSort {
     pub const fn equals(self, other: Self) -> bool {
         self as u8 == other as u8
     }
+}
+
+pub struct TrackData<'a> {
+    pub path: &'a Path,
+    pub title: &'a str,
+    pub rating: TrackRating,
+    pub album_id: AlbumId,
+    pub duration: TrackDuration,
+    pub bit_rate_kbps: u32,
+    pub bit_depth: Option<u8>,
+    pub sample_rate: Option<u32>,
+}
+
+pub struct TrackTable<'a> {
+    pub title: &'a str,
+    pub artists: &'a str,
+    pub album: &'a str,
+    pub duration: TrackDuration,
+    pub rating: TrackRating,
 }
