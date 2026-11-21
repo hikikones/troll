@@ -1,6 +1,9 @@
+use std::path::PathBuf;
+
 use ecs::*;
-use shared::{logs::Logs, time::Timer};
+use shared::{env::AppDir, logs::Logs, time::Timer};
 use terminal::*;
+use utils::ErrorExt;
 
 use crate::{
     database::{Database, DatabaseLoadEvent},
@@ -11,6 +14,8 @@ use crate::{
     settings::{Colors, Settings},
 };
 
+pub type AppResult<T> = Result<T, AppError>;
+
 pub struct App {
     world: World,
     timers: Timers,
@@ -19,12 +24,29 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(
-        database: Database,
-        jukebox: Jukebox,
-        settings: Settings,
-        media_controls: Option<MediaControls>,
-    ) -> Self {
+    pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
+        let jukebox = Jukebox::new().map_err(|err| AppError::Jukebox(err))?;
+        let database =
+            Database::new(args.dir, args.in_memory).map_err(|err| AppError::Database(err))?;
+
+        let mut logs = Logs::new();
+
+        let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
+            .unwrap_or_else(|error| {
+                logs.push_err(AppError::Config {
+                    path: args.settings.clone(),
+                    error,
+                });
+                Settings::new(args.settings)
+            });
+        settings.colors_mut().background =
+            Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+                .map(|rgb| rgb.slight_offset().as_color())
+                .unwrap_or_else(|error| {
+                    logs.push_err(AppError::QueryBg(error));
+                    Color::Default
+                });
+
         let mut app = {
             let mut world = World::new();
             let timers = Timers::new(8, 1);
@@ -40,17 +62,25 @@ impl App {
         };
 
         app.insert_non_send(database).insert_non_send(jukebox);
-        if let Some(media_controls) = media_controls {
-            app.insert_non_send(media_controls);
+
+        if args.media_controls {
+            match MediaControls::spawn() {
+                Ok(mc) => {
+                    app.insert_non_send(mc);
+                }
+                Err(err) => {
+                    logs.push_err(err.context("Failed to create media controls."));
+                }
+            }
         }
 
-        app.insert_resource(Frame::default())
-            .insert_resource(Logs::default())
+        app.insert_resource(settings)
+            .insert_resource(logs)
+            .insert_resource(Frame::default())
             .insert_resource(Input::default())
             .insert_resource(Actions::default())
-            .insert_resource(ModalColors::new(&settings))
-            .insert_resource(settings)
             .insert_resource(PageArea::default())
+            .insert_resource(ModalColors::default())
             .insert_resource(ShortcutsArea::default());
 
         app.add_input(InputSet::App, input_app)
@@ -65,10 +95,10 @@ impl App {
         PagesPlugin::build(&mut app);
         ModalsPlugin::build(&mut app);
 
-        app
+        Ok(app)
     }
 
-    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.update_size()?;
 
         self.run_load_loop(terminal)?;
@@ -140,7 +170,7 @@ impl App {
         self
     }
 
-    fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_load_loop(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         // Start loading
         self.world.non_send_mut::<Database>().load();
         self.timers.update.start();
@@ -152,7 +182,8 @@ impl App {
                 self.world.run_system(load_db_sid).unwrap();
                 self.world
                     .resource_mut::<Frame>()
-                    .flush(&mut terminal.lock())?;
+                    .flush(&mut terminal.lock())
+                    .map_err(|err| AppError::Render(err))?;
 
                 if self.world.non_send::<Database>().has_finished_loading() {
                     // Init first run
@@ -162,7 +193,9 @@ impl App {
                 }
             }
 
-            if let Some(event) = TermEvent::poll(self.timers.update.timeout())? {
+            if let Some(event) =
+                TermEvent::poll(self.timers.update.timeout()).map_err(|err| AppError::Event(err))?
+            {
                 match event {
                     TermEvent::Key(key) => {
                         if let KeyCode::Esc = key.code {
@@ -182,7 +215,7 @@ impl App {
         Ok(())
     }
 
-    fn run_event_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_event_loop(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         while self.is_running {
             if self.timers.update.tick() {
                 self.run_update(terminal)?;
@@ -197,7 +230,9 @@ impl App {
                 }
             }
 
-            if let Some(event) = TermEvent::poll(self.timers.update.timeout())? {
+            if let Some(event) =
+                TermEvent::poll(self.timers.update.timeout()).map_err(|err| AppError::Event(err))?
+            {
                 match event {
                     TermEvent::Key(key) => {
                         self.insert_resource(Input(Some(key)));
@@ -216,7 +251,7 @@ impl App {
         Ok(())
     }
 
-    fn run_input(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_input(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.schedules.input.run(&mut self.world);
 
         if self.apply_actions() {
@@ -227,7 +262,7 @@ impl App {
         Ok(())
     }
 
-    fn run_update(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_update(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.schedules.update.run(&mut self.world);
 
         if self.apply_actions() {
@@ -237,11 +272,12 @@ impl App {
         Ok(())
     }
 
-    fn run_render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_render(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.schedules.render.run(&mut self.world);
         self.world
             .resource_mut::<Frame>()
-            .flush(&mut terminal.lock())?;
+            .flush(&mut terminal.lock())
+            .map_err(|err| AppError::Render(err))?;
         self.timers.render.start();
 
         Ok(())
@@ -251,8 +287,11 @@ impl App {
         self.world.run_schedule(StateTransition);
     }
 
-    fn update_size(&mut self) -> std::io::Result<()> {
-        self.world.resource_mut::<Frame>().query_size()
+    fn update_size(&mut self) -> AppResult<()> {
+        self.world
+            .resource_mut::<Frame>()
+            .query_size()
+            .map_err(|err| AppError::QuerySize(err))
     }
 
     fn apply_actions(&mut self) -> bool {
@@ -411,11 +450,9 @@ pub struct Actions(Vec<Action>);
 #[derive(Debug, Resource, Deref, DerefMut)]
 struct ModalColors(Colors);
 
-impl ModalColors {
-    const fn new(settings: &Settings) -> Self {
-        let mut colors = Colors::all(Color::Indexed(240));
-        colors.background = settings.colors().background;
-        Self(colors)
+impl Default for ModalColors {
+    fn default() -> Self {
+        Self(Colors::all(Color::Indexed(240)))
     }
 }
 
@@ -852,6 +889,55 @@ fn load_database(
     frame.push_ch(' ');
     frame.push_str_fg("Quit", colors.normal);
     frame.render(shortcut_area, TextOptions::span_center_top());
+}
+
+#[derive(Debug)]
+pub enum AppError {
+    Jukebox(crate::jukebox::JukeboxError),
+    Database(crate::database::DatabaseError),
+    Config {
+        path: Option<PathBuf>,
+        error: crate::settings::ConfigError,
+    },
+    QueryBg(RgbQueryError),
+    QuerySize(std::io::Error),
+    Render(std::io::Error),
+    Event(std::io::Error),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Jukebox(_) => f.write_str("Failed to create audio player."),
+            Self::Database(_) => f.write_str("Failed to open database."),
+            Self::Config { path, .. } => f.write_fmt(format_args!(
+                "Failed to read or create settings at {path:?}. \
+                A default one will be used instead."
+            )),
+            Self::QueryBg(_) => f.write_str(
+                "Failed to query background color. \
+                Assuming dark mode with default color instead. \
+                Images will not be blocked in modals.",
+            ),
+            Self::QuerySize(_) => f.write_str("Failed to query terminal for window size."),
+            Self::Render(_) => f.write_str("Failed to render/flush to stdout."),
+            Self::Event(_) => f.write_str("Failed to read event from stdin."),
+        }
+    }
+}
+
+impl std::error::Error for AppError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Jukebox(err) => err.source(),
+            Self::Database(err) => Some(err),
+            Self::Config { error, .. } => Some(error),
+            Self::QueryBg(err) => Some(err),
+            Self::QuerySize(err) => Some(err),
+            Self::Render(err) => Some(err),
+            Self::Event(err) => Some(err),
+        }
+    }
 }
 
 enum Logo {

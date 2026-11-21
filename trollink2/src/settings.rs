@@ -4,12 +4,11 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use shared::env::AppDirRef;
 use terminal::{Color, Rgb};
 use widgets2::{
     EditorColors, ListColors, MarkupCodeTheme, MarkupColors, PromptColors, ScrollbarColors,
 };
-
-use crate::AppDirRef;
 
 // TODO: Add show_scrollbars to config.
 
@@ -41,7 +40,7 @@ impl Settings {
             Some(path) => path.to_path_buf(),
             None => match app_dir {
                 Ok(dir) => dir.join("settings.toml"),
-                Err(err) => return Err(*err)?,
+                Err(err) => return Err(ConfigError::NoAppPath(err)),
             },
         };
 
@@ -115,8 +114,8 @@ impl Settings {
     }
 
     pub fn save(&self) -> SettingsResult<()> {
-        let Some(path) = self.path.as_ref() else {
-            return Err("No path to save settings to.")?;
+        let Some(path) = self.path.as_deref() else {
+            return Err(ConfigError::NoSavePath);
         };
 
         self.config.save(path)
@@ -157,7 +156,7 @@ impl Config {
 
         let config: Self = match version {
             VERSION => toml::from_slice(&bytes)?,
-            _ => Err("Unknown version.")?,
+            _ => return Err(ConfigError::UnknownVersion),
         };
 
         Ok(config)
@@ -228,7 +227,7 @@ impl Default for Colors {
 }
 
 impl Colors {
-    pub const fn dimmed() -> Self {
+    const fn dimmed() -> Self {
         let grey = Color::Indexed(240);
         Self {
             primary: grey,
@@ -289,7 +288,9 @@ pub enum ConfigError {
     Io(std::io::Error),
     De(toml::de::Error),
     Ser(toml::ser::Error),
-    Other(&'static str),
+    NoAppPath(&'static str),
+    NoSavePath,
+    UnknownVersion,
 }
 
 impl std::fmt::Display for ConfigError {
@@ -298,12 +299,25 @@ impl std::fmt::Display for ConfigError {
             Self::Io(err) => err.fmt(f),
             Self::De(err) => err.fmt(f),
             Self::Ser(err) => err.fmt(f),
-            Self::Other(msg) => f.write_str(msg),
+            Self::NoAppPath(err) => f.write_str(err),
+            Self::NoSavePath => f.write_str("No path to save settings to."),
+            Self::UnknownVersion => f.write_str("Unknown version."),
         }
     }
 }
 
-impl std::error::Error for ConfigError {}
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => err.source(),
+            Self::De(err) => err.source(),
+            Self::Ser(err) => err.source(),
+            Self::NoAppPath(_) => None,
+            Self::NoSavePath => None,
+            Self::UnknownVersion => None,
+        }
+    }
+}
 
 impl From<std::io::Error> for ConfigError {
     fn from(err: std::io::Error) -> Self {
@@ -320,11 +334,5 @@ impl From<toml::de::Error> for ConfigError {
 impl From<toml::ser::Error> for ConfigError {
     fn from(err: toml::ser::Error) -> Self {
         Self::Ser(err)
-    }
-}
-
-impl From<&'static str> for ConfigError {
-    fn from(err: &'static str) -> Self {
-        Self::Other(err)
     }
 }

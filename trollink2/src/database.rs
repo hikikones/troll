@@ -1,12 +1,10 @@
 use std::{fmt::NumBuffer, path::Path};
 
-use shared::sqlite::*;
+use shared::{env::AppDirRef, sqlite::*};
 
 mod scheduler;
 
 use scheduler::*;
-
-use crate::AppDirRef;
 
 pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
@@ -37,7 +35,7 @@ impl Database {
             Some(path) => Self::open_in_path(path),
             None => match app_dir {
                 Ok(dir) => Self::open_in_path(&dir.join("database.db")),
-                Err(err) => return Err(*err)?,
+                Err(err) => return Err(DatabaseError::NoPath(err)),
             },
         }
     }
@@ -570,30 +568,32 @@ impl FromSql for TagId {
 pub enum DatabaseError {
     Sqlite(SqliteError),
     Version(SqliteId),
-    Other(&'static str),
+    NoPath(&'static str),
 }
 
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DatabaseError::Sqlite(err) => err.fmt(f),
-            DatabaseError::Version(v) => f.write_fmt(format_args!("Unknown version: {v}")),
-            DatabaseError::Other(msg) => f.write_str(msg),
+            Self::Sqlite(err) => err.fmt(f),
+            Self::Version(v) => f.write_fmt(format_args!("Unknown version: {v}.")),
+            Self::NoPath(s) => f.write_str(s),
         }
     }
 }
 
-impl std::error::Error for DatabaseError {}
+impl std::error::Error for DatabaseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sqlite(err) => err.source(),
+            Self::Version(_) => None,
+            Self::NoPath(_) => None,
+        }
+    }
+}
 
 impl From<SqliteError> for DatabaseError {
     fn from(err: SqliteError) -> Self {
         Self::Sqlite(err)
-    }
-}
-
-impl From<&'static str> for DatabaseError {
-    fn from(err: &'static str) -> Self {
-        Self::Other(err)
     }
 }
 

@@ -9,8 +9,8 @@ pub struct LogsModal {
 }
 
 impl LogsModal {
-    pub const fn new() -> Self {
-        Self { logs: Logs::new() }
+    pub const fn new(logs: Logs) -> Self {
+        Self { logs }
     }
 
     pub fn enter(&mut self) {

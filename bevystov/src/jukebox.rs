@@ -151,10 +151,7 @@ enum PlayState {
 
 impl Jukebox {
     pub fn new() -> JukeboxResult<Self> {
-        let player = AudioPlayer::new().map_err(|err| JukeboxError {
-            message: String::from("Failed to create audio player"),
-            source: Some(JukeboxErrorSource::Player(err)),
-        })?;
+        let player = AudioPlayer::new().map_err(|err| JukeboxError::Player(err))?;
 
         Ok(Self {
             current: None,
@@ -536,10 +533,8 @@ impl Jukebox {
             }
             Err(DecodeFailure { id, path, error }) => {
                 self.faulty.insert(id);
-                self.events.push(JukeboxEvent::Error(JukeboxError {
-                    message: format!("Failed to decode audio file '{}'", path.display()),
-                    source: Some(JukeboxErrorSource::Decode(error)),
-                }));
+                self.events
+                    .push(JukeboxEvent::Error(JukeboxError::Decode { path, error }));
 
                 match self.state {
                     PlayState::Play | PlayState::Next => {
@@ -575,28 +570,28 @@ impl Jukebox {
 }
 
 #[derive(Debug)]
-pub struct JukeboxError {
-    message: String,
-    source: Option<JukeboxErrorSource>,
-}
-
-#[derive(Debug)]
-enum JukeboxErrorSource {
+pub enum JukeboxError {
     Player(rodio::DeviceSinkError),
-    Decode(DecodeError),
+    Decode { path: PathBuf, error: DecodeError },
 }
 
 impl std::fmt::Display for JukeboxError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
+        match self {
+            Self::Player(err) => err.fmt(f),
+            Self::Decode { path, .. } => f.write_fmt(format_args!(
+                "Failed to decode audio file '{}'.",
+                path.display()
+            )),
+        }
     }
 }
 
 impl std::error::Error for JukeboxError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.as_ref().map(|source| match source {
-            JukeboxErrorSource::Player(err) => err as _,
-            JukeboxErrorSource::Decode(err) => err as _,
-        })
+        match self {
+            Self::Player(err) => err.source(),
+            Self::Decode { error, .. } => Some(error),
+        }
     }
 }

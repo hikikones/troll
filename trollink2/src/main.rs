@@ -1,5 +1,5 @@
 use terminal::Terminal;
-use trollink2::{app::App, cli::Args};
+use trollink2::{APP_NAME, APP_ORGANIZATION, APP_QUALIFIER, app::App, cli::Args};
 
 fn main() -> std::process::ExitCode {
     let args: Args = clap::Parser::parse();
@@ -20,8 +20,9 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let app_dir = shared::env::get_app_dir(APP_QUALIFIER, APP_ORGANIZATION, APP_NAME);
+    let mut app = App::new(args, app_dir)?;
     let terminal = Terminal::stdout();
-    let mut app = App::new(args, trollink2::get_app_dir())?;
     terminal.enter(|term| {
         app.run(term)?;
         Ok(())

@@ -71,14 +71,22 @@ pub enum DecodeError {
 impl std::fmt::Display for DecodeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DecodeError::Io(err) => err.fmt(f),
-            DecodeError::Audio(err) => err.fmt(f),
-            DecodeError::Decode(err) => err.fmt(f),
+            Self::Io(err) => err.fmt(f),
+            Self::Audio(err) => err.fmt(f),
+            Self::Decode(err) => err.fmt(f),
         }
     }
 }
 
-impl std::error::Error for DecodeError {}
+impl std::error::Error for DecodeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(err) => err.source(),
+            Self::Audio(err) => err.source(),
+            Self::Decode(err) => err.source(),
+        }
+    }
+}
 
 fn start_decode(request: DecodeRequest) -> DecodeHandle {
     let DecodeRequest { id, index, path } = request;
