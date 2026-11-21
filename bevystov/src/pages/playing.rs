@@ -316,7 +316,7 @@ fn render_cover(
         return;
     };
 
-    if area.size.rows > 15 {
+    if area.size.rows >= 10 {
         if let Some(image_area) = cover.render(area.inner(Margin::vertical(1)), frame, colors) {
             let (filled_stars, empty_stars) = rating.stars_split();
             frame.push_fmt(Sgr::Fg(colors.primary));
