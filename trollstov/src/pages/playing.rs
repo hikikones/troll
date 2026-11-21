@@ -280,7 +280,7 @@ fn render_playing(
             return;
         }
         ViewLayout::Horizontal => area.split_vertically(1, 1),
-        ViewLayout::Vertical => area.split_top(area.rows() * 60 / 100, 1),
+        ViewLayout::Vertical => area.split_top(area.size.mul_rows_f32_as_u16(0.6), 1),
     };
 
     page.update_scroll_on_new_track(&jukebox);
