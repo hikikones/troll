@@ -98,7 +98,7 @@ impl App {
         Ok(app)
     }
 
-    pub fn run(&mut self, terminal: &mut Terminal) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.update_size()?;
 
         self.run_load_loop(terminal)?;
@@ -170,7 +170,7 @@ impl App {
         self
     }
 
-    fn run_load_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_load_loop(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         // Start loading
         self.world.non_send_mut::<Database>().load();
         self.timers.update.start();
@@ -182,7 +182,8 @@ impl App {
                 self.world.run_system(load_db_sid).unwrap();
                 self.world
                     .resource_mut::<Frame>()
-                    .flush(&mut terminal.lock())?;
+                    .flush(&mut terminal.lock())
+                    .map_err(|err| AppError::Render(err))?;
 
                 if self.world.non_send::<Database>().has_finished_loading() {
                     // Init first run
@@ -192,7 +193,9 @@ impl App {
                 }
             }
 
-            if let Some(event) = TermEvent::poll(self.timers.update.timeout())? {
+            if let Some(event) =
+                TermEvent::poll(self.timers.update.timeout()).map_err(|err| AppError::Event(err))?
+            {
                 match event {
                     TermEvent::Key(key) => {
                         if let KeyCode::Esc = key.code {
@@ -212,7 +215,7 @@ impl App {
         Ok(())
     }
 
-    fn run_event_loop(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_event_loop(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         while self.is_running {
             if self.timers.update.tick() {
                 self.run_update(terminal)?;
@@ -227,7 +230,9 @@ impl App {
                 }
             }
 
-            if let Some(event) = TermEvent::poll(self.timers.update.timeout())? {
+            if let Some(event) =
+                TermEvent::poll(self.timers.update.timeout()).map_err(|err| AppError::Event(err))?
+            {
                 match event {
                     TermEvent::Key(key) => {
                         self.insert_resource(Input(Some(key)));
@@ -246,7 +251,7 @@ impl App {
         Ok(())
     }
 
-    fn run_input(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_input(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.schedules.input.run(&mut self.world);
 
         if self.apply_actions() {
@@ -257,7 +262,7 @@ impl App {
         Ok(())
     }
 
-    fn run_update(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_update(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.schedules.update.run(&mut self.world);
 
         if self.apply_actions() {
@@ -267,11 +272,12 @@ impl App {
         Ok(())
     }
 
-    fn run_render(&mut self, terminal: &mut Terminal) -> std::io::Result<()> {
+    fn run_render(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.schedules.render.run(&mut self.world);
         self.world
             .resource_mut::<Frame>()
-            .flush(&mut terminal.lock())?;
+            .flush(&mut terminal.lock())
+            .map_err(|err| AppError::Render(err))?;
         self.timers.render.start();
 
         Ok(())
@@ -281,8 +287,11 @@ impl App {
         self.world.run_schedule(StateTransition);
     }
 
-    fn update_size(&mut self) -> std::io::Result<()> {
-        self.world.resource_mut::<Frame>().query_size()
+    fn update_size(&mut self) -> AppResult<()> {
+        self.world
+            .resource_mut::<Frame>()
+            .query_size()
+            .map_err(|err| AppError::QuerySize(err))
     }
 
     fn apply_actions(&mut self) -> bool {
