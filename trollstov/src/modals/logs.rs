@@ -61,6 +61,7 @@ fn input_logs(input: Res<Input>, mut logs: ResMut<Logs>, mut actions: ResMut<Act
 }
 
 fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, logs: Res<Logs>) {
+    // TODO: Use PageArea instead?
     let area = frame.area().scale_and_center(0.7);
     let colors = settings.colors();
 

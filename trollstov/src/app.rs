@@ -572,6 +572,8 @@ fn render_app(
     let area = frame.area();
     let colors = settings.colors();
 
+    // TODO: Max width for page area?
+
     match frame.screen_height() {
         ScreenHeight::Short => {
             **page_area = area;

@@ -201,6 +201,7 @@ impl App {
             .render_navigation(top, &mut self.frame, self.settings.colors());
 
         // Page
+        // TODO: Max width for page area?
         self.pages.render(
             body.inner(Margin::all(1)),
             &mut self.frame,
