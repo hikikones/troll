@@ -502,8 +502,8 @@ impl FromSql for CardId {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CardKind {
-    Flashcard = 0,
-    Note = 1,
+    Note = 0,
+    Flashcard = 1,
 }
 
 impl CardKind {
@@ -528,8 +528,8 @@ impl ToSql for CardKind {
 impl FromSql for CardKind {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         value.as_i64().and_then(|n| match n {
-            0 => Ok(Self::Flashcard),
-            1 => Ok(Self::Note),
+            0 => Ok(Self::Note),
+            1 => Ok(Self::Flashcard),
             _ => Err(FromSqlError::Other(
                 format!("Invalid card kind: {n}. Expected 0-1.").into(),
             )),
