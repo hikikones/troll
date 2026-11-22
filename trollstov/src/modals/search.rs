@@ -1,4 +1,5 @@
 use ecs::*;
+use shared::sqlite::SqliteError;
 use terminal::*;
 use widgets::{Block, List, Prompt};
 
@@ -30,12 +31,13 @@ impl SearchModalPlugin {
     }
 }
 
-#[derive(Debug, Resource)]
+#[derive(Resource)]
 struct SearchModal {
     state: SearchState,
     prompt: Prompt,
     prompt_hash: u64,
     list: List,
+    message: Option<Message>,
 }
 
 impl SearchModal {
@@ -44,6 +46,7 @@ impl SearchModal {
         self.prompt.clear();
         self.prompt_hash = 0;
         self.list.reset();
+        self.message = Some(Message::Help);
     }
 }
 
@@ -56,6 +59,7 @@ impl Default for SearchModal {
             list: List::new()
                 .with_scrollbar(0)
                 .with_padding(Margin::horizontal(1)),
+            message: Some(Message::Help),
         }
     }
 }
@@ -66,18 +70,17 @@ enum SearchState {
     Browse,
 }
 
+enum Message {
+    Help,
+    MoreChars,
+    NoTracksFound,
+    Error(SqliteError),
+}
+
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 struct SearchResults(Vec<TrackId>);
 
-fn exit_search(
-    database: NonSend<Database>,
-    mut modal: ResMut<SearchModal>,
-    mut results: ResMut<SearchResults>,
-) {
-    if database.is_tracks_empty() {
-        return;
-    }
-
+fn exit_search(mut modal: ResMut<SearchModal>, mut results: ResMut<SearchResults>) {
     modal.reset();
     results.clear();
 }
@@ -90,13 +93,13 @@ fn input_search(
     results: Res<SearchResults>,
     database: NonSend<Database>,
 ) {
-    let Some(key) = input.get() else {
-        return;
-    };
-
     if database.is_tracks_empty() {
         return;
     }
+
+    let Some(key) = input.get() else {
+        return;
+    };
 
     match modal.state {
         SearchState::Prompt => match key.code {
@@ -208,6 +211,29 @@ fn render_search(
             TextOptions::paragraph_center(),
         );
         frame.print_fmt(Sgr::Reset);
+        return;
+    }
+
+    if let Some(msg) = modal.message.as_ref() {
+        match msg {
+            Message::Help => {
+                frame.push_str_fg(USAGE, colors.neutral);
+            }
+            Message::MoreChars => {
+                frame.push_str_fg("Search query must be at least 3 characters", colors.neutral);
+            }
+            Message::NoTracksFound => {
+                frame.push_str_fg("No tracks found from search query", colors.neutral);
+            }
+            Message::Error(error) => {
+                frame.push_str("Failed to search:\n\n");
+                frame.push_fmt_fg(error, colors.red);
+            }
+        }
+        frame.render(
+            results_area.inner(Margin::horizontal(2)),
+            TextOptions::paragraph_center(),
+        );
         return;
     }
 
@@ -330,19 +356,45 @@ fn update_search(
 
     results.clear();
     modal.prompt_hash = hash;
+    modal.message = None;
 
-    let input = modal.prompt.as_str_trim();
+    let prompt = modal.prompt.as_str_trim();
 
-    if input.is_empty() {
+    if prompt.is_empty() {
+        modal.message = Some(Message::Help);
         actions.push(Action::Render);
         return;
     }
 
-    if let Err(_err) = database.search(input, settings.search_by_path(), |id| results.push(id)) {
-        // TODO
+    if prompt.chars().count() < 3 {
+        modal.message = Some(Message::MoreChars);
+        actions.push(Action::Render);
+        return;
+    }
+
+    if let Err(err) = database.search(prompt, settings.search_by_path(), |id| results.push(id)) {
+        modal.message = Some(Message::Error(err));
+        actions.push(Action::Render);
+        return;
+    }
+
+    if results.is_empty() {
+        modal.message = Some(Message::NoTracksFound);
     }
 
     modal.list.reset();
-
     actions.push(Action::Render);
 }
+
+const USAGE: &str = "Usage
+
+Search for words and phrases across your music. \
+The word or phrase in a query must be at least 3 characters long.
+
+Enclose your query in double quotes for exact matches, \
+and exclude a word with NOT such as \"apple NOT green\".
+
+The available operators are AND, NOT, OR, * (prefix) and ^ (start-of-column).
+
+Special symbols like \"#,:%.;\" must also be enclosed in double quotes. \
+If something is wrong with the query, an error will be displayed.";

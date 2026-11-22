@@ -68,6 +68,11 @@ impl SearchModal {
         match self.state {
             State::Search => match key.code {
                 KeyCode::Enter => {
+                    self.index = 0;
+                    self.message = None;
+                    self.results.clear();
+                    self.writer.clear();
+
                     let prompt = self.prompt.as_str_trim();
 
                     if prompt.is_empty() {
@@ -75,18 +80,13 @@ impl SearchModal {
                         return Action::Render;
                     }
 
-                    self.index = 0;
-                    self.message = None;
-                    self.results.clear();
-                    self.writer.clear();
-
-                    if let Err(err) = db.search(prompt, |id| self.results.push(id)) {
-                        self.message = Some(Message::Error(err));
+                    if prompt.chars().count() < 3 {
+                        self.message = Some(Message::MoreChars);
                         return Action::Render;
                     }
 
-                    if prompt.chars().count() < 3 {
-                        self.message = Some(Message::MoreChars);
+                    if let Err(err) = db.search(prompt, |id| self.results.push(id)) {
+                        self.message = Some(Message::Error(err));
                         return Action::Render;
                     }
 
@@ -300,5 +300,5 @@ and exclude a word with NOT such as \"apple NOT green\".
 
 The available operators are AND, NOT, OR, * (prefix) and ^ (start-of-column).
 
-Special symbols such as \"#\" must also be enclosed in double quotes. \
+Special symbols like \"#,:%.;\" must also be enclosed in double quotes. \
 If something is wrong with the query, an error will be displayed.";
