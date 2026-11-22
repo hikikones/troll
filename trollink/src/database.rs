@@ -10,6 +10,8 @@ pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 // TODO: Add tests.
 
+const VERSION: SqliteId = 1;
+
 pub struct Database {
     sqlite: Sqlite,
     scheduler: Scheduler,
@@ -41,6 +43,10 @@ impl Database {
     }
 
     fn open_in_path(path: &Path) -> DatabaseResult<Self> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
         let db = Self::new(Sqlite::open(path)?);
         db.migrate()?;
         Ok(db)
@@ -456,8 +462,6 @@ impl Database {
     }
 
     fn migrate(&self) -> DatabaseResult<()> {
-        const VERSION: SqliteId = 1;
-
         let version = self.sqlite.version();
         match version {
             0 => {
@@ -565,6 +569,7 @@ impl FromSql for TagId {
 
 #[derive(Debug)]
 pub enum DatabaseError {
+    Io(std::io::Error),
     Sqlite(SqliteError),
     Version(SqliteId),
     NoPath(&'static str),
@@ -573,8 +578,11 @@ pub enum DatabaseError {
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Io(_) => f.write_str("Unable to create directories for database path."),
             Self::Sqlite(err) => err.fmt(f),
-            Self::Version(v) => f.write_fmt(format_args!("Unknown version: {v}.")),
+            Self::Version(v) => {
+                f.write_fmt(format_args!("Unknown version: {v}. Latest is {VERSION}"))
+            }
             Self::NoPath(s) => f.write_str(s),
         }
     }
@@ -583,10 +591,17 @@ impl std::fmt::Display for DatabaseError {
 impl std::error::Error for DatabaseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Io(err) => err.source(),
             Self::Sqlite(err) => err.source(),
             Self::Version(_) => None,
             Self::NoPath(_) => None,
         }
+    }
+}
+
+impl From<std::io::Error> for DatabaseError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Io(err)
     }
 }
 
