@@ -64,18 +64,28 @@ impl App {
         colors.background = bg;
         colors.foreground = fg;
 
-        let pages = Pages::new(Route::Review, &settings);
-        let markup = Markup::new(args.assets)
-            .with_scrollbar(0)
-            .with_padding(Margin::horizontal(1));
+        let assets_dir = args
+            .assets
+            .or_else(|| app_dir.map(|p| p.join("assets")).ok());
+
+        if let Some(dir) = assets_dir.as_deref()
+            && let Err(error) = std::fs::create_dir_all(dir)
+        {
+            logs.push_err(AppError::Assets {
+                path: dir.to_path_buf(),
+                error,
+            });
+        };
 
         Ok(Self {
             database,
-            settings,
             frame: Frame::new(),
-            pages,
+            pages: Pages::new(Route::Review, &settings),
             modals: Modals::new(logs),
-            markup,
+            markup: Markup::new(assets_dir)
+                .with_scrollbar(0)
+                .with_padding(Margin::horizontal(1)),
+            settings,
             is_running: true,
         })
     }
@@ -294,6 +304,10 @@ pub enum AppError {
         path: Option<PathBuf>,
         error: crate::settings::ConfigError,
     },
+    Assets {
+        path: PathBuf,
+        error: std::io::Error,
+    },
     QueryBg(RgbQueryError),
     QueryFg(RgbQueryError),
     QuerySize(std::io::Error),
@@ -310,6 +324,10 @@ impl std::fmt::Display for AppError {
             Self::Config { path, .. } => f.write_fmt(format_args!(
                 "Failed to read or create settings at {path:?}. \
                 A default one will be used instead."
+            )),
+            Self::Assets { path, .. } => f.write_fmt(format_args!(
+                "Failed to create assets directory: '{}'.",
+                path.display()
             )),
             Self::QueryBg(_) => f.write_str(
                 "Failed to query background color. \
@@ -332,6 +350,7 @@ impl std::error::Error for AppError {
         match self {
             Self::Database { error, .. } => Some(error),
             Self::Config { error, .. } => Some(error),
+            Self::Assets { error, .. } => Some(error),
             Self::QueryBg(error) => Some(error),
             Self::QueryFg(error) => Some(error),
             Self::QuerySize(error) => Some(error),
