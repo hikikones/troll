@@ -42,6 +42,10 @@ pub enum DatabaseLoadEvent {
 
 impl Database {
     pub fn new(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
+        if !music_dir.is_dir() {
+            return Err(DatabaseError::NotDir(music_dir));
+        }
+
         let sqlite = if in_memory {
             Sqlite::open_in_memory()?
         } else {
@@ -640,6 +644,7 @@ impl FromSql for AlbumId {
 
 #[derive(Debug)]
 pub enum DatabaseError {
+    NotDir(PathBuf),
     Sqlite(SqliteError),
     ScanFile {
         path: PathBuf,
@@ -649,12 +654,15 @@ pub enum DatabaseError {
         path: PathBuf,
         error: AudioFileError,
     },
-    Other(&'static str),
 }
 
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::NotDir(path) => f.write_fmt(format_args!(
+                "Provided music path '{}' is not a directory.",
+                path.display()
+            )),
             Self::Sqlite(err) => err.fmt(f),
             Self::ScanFile { path, .. } => f.write_fmt(format_args!(
                 "Failed to scan audio file '{}'.",
@@ -664,7 +672,6 @@ impl std::fmt::Display for DatabaseError {
                 "Failed to write audio rating to '{}'.",
                 path.display()
             )),
-            Self::Other(msg) => f.write_str(msg),
         }
     }
 }
@@ -672,10 +679,10 @@ impl std::fmt::Display for DatabaseError {
 impl std::error::Error for DatabaseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::NotDir(_) => None,
             Self::Sqlite(err) => Some(err),
             Self::ScanFile { error, .. } => Some(error),
             Self::SaveAudio { error, .. } => Some(error),
-            Self::Other(_) => None,
         }
     }
 }
@@ -683,11 +690,5 @@ impl std::error::Error for DatabaseError {
 impl From<SqliteError> for DatabaseError {
     fn from(err: SqliteError) -> Self {
         Self::Sqlite(err)
-    }
-}
-
-impl From<&'static str> for DatabaseError {
-    fn from(err: &'static str) -> Self {
-        Self::Other(err)
     }
 }

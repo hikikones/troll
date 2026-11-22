@@ -526,10 +526,9 @@ impl FromSql for CardKind {
         value.as_i64().and_then(|n| match n {
             0 => Ok(Self::Flashcard),
             1 => Ok(Self::Note),
-            _ => Err(FromSqlError::Other(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("Invalid card kind: {n}."),
-            )))),
+            _ => Err(FromSqlError::Other(
+                format!("Invalid card kind: {n}. Expected 0-1.").into(),
+            )),
         })
     }
 }
