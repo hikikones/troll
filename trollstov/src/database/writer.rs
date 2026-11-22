@@ -126,11 +126,11 @@ fn write_rating(path: &Path, rating: TrackRating) -> AudioResult<()> {
 impl Drop for RatingsWriter {
     fn drop(&mut self) {
         // Make sure we finish writing if we have a handle
-        if let Some(handle) = self.handle.take() {
-            if let Err(err) = handle.join() {
-                eprintln!("Thread for writing audio rating has panicked: {err:?}");
-            }
-        };
+        if let Some(handle) = self.handle.take()
+            && let Err(err) = handle.join()
+        {
+            eprintln!("Thread for writing audio rating has panicked: {err:?}");
+        }
 
         // Also make sure to write rating for current track id
         let Some(id) = self.current_track_id else {

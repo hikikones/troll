@@ -15,6 +15,12 @@ pub struct TagList {
     colors: TagListColors,
 }
 
+impl Default for TagList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub trait TagItem {
     fn width(&self) -> u16;
 }

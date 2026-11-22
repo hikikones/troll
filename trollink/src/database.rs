@@ -1,3 +1,5 @@
+#![allow(clippy::unit_arg)]
+
 use std::{fmt::NumBuffer, path::Path};
 
 use shared::{env::AppDirRef, sqlite::*};
@@ -37,7 +39,7 @@ impl Database {
             Some(path) => Self::open_in_path(path),
             None => match app_dir {
                 Ok(dir) => Self::open_in_path(&dir.join("database.db")),
-                Err(err) => return Err(DatabaseError::NoPath(err)),
+                Err(err) => Err(DatabaseError::NoPath(err)),
             },
         }
     }

@@ -1,3 +1,5 @@
+#![allow(clippy::unit_arg)]
+
 use std::{
     hash::Hasher,
     path::{Path, PathBuf},
@@ -619,7 +621,7 @@ impl ToSql for ArtistId {
 
 impl FromSql for ArtistId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(Self)
     }
 }
 
@@ -638,7 +640,7 @@ impl ToSql for AlbumId {
 
 impl FromSql for AlbumId {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        value.as_i64().map(|n| Self(n))
+        value.as_i64().map(Self)
     }
 }
 

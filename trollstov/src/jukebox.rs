@@ -112,15 +112,15 @@ impl<'a> CurrentTrack<'a> {
     }
 
     pub fn title(&self) -> &str {
-        &self.data.text[self.data.title.clone()]
+        &self.data.text[self.data.title]
     }
 
     pub fn artists(&self) -> &str {
-        &self.data.text[self.data.artists.clone()]
+        &self.data.text[self.data.artists]
     }
 
     pub fn album(&self) -> &str {
-        &self.data.text[self.data.album.clone()]
+        &self.data.text[self.data.album]
     }
 
     pub fn path(&self) -> &Path {
@@ -151,7 +151,7 @@ enum PlayState {
 
 impl Jukebox {
     pub fn new() -> JukeboxResult<Self> {
-        let player = AudioPlayer::new().map_err(|err| JukeboxError::Player(err))?;
+        let player = AudioPlayer::new().map_err(JukeboxError::Player)?;
 
         Ok(Self {
             current: None,
@@ -378,22 +378,15 @@ impl Jukebox {
             next = self.queue.next();
         }
 
-        loop {
-            match next {
-                Some((id, index)) => {
-                    if self.is_faulty(id) || self.should_skip(id, db, skip) {
-                        next = self.queue.next();
-                        continue;
-                    }
-
-                    self.state = PlayState::Next;
-                    self.start_decode(id, index, db);
-                    return;
-                }
-                None => {
-                    break;
-                }
+        while let Some((id, index)) = next {
+            if self.is_faulty(id) || self.should_skip(id, db, skip) {
+                next = self.queue.next();
+                continue;
             }
+
+            self.state = PlayState::Next;
+            self.start_decode(id, index, db);
+            return;
         }
 
         // No tracks in the queue, play a random next

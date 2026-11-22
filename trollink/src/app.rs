@@ -91,14 +91,12 @@ impl App {
     }
 
     pub fn run(&mut self, terminal: &mut Terminal) -> AppResult<()> {
-        self.frame
-            .query_size()
-            .map_err(|err| AppError::QuerySize(err))?;
+        self.frame.query_size().map_err(AppError::QuerySize)?;
         self.pages.enter(&mut self.database, &mut self.markup);
         self.render(terminal)?;
 
         while self.is_running {
-            let Some(event) = TermEvent::read().map_err(|err| AppError::Event(err))? else {
+            let Some(event) = TermEvent::read().map_err(AppError::Event)? else {
                 continue;
             };
 
@@ -148,9 +146,7 @@ impl App {
                 },
             },
             TermEvent::Resize => {
-                self.frame
-                    .query_size()
-                    .map_err(|err| AppError::QuerySize(err))?;
+                self.frame.query_size().map_err(AppError::QuerySize)?;
                 Action::Render
             }
         };
@@ -240,7 +236,7 @@ impl App {
 
         self.frame
             .flush(&mut terminal.lock())
-            .map_err(|err| AppError::Render(err))
+            .map_err(AppError::Render)
     }
 
     fn render_shortcuts(&mut self, area: Rect) {

@@ -202,12 +202,13 @@ fn input_settings(
             settings.set_config(&page.config);
 
             page.primary.clear();
-            page.primary.push_fmt(&settings.colors().primary);
             page.secondary.clear();
-            page.secondary.push_fmt(&settings.colors().secondary);
             page.neutral.clear();
-            page.neutral.push_fmt(&settings.colors().neutral);
 
+            let colors = settings.colors();
+            page.primary.push_fmt(colors.primary);
+            page.secondary.push_fmt(colors.secondary);
+            page.neutral.push_fmt(colors.neutral);
             actions.push(Action::Render);
         }
         _ => {
@@ -356,12 +357,14 @@ fn render_settings(
     let (mut left, mut right) = line.split_vertically(0, 1);
     let selected = list.index();
     let current = list.current();
-    let mut row = line.row();
 
-    for (index, setting) in lines.zip(SETTINGS.into_iter().skip(list.scroll())) {
-        line = line.with_row(row);
-        left = left.with_row(row);
-        right = right.with_row(row);
+    for ((index, setting), row) in lines
+        .zip(SETTINGS.into_iter().skip(list.scroll()))
+        .zip(line.row()..)
+    {
+        line.set_row(row);
+        left.set_row(row);
+        right.set_row(row);
 
         if index == selected {
             frame.print_fmt(Sgr::Bold);
@@ -444,7 +447,6 @@ fn render_settings(
         }
 
         frame.print_fmt(Sgr::NotBold);
-        row += 1;
     }
 
     let description = match current {

@@ -119,7 +119,6 @@ impl SettingsPage {
                 self.primary.push_fmt(colors.primary);
                 self.secondary.push_fmt(colors.secondary);
                 self.neutral.push_fmt(colors.neutral);
-
                 return Action::Render;
             }
             _ => {
@@ -154,9 +153,11 @@ impl SettingsPage {
         let (mut left, mut right) = line.split_vertically(0, 1);
         let selected = self.list.index();
         let current = self.current();
-        let mut row = line.row();
 
-        for (index, setting) in lines.zip(SETTINGS.into_iter().skip(self.list.scroll())) {
+        for ((index, setting), row) in lines
+            .zip(SETTINGS.into_iter().skip(self.list.scroll()))
+            .zip(line.row()..)
+        {
             line.set_row(row);
             left.set_row(row);
             right.set_row(row);
@@ -219,7 +220,6 @@ impl SettingsPage {
             }
 
             frame.print_fmt(Sgr::NotBold);
-            row += 1;
         }
 
         let description = match current {

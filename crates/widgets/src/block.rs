@@ -73,7 +73,7 @@ impl Block {
                 }
 
                 match area.size.rows {
-                    0 => return,
+                    0 => (),
                     1 => {
                         draw_line_horizontal(area.pos, area.size.cols, frame);
                     }
@@ -88,7 +88,7 @@ impl Block {
                 }
 
                 match area.size.cols {
-                    0 => return,
+                    0 => (),
                     1 => {
                         draw_line_vertical(area.pos, area.size.rows, frame);
                     }

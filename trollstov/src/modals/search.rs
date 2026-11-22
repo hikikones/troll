@@ -137,7 +137,7 @@ fn input_search(
                 let ids = modal
                     .list
                     .selection_inclusive()
-                    .filter_map(|i| results.get(i).map(|id| *id));
+                    .filter_map(|i| results.get(i).copied());
                 jukebox.extend(ids);
             }
             KeyCode::Char('n') => {
@@ -145,7 +145,7 @@ fn input_search(
                     .list
                     .selection_inclusive()
                     .rev()
-                    .filter_map(|i| results.get(i).map(|id| *id))
+                    .filter_map(|i| results.get(i).copied())
                     .for_each(|id| {
                         jukebox.add_next(id);
                     });
@@ -234,6 +234,7 @@ fn render_search(
             results_area.inner(Margin::horizontal(2)),
             TextOptions::paragraph_center(),
         );
+        frame.print_fmt(Sgr::Reset);
         return;
     }
 
@@ -243,6 +244,7 @@ fn render_search(
         .set_colors(colors.list())
         .render(results_area.inner(Margin::horizontal(1)), &mut frame)
     else {
+        frame.print_fmt(Sgr::Reset);
         return;
     };
 

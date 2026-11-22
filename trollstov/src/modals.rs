@@ -26,9 +26,6 @@ pub enum Modal {
 
 impl Modal {
     pub const fn is_active(self) -> bool {
-        match self {
-            Self::None => false,
-            _ => true,
-        }
+        !matches!(self, Self::None)
     }
 }

@@ -25,9 +25,8 @@ pub struct App {
 
 impl App {
     pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
-        let jukebox = Jukebox::new().map_err(|err| AppError::Jukebox(err))?;
-        let database =
-            Database::new(args.dir, args.in_memory).map_err(|err| AppError::Database(err))?;
+        let jukebox = Jukebox::new().map_err(AppError::Jukebox)?;
+        let database = Database::new(args.dir, args.in_memory).map_err(AppError::Database)?;
 
         let mut logs = Logs::new();
 
@@ -183,7 +182,7 @@ impl App {
                 self.world
                     .resource_mut::<Frame>()
                     .flush(&mut terminal.lock())
-                    .map_err(|err| AppError::Render(err))?;
+                    .map_err(AppError::Render)?;
 
                 if self.world.non_send::<Database>().has_finished_loading() {
                     // Init first run
@@ -194,7 +193,7 @@ impl App {
             }
 
             if let Some(event) =
-                TermEvent::poll(self.timers.update.timeout()).map_err(|err| AppError::Event(err))?
+                TermEvent::poll(self.timers.update.timeout()).map_err(AppError::Event)?
             {
                 match event {
                     TermEvent::Key(key) => {
@@ -231,7 +230,7 @@ impl App {
             }
 
             if let Some(event) =
-                TermEvent::poll(self.timers.update.timeout()).map_err(|err| AppError::Event(err))?
+                TermEvent::poll(self.timers.update.timeout()).map_err(AppError::Event)?
             {
                 match event {
                     TermEvent::Key(key) => {
@@ -277,7 +276,7 @@ impl App {
         self.world
             .resource_mut::<Frame>()
             .flush(&mut terminal.lock())
-            .map_err(|err| AppError::Render(err))?;
+            .map_err(AppError::Render)?;
         self.timers.render.start();
 
         Ok(())
@@ -291,7 +290,7 @@ impl App {
         self.world
             .resource_mut::<Frame>()
             .query_size()
-            .map_err(|err| AppError::QuerySize(err))
+            .map_err(AppError::QuerySize)
     }
 
     fn apply_actions(&mut self) -> bool {
@@ -320,11 +319,8 @@ impl App {
                         .resource_mut::<NextState<Page>>()
                         .set(route.as_page());
 
-                    match route {
-                        Route::Tracks(Some(id)) => {
-                            self.world.resource_mut::<TracksParam>().set(id);
-                        }
-                        _ => {}
+                    if let Route::Tracks(Some(id)) = route {
+                        self.world.resource_mut::<TracksParam>().set(id);
                     }
                 }
                 Action::Modal(modal) => {
@@ -750,7 +746,7 @@ fn render_shortcuts(
         frame.push_ch_repeat(' ', gap);
     }
 
-    if logs.len() > 0 {
+    if !logs.is_empty() {
         frame.push_ch_repeat(' ', gap);
         frame.push_fmt(Sgr::Fg(key_color));
         frame.push_str("^l");

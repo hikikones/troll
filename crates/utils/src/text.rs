@@ -88,13 +88,13 @@ impl<'a> Iterator for Graphemes<'a> {
     type Item = Grapheme<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.graphemes.next().map(|g| Grapheme(g))
+        self.graphemes.next().map(Grapheme)
     }
 }
 
 impl<'a> DoubleEndedIterator for Graphemes<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.graphemes.next_back().map(|g| Grapheme(g))
+        self.graphemes.next_back().map(Grapheme)
     }
 }
 
@@ -153,9 +153,7 @@ impl<'a> Iterator for GraphemeAnsiIter<'a> {
     type Item = GraphemeOrAnsi<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some((start, g)) = self.graphemes.next() else {
-            return None;
-        };
+        let (start, g) = self.graphemes.next()?;
 
         if g.equals("\x1b") {
             match self.graphemes.find(|(_, g)| g.equals("m")) {
@@ -201,7 +199,7 @@ impl<'a> Iterator for WordsIter<'a> {
             return Some(event);
         }
 
-        while let Some((i, g)) = self.graphemes.next() {
+        for (i, g) in self.graphemes.by_ref() {
             if g.is_whitespace() {
                 let next_event = if g.is_newline() {
                     WordsEvent::Newline

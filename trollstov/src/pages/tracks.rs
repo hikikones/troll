@@ -224,7 +224,7 @@ fn render_tracks(
         &jukebox,
     );
 
-    render_shortcuts(**shortcuts_area, &mut frame, &colors);
+    render_shortcuts(**shortcuts_area, &mut frame, colors);
 }
 
 fn render_table(
@@ -285,9 +285,8 @@ fn render_table(
     let selected = list.index();
     let selection = list.selection_inclusive();
     let current_track = jukebox.track_id();
-    let mut row = table_area.pos.row;
 
-    for index in lines {
+    for (index, row) in lines.zip(table_area.pos.row..) {
         let mut style = if index == selected {
             frame.fill(line.with_row(row), colors.primary, true);
             Style::fg(colors.primary).with_reverse()
@@ -321,7 +320,6 @@ fn render_table(
         });
 
         frame.print_fmt(Sgr::Reset);
-        row += 1;
     }
 }
 

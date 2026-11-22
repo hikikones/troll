@@ -812,7 +812,7 @@ impl MarkupImages {
                 let png = math_to_png(math, color, cell)?;
                 image
                     .load_from_bytes(png, ImageLoadOptions::none())
-                    .map_err(|err| MarkupError::MathImage(err))?;
+                    .map_err(MarkupError::MathImage)?;
 
                 image.hash = hash;
             }
@@ -890,11 +890,10 @@ fn math_to_png(math: &str, color: Rgb, size: CellDims) -> MarkupResult<Vec<u8>> 
         ..Default::default()
     };
 
-    let ast = ratex_parser::parse(math).map_err(|err| MarkupError::MathParse(err))?;
+    let ast = ratex_parser::parse(math).map_err(MarkupError::MathParse)?;
     let layout = ratex_layout::layout(&ast, &layout_options);
     let display_list = ratex_layout::to_display_list(&layout);
-    ratex_render::render_to_png(&display_list, &render_options)
-        .map_err(|err| MarkupError::MathRender(err))
+    ratex_render::render_to_png(&display_list, &render_options).map_err(MarkupError::MathRender)
 }
 
 #[derive(Debug)]
@@ -933,6 +932,7 @@ impl std::fmt::Display for MarkupError {
 impl std::error::Error for MarkupError {}
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum MarkupBlock<'a> {
     Paragraph {
         text: &'a str,
@@ -1063,13 +1063,13 @@ impl<'a> MarkupBlockParser<'a> {
             None => (self.input.len(), self.input.len()),
         };
 
-        return (
+        (
             MarkupBlock::Paragraph {
                 text: self.input[paragraph_start..paragraph_end].trim(),
                 alignment,
             },
             Range { start, end },
-        );
+        )
     }
 
     fn parse_heading(&mut self, start: usize) -> (MarkupBlock<'a>, Range<usize>) {
@@ -1096,14 +1096,14 @@ impl<'a> MarkupBlockParser<'a> {
             None => (self.input.len(), self.input.len(), false),
         };
 
-        return (
+        (
             MarkupBlock::Heading {
                 text: self.input[heading_start..heading_end].trim(),
                 alignment,
                 newline,
             },
             Range { start, end },
-        );
+        )
     }
 
     fn parse_list(&mut self, start: usize) -> (MarkupBlock<'a>, Range<usize>) {
@@ -1113,12 +1113,12 @@ impl<'a> MarkupBlockParser<'a> {
             None => (self.input.len(), self.input.len()),
         };
 
-        return (
+        (
             MarkupBlock::List {
                 items: ListItems::new(self.input[list_start..list_end].trim()),
             },
             Range { start, end },
-        );
+        )
     }
 
     fn parse_comment(&mut self, start: usize) -> (MarkupBlock<'a>, Range<usize>) {
@@ -1128,12 +1128,12 @@ impl<'a> MarkupBlockParser<'a> {
             None => (self.input.len(), self.input.len()),
         };
 
-        return (
+        (
             MarkupBlock::Comment {
                 _text: self.input[comment_start..comment_end].trim(),
             },
             Range { start, end },
-        );
+        )
     }
 
     fn parse_code_block(&mut self, start: usize, ticks: usize) -> (MarkupBlock<'a>, Range<usize>) {
@@ -1427,20 +1427,16 @@ impl<'a> Iterator for InlineParser<'a> {
                 }
                 // First char, only need to look for start tag
                 (None, Some(next)) => {
-                    if !*tag_cond {
-                        if !next.is_whitespace() && next != curr {
-                            *tag_cond = true;
-                            return Some(tag_start);
-                        }
+                    if !*tag_cond && !next.is_whitespace() && next != curr {
+                        *tag_cond = true;
+                        return Some(tag_start);
                     }
                 }
                 // Last char, only need to look for end tag
                 (Some(prev), None) => {
-                    if *tag_cond {
-                        if !prev.is_whitespace() && prev != curr {
-                            *tag_cond = false;
-                            return Some(tag_end);
-                        }
+                    if *tag_cond && !prev.is_whitespace() && prev != curr {
+                        *tag_cond = false;
+                        return Some(tag_end);
                     }
                 }
                 // Nothing to look for

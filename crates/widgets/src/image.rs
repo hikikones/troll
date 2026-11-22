@@ -57,7 +57,7 @@ impl Image {
         path: impl AsRef<Path>,
         opts: ImageLoadOptions,
     ) -> ImageResult<()> {
-        let bytes = std::fs::read(path).map_err(|err| ImageError::Read(err))?;
+        let bytes = std::fs::read(path).map_err(ImageError::Read)?;
         self.load_from_bytes(bytes, opts)
     }
 
@@ -68,7 +68,7 @@ impl Image {
     ) -> ImageResult<()> {
         let mut frames = Vec::new();
         load_image(std::io::Cursor::new(bytes), &mut frames, opts.format)
-            .map_err(|err| ImageError::Load(err))?;
+            .map_err(ImageError::Load)?;
 
         if let Some(resize) = opts.resize {
             resize_image(&mut frames, resize);
@@ -431,9 +431,9 @@ where
     Ok(())
 }
 
-fn resize_image(frames: &mut Vec<image::Frame>, options: ImageResize) {
+fn resize_image(frames: &mut [image::Frame], options: ImageResize) {
     let (max_width, max_height) = options.max.into_u32();
-    for frame in frames.iter_mut() {
+    for frame in frames {
         let (width, height) = frame.buffer().dimensions();
 
         if width <= max_width && height <= max_height {
@@ -468,7 +468,7 @@ fn encode_image<'a>(
     let dims = Dims::from(rgba.dimensions());
     let compressed = deflate
         .compress(rgba.as_raw())
-        .map_err(|err| ImageError::Compress(err))?;
+        .map_err(ImageError::Compress)?;
     let b64 = base64.encode(compressed);
 
     // Encode first frame
@@ -516,7 +516,7 @@ fn encode_image<'a>(
         b64,
         writer,
     )
-    .map_err(|err| ImageError::Write(err))?;
+    .map_err(ImageError::Write)?;
 
     // If more frames, encode animation
     let mut animation = false;
@@ -528,7 +528,7 @@ fn encode_image<'a>(
         let dims = Dims::from(rgba.dimensions());
         let compressed = deflate
             .compress(rgba.as_raw())
-            .map_err(|err| ImageError::Compress(err))?;
+            .map_err(ImageError::Compress)?;
         let b64 = base64.encode(compressed);
 
         struct AnimatedRoot {
@@ -580,7 +580,7 @@ fn encode_image<'a>(
             b64,
             writer,
         )
-        .map_err(|err| ImageError::Write(err))?;
+        .map_err(ImageError::Write)?;
     }
 
     // Set animation controls
@@ -594,7 +594,7 @@ fn encode_image<'a>(
             KittyAnimationLoop::Forever,
             verbosity
         )
-        .map_err(|err| ImageError::Write(err))?;
+        .map_err(ImageError::Write)?;
     }
 
     Ok(dims)

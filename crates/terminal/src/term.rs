@@ -491,8 +491,7 @@ impl Rgb {
     ) -> Result<Self, RgbQueryError> {
         let mut buffer = [0; 32];
 
-        let n = Self::do_query(osc, &mut buffer, writer, reader)
-            .map_err(|err| RgbQueryError::Io(err))?;
+        let n = Self::do_query(osc, &mut buffer, writer, reader).map_err(RgbQueryError::Io)?;
 
         let response = String::from_utf8_lossy(&buffer[..n]);
 

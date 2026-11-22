@@ -45,16 +45,14 @@ impl Scanner {
             let _ = sender.send(ScanEvent::Files(files.len() as u32));
 
             let mut track = ScannedTrack::default();
-            let mut i = 1;
 
-            for (path, ext) in files {
+            for ((path, ext), i) in files.into_iter().zip(1..) {
                 let event = match process_file(&path, ext, &mut track) {
                     Ok(track) => ScanEvent::Track(i, track),
                     Err(err) => ScanEvent::Error(path, err),
                 };
                 let _ = sender.send(event);
 
-                i += 1;
                 track.clear();
             }
         });

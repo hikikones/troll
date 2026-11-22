@@ -7,6 +7,12 @@ pub struct TypeMap {
     map: HashMap<TypeId, Box<dyn Any>>,
 }
 
+impl Default for TypeMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TypeMap {
     pub fn new() -> Self {
         Self {
@@ -48,7 +54,7 @@ trait FetchItem {
 }
 
 // Immutable reference
-impl<'a, T: 'static> FetchItem for &'a T {
+impl<T: 'static> FetchItem for &T {
     type Ptr = *const T;
 
     fn type_id() -> TypeId {
@@ -68,7 +74,7 @@ impl<'a, T: 'static> FetchItem for &'a T {
 }
 
 // Mutable reference
-impl<'a, T: 'static> FetchItem for &'a mut T {
+impl<T: 'static> FetchItem for &mut T {
     type Ptr = *mut T;
 
     fn type_id() -> TypeId {

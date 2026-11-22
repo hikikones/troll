@@ -468,11 +468,11 @@ impl TrackRating {
             .parse::<u8>()
             .map(|num| match num {
                 0 => Self::None,
-                ..=20 => Self::Awful,
-                ..=40 => Self::Bad,
-                ..=60 => Self::Ok,
-                ..=80 => Self::Good,
-                ..=255 => Self::Amazing,
+                1..=20 => Self::Awful,
+                21..=40 => Self::Bad,
+                41..=60 => Self::Ok,
+                61..=80 => Self::Good,
+                81..=255 => Self::Amazing,
             })
             .unwrap_or_default()
     }
@@ -491,11 +491,11 @@ impl TrackRating {
     const fn from_id3v2(value: u8) -> Self {
         match value {
             0 => Self::None,
-            ..=51 => Self::Awful,
-            ..=102 => Self::Bad,
-            ..=153 => Self::Ok,
-            ..=204 => Self::Good,
-            ..=255 => Self::Amazing,
+            1..=51 => Self::Awful,
+            52..=102 => Self::Bad,
+            103..=153 => Self::Ok,
+            154..=204 => Self::Good,
+            205..=255 => Self::Amazing,
         }
     }
 

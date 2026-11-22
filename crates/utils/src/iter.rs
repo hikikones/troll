@@ -28,10 +28,10 @@ impl<'a> PeekableGraphemesPrevious<'a> {
     }
 
     pub fn next_if(&mut self, func: impl Fn(&str) -> bool) -> Option<(usize, &'a str)> {
-        if let Some((_, peek)) = self.graphemes.peek() {
-            if func(peek) {
-                return self.next();
-            }
+        if let Some((_, peek)) = self.graphemes.peek()
+            && func(peek)
+        {
+            return self.next();
         }
         None
     }
@@ -50,10 +50,7 @@ impl<'a> PeekableGraphemesPrevious<'a> {
 
     pub fn find_by(&mut self, func: impl Fn(&str) -> bool) -> Option<(usize, &'a str)> {
         loop {
-            let Some((i, n)) = self.next() else {
-                return None;
-            };
-
+            let (i, n) = self.next()?;
             if func(n) {
                 return Some((i, n));
             }
@@ -78,15 +75,13 @@ impl<'a> PeekableGraphemesPrevious<'a> {
         prev_func: impl Fn(&str) -> bool,
     ) -> Option<(usize, &'a str)> {
         loop {
-            let Some((i, n)) = self.find_by(&next_func) else {
-                return None;
-            };
+            let (i, n) = self.find_by(&next_func)?;
 
-            if let Some(p) = self.previous {
-                if prev_func(p) {
-                    return Some((i, n));
-                }
-            };
+            if let Some(p) = self.previous
+                && prev_func(p)
+            {
+                return Some((i, n));
+            }
         }
     }
 
@@ -99,14 +94,12 @@ impl<'a> PeekableGraphemesPrevious<'a> {
         func: impl Fn(&str, &str) -> bool,
     ) -> Option<(usize, &'a str, &'a str)> {
         loop {
-            let Some((i, n)) = self.next() else {
-                return None;
-            };
+            let (i, n) = self.next()?;
 
-            if let Some(p) = self.previous {
-                if func(p, n) {
-                    return Some((i, p, n));
-                }
+            if let Some(p) = self.previous
+                && func(p, n)
+            {
+                return Some((i, p, n));
             }
         }
     }
@@ -124,9 +117,7 @@ impl<'a> PeekableGraphemesPrevious<'a> {
             0 => None,
             1 => self.find_by(func),
             _ => loop {
-                if self.find_by(&func).is_none() {
-                    return None;
-                };
+                self.find_by(&func)?;
 
                 let mut count = 1;
                 while let Some((i, g)) = self.next_if(&func) {
@@ -165,9 +156,7 @@ impl<'a> Iterator for PeekableGraphemesPrevious<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.graphemes.next();
 
-        if next.is_none() {
-            return None;
-        }
+        next?;
 
         self.previous = self.current.map(|(_, g)| g);
         self.current = next;
@@ -201,10 +190,10 @@ impl<'a> PeekableCharsPrevious<'a> {
     }
 
     pub fn next_if(&mut self, f: impl Fn(char) -> bool) -> Option<(usize, char)> {
-        if let Some(p) = self.peek() {
-            if f(p) {
-                return self.next();
-            }
+        if let Some(p) = self.peek()
+            && f(p)
+        {
+            return self.next();
         }
         None
     }
@@ -219,9 +208,7 @@ impl<'a> PeekableCharsPrevious<'a> {
 
     pub fn find_by(&mut self, f: impl Fn(char) -> bool) -> Option<(usize, char)> {
         loop {
-            let Some((i, n)) = self.next() else {
-                return None;
-            };
+            let (i, n) = self.next()?;
 
             if f(n) {
                 return Some((i, n));
@@ -243,15 +230,13 @@ impl<'a> PeekableCharsPrevious<'a> {
         prev_func: impl Fn(char) -> bool,
     ) -> Option<(usize, char)> {
         loop {
-            let Some((i, n)) = self.find_by(&next_func) else {
-                return None;
-            };
+            let (i, n) = self.find_by(&next_func)?;
 
-            if let Some(p) = self.previous {
-                if prev_func(p) {
-                    return Some((i, n));
-                }
-            };
+            if let Some(p) = self.previous
+                && prev_func(p)
+            {
+                return Some((i, n));
+            }
         }
     }
 
@@ -268,9 +253,7 @@ impl<'a> PeekableCharsPrevious<'a> {
             0 => None,
             1 => self.find_by(f),
             _ => loop {
-                if self.find_by(&f).is_none() {
-                    return None;
-                };
+                self.find_by(&f)?;
 
                 let mut count = 1;
                 while let Some((i, c)) = self.next_if(&f) {
@@ -309,9 +292,7 @@ impl<'a> Iterator for PeekableCharsPrevious<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let next = self.chars.next();
 
-        if next.is_none() {
-            return None;
-        }
+        next?;
 
         self.previous = self.current.map(|(_, c)| c);
         self.current = next;

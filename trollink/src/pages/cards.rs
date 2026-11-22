@@ -101,19 +101,15 @@ impl CardsPage {
                 return Action::Render;
             }
             KeyCode::Char(' ') => {
-                if self.show_tags {
-                    if self.tags.toggle_selection() {
-                        self.update_cards(db, true);
-                        return Action::Render;
-                    }
+                if self.show_tags && self.tags.toggle_selection() {
+                    self.update_cards(db, true);
+                    return Action::Render;
                 }
             }
             KeyCode::Char('r') => {
-                if self.show_tags && !self.tags.is_empty() {
-                    if self.tags.reset() {
-                        self.update_cards(db, true);
-                        return Action::Render;
-                    }
+                if self.show_tags && !self.tags.is_empty() && self.tags.reset() {
+                    self.update_cards(db, true);
+                    return Action::Render;
                 }
             }
             _ => {

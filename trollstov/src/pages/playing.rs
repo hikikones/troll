@@ -377,9 +377,11 @@ fn render_queue(
     let selection = list.selection_inclusive();
     let hlen = jukebox.history();
     let current_qi = jukebox.queue_index();
-    let mut row = list_area.pos.row;
 
-    for (index, (id, qi)) in lines.zip(jukebox.iter().skip(list.scroll())) {
+    for ((index, (id, qi)), row) in lines
+        .zip(jukebox.iter().skip(list.scroll()))
+        .zip(line.row()..)
+    {
         let fg = if qi < hlen {
             colors.neutral
         } else if current_qi == Some(qi) {
@@ -406,8 +408,6 @@ fn render_queue(
 
         frame.push_fmt(Sgr::Reset);
         frame.render(line.with_row(row), TextOptions::span());
-
-        row += 1;
     }
 
     render_shortcuts(shortcuts_area, frame, colors);

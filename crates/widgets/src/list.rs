@@ -165,13 +165,7 @@ impl List {
             KeyCode::PageUp => self.move_up(self.list_height as usize, key.shift()),
             KeyCode::End => self.move_to_end(key.shift()),
             KeyCode::Home => self.move_to_start(key.shift()),
-            KeyCode::Char('a') => {
-                if key.ctrl() {
-                    self.select_all()
-                } else {
-                    false
-                }
-            }
+            KeyCode::Char('a') if key.ctrl() => self.select_all(),
             _ => false,
         }
     }

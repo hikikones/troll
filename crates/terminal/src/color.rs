@@ -129,13 +129,11 @@ impl std::str::FromStr for Color {
                 Ok(Rgb(r, g, b))
             }
 
-            let rgb = parse_hex_color(hex).map_err(|err| ParseColorError::ParseRgb(err))?;
+            let rgb = parse_hex_color(hex).map_err(ParseColorError::ParseRgb)?;
 
             Ok(Self::Rgb(rgb))
         } else if c.is_ascii_digit() {
-            let indexed_value = s
-                .parse::<u8>()
-                .map_err(|err| ParseColorError::ParseIndexed(err))?;
+            let indexed_value = s.parse::<u8>().map_err(ParseColorError::ParseIndexed)?;
 
             Ok(Self::Indexed(indexed_value))
         } else {

@@ -16,7 +16,6 @@ clap-cargo = { workspace = true }
 directories = { workspace = true }
 edit = { workspace = true }
 fsrs = { workspace = true }
-ron = { workspace = true }
 serde = { workspace = true }
 shared = { workspace = true }
 terminal = { workspace = true }

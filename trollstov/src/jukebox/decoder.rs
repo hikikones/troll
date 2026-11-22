@@ -24,11 +24,8 @@ impl AudioDecoder {
     }
 
     pub fn poll(&mut self) -> Option<DecodeResult> {
-        let Some(handle) = self.handle.as_ref() else {
-            return None;
-        };
-
-        if handle.is_finished()
+        if let Some(handle) = self.handle.as_ref()
+            && handle.is_finished()
             && let Some(handle) = self.handle.take()
             && let Ok(result) = handle.join()
         {
@@ -98,9 +95,9 @@ fn start_decode(request: DecodeRequest) -> DecodeHandle {
 }
 
 fn decode_audio(path: &Path) -> Result<Decoder, DecodeError> {
-    let ext = AudioFileExt::try_from_path(path).map_err(|err| DecodeError::Audio(err))?;
-    let file = File::open(path).map_err(|err| DecodeError::Io(err))?;
-    let len = file.metadata().map_err(|err| DecodeError::Io(err))?.len();
+    let ext = AudioFileExt::try_from_path(path).map_err(DecodeError::Audio)?;
+    let file = File::open(path).map_err(DecodeError::Io)?;
+    let len = file.metadata().map_err(DecodeError::Io)?.len();
     let decoder = rodio::Decoder::builder()
         .with_data(BufReader::new(file))
         .with_hint(ext.as_lower_case())
@@ -108,7 +105,7 @@ fn decode_audio(path: &Path) -> Result<Decoder, DecodeError> {
         .with_seekable(true)
         .with_gapless(false)
         .build()
-        .map_err(|err| DecodeError::Decode(err))?;
+        .map_err(DecodeError::Decode)?;
 
     Ok(decoder)
 }
