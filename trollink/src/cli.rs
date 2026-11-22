@@ -3,18 +3,15 @@ use std::path::PathBuf;
 #[derive(Debug, clap::Parser)]
 #[command(version, about, styles = CLAP_STYLING)]
 pub struct Args {
-    /// Optional path for your database file. By default,
-    /// the location will be determined by the conventions of your operating system.
+    /// Optional path for your database file.
     #[arg(long, value_name = "FILE.db", value_hint = clap::ValueHint::FilePath)]
     pub database: Option<PathBuf>,
 
-    /// Optional path for your assets directory. By default,
-    /// the location will be determined by the conventions of your operating system.
+    /// Optional path for your assets directory.
     #[arg(long, value_name = "DIR", value_hint = clap::ValueHint::DirPath)]
     pub assets: Option<PathBuf>,
 
-    /// Optional path for your settings file. By default,
-    /// the location will be determined by the conventions of your operating system.
+    /// Optional path for your settings file.
     #[arg(long, value_name = "FILE.toml", value_hint = clap::ValueHint::FilePath)]
     pub settings: Option<PathBuf>,
 }

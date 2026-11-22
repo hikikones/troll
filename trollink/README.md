@@ -123,9 +123,9 @@ Usage: trollink [OPTIONS]
 Example: trollink --database /path/to/my/database.db --assets /path/to/my/assets
 
 Options:
-      --database <FILE.db>    Optional path for your database file. By default, the location will be determined by the conventions of your operating system.
-      --assets <DIR>          Optional path for your assets directory. By default, the location will be determined by the conventions of your operating system.
-      --settings <FILE.toml>  Optional path for your settings file. By default, the location will be determined by the conventions of your operating system.
+      --database <FILE.db>    Optional path for your database file.
+      --assets <DIR>          Optional path for your assets directory.
+      --settings <FILE.toml>  Optional path for your settings file.
   -h, --help                  Print help.
   -V, --version               Print version.
 ```

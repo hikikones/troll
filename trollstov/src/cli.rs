@@ -7,18 +7,15 @@ pub struct Args {
     #[arg(value_name = "DIR", value_hint = clap::ValueHint::DirPath)]
     pub dir: PathBuf,
 
-    /// Optional path for your settings file. By default,
-    /// the location will be determined by the conventions of your operating system.
+    /// Optional path for your settings file.
     #[arg(long, value_name = "FILE.toml", value_hint = clap::ValueHint::FilePath)]
     pub settings: Option<PathBuf>,
 
-    /// Add system media controls for player interaction
-    /// with media keys and your operating system.
+    /// Add system media controls for player interaction with media keys.
     #[clap(long, action)]
     pub media_controls: bool,
 
-    /// Store database in-memory. By default,
-    /// it will be stored in a temporary directory.
+    /// Store database in-memory.
     #[clap(long, action)]
     pub in_memory: bool,
 }

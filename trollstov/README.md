@@ -54,8 +54,9 @@ Arguments:
   <DIR>  The directory for your music.
 
 Options:
-      --settings <FILE.toml>  Optional path for your settings file. By default, the location will be determined by the conventions of your operating system.
-      --media-controls        Add system media controls for player interaction with media keys and your operating system.
+      --settings <FILE.toml>  Optional path for your settings file.
+      --media-controls        Add system media controls for player interaction with media keys.
+      --in-memory             Store database in-memory.
   -h, --help                  Print help.
   -V, --version               Print version.
 ```
