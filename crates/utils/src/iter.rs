@@ -2,7 +2,7 @@ use std::{iter::Peekable, str::CharIndices};
 
 use unicode_segmentation::{GraphemeIndices, UnicodeSegmentation};
 
-// TODO: Make generic.
+// TODO: Make generic: PrevIter, PeekableWithPrevious?
 #[derive(Debug)]
 pub struct PeekableGraphemesPrevious<'a> {
     graphemes: Peekable<GraphemeIndices<'a>>,
