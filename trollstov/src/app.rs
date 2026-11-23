@@ -100,8 +100,10 @@ impl App {
     pub fn run(&mut self, terminal: &mut Terminal) -> AppResult<()> {
         self.update_size()?;
 
-        self.run_load_loop(terminal)?;
-        self.run_event_loop(terminal)?;
+        let events = &EventThread::spawn();
+
+        self.run_load_loop(terminal, events)?;
+        self.run_event_loop(terminal, events)?;
 
         Ok(())
     }
@@ -169,7 +171,7 @@ impl App {
         self
     }
 
-    fn run_load_loop(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+    fn run_load_loop(&mut self, terminal: &mut Terminal, events: &EventThread) -> AppResult<()> {
         // Start loading
         self.world.non_send_mut::<Database>().load();
         self.timers.update.start();
@@ -192,8 +194,9 @@ impl App {
                 }
             }
 
-            if let Some(event) =
-                TermEvent::poll(self.timers.update.timeout()).map_err(AppError::Event)?
+            if let Some(event) = events
+                .recv(self.timers.update.timeout())
+                .map_err(AppError::Event)?
             {
                 match event {
                     TermEvent::Key(key) => {
@@ -214,7 +217,7 @@ impl App {
         Ok(())
     }
 
-    fn run_event_loop(&mut self, terminal: &mut Terminal) -> AppResult<()> {
+    fn run_event_loop(&mut self, terminal: &mut Terminal, events: &EventThread) -> AppResult<()> {
         while self.is_running {
             if self.timers.update.tick() {
                 self.run_update(terminal)?;
@@ -229,8 +232,9 @@ impl App {
                 }
             }
 
-            if let Some(event) =
-                TermEvent::poll(self.timers.update.timeout()).map_err(AppError::Event)?
+            if let Some(event) = events
+                .recv(self.timers.update.timeout())
+                .map_err(AppError::Event)?
             {
                 match event {
                     TermEvent::Key(key) => {
