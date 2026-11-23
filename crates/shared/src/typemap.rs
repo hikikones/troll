@@ -48,7 +48,9 @@ pub trait Fetch {
 trait FetchItem {
     type Ptr;
 
+    #[cfg(debug_assertions)]
     fn type_id() -> TypeId;
+
     fn fetch_ptr(map: &mut TypeMap) -> Option<Self::Ptr>;
     unsafe fn from_ptr(ptr: Self::Ptr) -> Self;
 }
@@ -57,6 +59,7 @@ trait FetchItem {
 impl<T: 'static> FetchItem for &T {
     type Ptr = *const T;
 
+    #[cfg(debug_assertions)]
     fn type_id() -> TypeId {
         TypeId::of::<T>()
     }
@@ -77,6 +80,7 @@ impl<T: 'static> FetchItem for &T {
 impl<T: 'static> FetchItem for &mut T {
     type Ptr = *mut T;
 
+    #[cfg(debug_assertions)]
     fn type_id() -> TypeId {
         TypeId::of::<T>()
     }
