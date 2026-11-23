@@ -2,7 +2,9 @@ use std::fmt::{Display, NumBuffer, Write};
 
 use crate::{Color, Pos, Rgb};
 
-const CSI: &str = "\x1b[";
+pub(crate) const CSI: &str = "\x1b[";
+pub(crate) const SGR_END: &str = "m";
+pub(crate) const SGR_END_CH: char = 'm';
 
 #[derive(Debug, Clone, Copy)]
 pub enum Cursor {
@@ -408,7 +410,7 @@ impl Display for Sgr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(CSI)?;
         self.write_ansi_code(f)?;
-        f.write_char('m')
+        f.write_char(SGR_END_CH)
     }
 }
 
@@ -426,6 +428,6 @@ where
             f.write_char(';')?;
         }
 
-        f.write_char('m')
+        f.write_char(SGR_END_CH)
     }
 }
