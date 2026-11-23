@@ -182,49 +182,22 @@ impl AnsiViewer {
         let view_start = self.scroll;
         let view_end = self.scroll + inner.size.rows;
 
-        let mut pos = inner.pos;
-        let mut width = 0;
-        let mut i = 0;
-
         let max_width = self.view.cols;
+        let mut pos = inner.pos;
 
-        for line in self.ansi.lines() {
+        for (line, i) in self.ansi.lines().zip(0..) {
             let col = self.options.alignment.calc_line(pos.col, max_width, line);
             frame.cursor(pos.with_col(col));
 
             let is_in_view = i >= view_start && i < view_end;
 
-            for ga in GraphemeAnsiIter::new(line) {
-                match ga {
-                    GraphemeOrAnsi::Grapheme(g) => {
-                        if is_in_view {
-                            if width == max_width {
-                                continue;
-                            }
-
-                            let w = utils::str_width(g.0);
-
-                            if width + w > max_width {
-                                width = max_width;
-                                continue;
-                            }
-
-                            width += w;
-                            frame.print_str(g.0);
-                        }
-                    }
-                    GraphemeOrAnsi::Ansi(s) => {
-                        frame.print_str(s);
-                    }
-                }
-            }
-
             if is_in_view {
-                pos.row += 1;
+                frame.print_str(line);
+                pos.add_row(1);
+            } else {
+                let sgr = SgrIter::new(line).with_filter(true);
+                frame.print_iter(sgr);
             }
-
-            width = 0;
-            i += 1;
         }
 
         self.render_scrollbar(frame);
@@ -233,25 +206,27 @@ impl AnsiViewer {
     fn process(&mut self, ansi: &str, area: Rect, mut inner: Rect) {
         let hash = utils::hash_fast(ansi);
 
-        if self.hash != hash || self.size != area.size {
-            self.scroll_area = None;
-
-            // First pass
-            self.relayout(ansi, inner.cols());
-
-            if self.is_scrollable(inner.size) {
-                let scroll_area = area.right_edge();
-                inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
-                self.scroll_area = Some(scroll_area);
-
-                // Second pass for scroll area
-                self.relayout(ansi, inner.cols());
-            }
-
-            self.hash = hash;
-            self.size = area.size;
-            self.view = inner.size;
+        if !(self.hash != hash || self.size != area.size) {
+            return;
         }
+
+        self.scroll_area = None;
+
+        // First pass
+        self.relayout(ansi, inner.cols());
+
+        if self.is_scrollable(inner.size) {
+            let scroll_area = area.right_edge();
+            inner.sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
+            self.scroll_area = Some(scroll_area);
+
+            // Second pass for scroll area
+            self.relayout(ansi, inner.cols());
+        }
+
+        self.hash = hash;
+        self.size = area.size;
+        self.view = inner.size;
     }
 
     fn relayout(&mut self, ansi: &str, max_width: u16) {

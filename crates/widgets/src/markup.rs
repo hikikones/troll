@@ -224,21 +224,13 @@ impl Markup {
                     for line in self.text.slice(range).lines() {
                         let is_in_view = is_in_view(curr_line, view_top, view_bot);
 
-                        GraphemeAnsiIter::new(line).for_each(|ga| match ga {
-                            GraphemeOrAnsi::Grapheme(g) => {
-                                if is_in_view {
-                                    frame.push_str(g.0);
-                                }
-                            }
-                            GraphemeOrAnsi::Ansi(s) => match is_in_view {
-                                true => frame.push_str(s),
-                                false => frame.print_str(s),
-                            },
-                        });
-
                         if is_in_view {
+                            frame.push_str(line);
                             frame.render(area, TextOptions::span().with_horizontal(alignment));
                             area.shrink_down(1);
+                        } else {
+                            let sgr = SgrIter::new(line).with_filter(true);
+                            frame.print_iter(sgr);
                         }
 
                         curr_line += 1;

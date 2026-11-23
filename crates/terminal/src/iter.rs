@@ -1,6 +1,4 @@
-use utils::{Grapheme, GraphemeIndices, grapheme_indices};
-
-use crate::{CSI, ESC, SGR_END};
+use crate::{CSI, SGR_END};
 
 #[derive(Debug)]
 pub struct SgrIter<'a> {
@@ -16,6 +14,11 @@ impl<'a> SgrIter<'a> {
             index: 0,
             text_start: 0,
         }
+    }
+
+    pub fn with_filter(self, sgr: bool) -> impl Iterator<Item = &'a str> {
+        self.filter(move |(_, is_sgr)| *is_sgr == sgr)
+            .map(|(s, _)| s)
     }
 }
 
@@ -51,50 +54,12 @@ impl<'a> Iterator for SgrIter<'a> {
             return Some((text, false));
         };
 
-        let sgr_end = self.index + sgr_end + CSI.len();
+        let sgr_end = self.index + sgr_end + CSI.len() + SGR_END.len();
 
-        self.index = sgr_end + SGR_END.len();
-        self.text_start = self.index;
+        self.index = sgr_end;
+        self.text_start = sgr_end;
 
-        let sgr = &self.text[sgr_start..self.index];
+        let sgr = &self.text[sgr_start..sgr_end];
         Some((sgr, true))
-    }
-}
-
-#[derive(Debug)]
-pub struct GraphemeAnsiIter<'a> {
-    text: &'a str,
-    graphemes: GraphemeIndices<'a>,
-}
-
-#[derive(Debug)]
-pub enum GraphemeOrAnsi<'a> {
-    Grapheme(Grapheme<'a>),
-    Ansi(&'a str),
-}
-
-impl<'a> GraphemeAnsiIter<'a> {
-    pub fn new(text: &'a str) -> Self {
-        Self {
-            text,
-            graphemes: grapheme_indices(text),
-        }
-    }
-}
-
-impl<'a> Iterator for GraphemeAnsiIter<'a> {
-    type Item = GraphemeOrAnsi<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (start, g) = self.graphemes.next()?;
-
-        if g.equals(ESC) {
-            match self.graphemes.find(|(_, g)| g.equals(SGR_END)) {
-                Some((end, _)) => Some(GraphemeOrAnsi::Ansi(&self.text[start..end + 1])),
-                None => None,
-            }
-        } else {
-            Some(GraphemeOrAnsi::Grapheme(g))
-        }
     }
 }

@@ -4,9 +4,8 @@ use utils::StringExt;
 
 use crate::{
     AnsiExt, CellDims, Color, Cursor, CursorClear, CursorErase, CursorMoveDown, CursorToHome,
-    CursorToPos, CursorVisibility, Dims, GraphemeAnsiIter, GraphemeOrAnsi, HorizontalAlignment,
-    Pos, Rect, ScreenHeight, ScreenSize, ScreenSizeThresholds, ScreenWidth, Sgr, Size,
-    TerminalSize, VerticalAlignment,
+    CursorToPos, CursorVisibility, Dims, HorizontalAlignment, Pos, Rect, ScreenHeight, ScreenSize,
+    ScreenSizeThresholds, ScreenWidth, Sgr, SgrIter, Size, TerminalSize, VerticalAlignment,
 };
 
 #[derive(Debug, Default)]
@@ -363,30 +362,30 @@ fn print_span_with_ansi(
             output.push_fmt(CursorToPos(pos));
 
             let mut width = 0;
-            for g in GraphemeAnsiIter::new(text) {
-                match g {
-                    GraphemeOrAnsi::Grapheme(g) => {
-                        if width == max_width {
-                            continue;
+            for (s, is_sgr) in SgrIter::new(text) {
+                if is_sgr {
+                    output.push_str(s);
+                    continue;
+                }
+
+                if width == max_width {
+                    continue;
+                }
+
+                for g in utils::graphemes(s) {
+                    let w = g.width() as u16;
+
+                    if width + w > max_width {
+                        if fill {
+                            let remaining = max_width - width;
+                            output.push_repeat(' ', remaining as usize);
                         }
-
-                        let w = utils::str_width(g.0);
-
-                        if width + w > max_width {
-                            if fill {
-                                let remaining = max_width - width;
-                                output.extend(std::iter::repeat_n(' ', remaining as usize));
-                            }
-                            width = max_width;
-                            continue;
-                        }
-
-                        width += w;
-                        output.push_str(g.0);
+                        width = max_width;
+                        break;
                     }
-                    GraphemeOrAnsi::Ansi(s) => {
-                        output.push_str(s);
-                    }
+
+                    width += w;
+                    output.push_str(g.0);
                 }
             }
         }
