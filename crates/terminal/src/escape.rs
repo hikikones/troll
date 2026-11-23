@@ -2,7 +2,10 @@ use std::fmt::{Display, NumBuffer, Write};
 
 use crate::{Color, Pos, Rgb};
 
-pub(crate) const CSI: &str = "\x1b[";
+pub(crate) const ESC: &str = "\x1b";
+pub(crate) const _BEL: &str = "\x07";
+
+pub(crate) const CSI: &str = utils::concat!(ESC, "[");
 pub(crate) const SGR_END: &str = "m";
 pub(crate) const SGR_END_CH: char = 'm';
 
