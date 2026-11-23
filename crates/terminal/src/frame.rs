@@ -4,8 +4,9 @@ use utils::StringExt;
 
 use crate::{
     AnsiExt, CellDims, Color, Cursor, CursorClear, CursorErase, CursorMoveDown, CursorToHome,
-    CursorToPos, CursorVisibility, Dims, HorizontalAlignment, Pos, Rect, ScreenHeight, ScreenSize,
-    ScreenSizeThresholds, ScreenWidth, Sgr, Size, TerminalSize, VerticalAlignment,
+    CursorToPos, CursorVisibility, Dims, GraphemeAnsiIter, GraphemeOrAnsi, HorizontalAlignment,
+    Pos, Rect, ScreenHeight, ScreenSize, ScreenSizeThresholds, ScreenWidth, Sgr, Size,
+    TerminalSize, VerticalAlignment,
 };
 
 #[derive(Debug, Default)]
@@ -362,9 +363,9 @@ fn print_span_with_ansi(
             output.push_fmt(CursorToPos(pos));
 
             let mut width = 0;
-            for g in utils::GraphemeAnsiIter::new(text) {
+            for g in GraphemeAnsiIter::new(text) {
                 match g {
-                    utils::GraphemeOrAnsi::Grapheme(g) => {
+                    GraphemeOrAnsi::Grapheme(g) => {
                         if width == max_width {
                             continue;
                         }
@@ -383,7 +384,7 @@ fn print_span_with_ansi(
                         width += w;
                         output.push_str(g.0);
                     }
-                    utils::GraphemeOrAnsi::Ansi(s) => {
+                    GraphemeOrAnsi::Ansi(s) => {
                         output.push_str(s);
                     }
                 }

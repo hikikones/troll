@@ -194,9 +194,9 @@ impl AnsiViewer {
 
             let is_in_view = i >= view_start && i < view_end;
 
-            for ga in utils::GraphemeAnsiIter::new(line) {
+            for ga in GraphemeAnsiIter::new(line) {
                 match ga {
-                    utils::GraphemeOrAnsi::Grapheme(g) => {
+                    GraphemeOrAnsi::Grapheme(g) => {
                         if is_in_view {
                             if width == max_width {
                                 continue;
@@ -213,7 +213,7 @@ impl AnsiViewer {
                             frame.print_str(g.0);
                         }
                     }
-                    utils::GraphemeOrAnsi::Ansi(s) => {
+                    GraphemeOrAnsi::Ansi(s) => {
                         frame.print_str(s);
                     }
                 }

@@ -224,13 +224,13 @@ impl Markup {
                     for line in self.text.slice(range).lines() {
                         let is_in_view = is_in_view(curr_line, view_top, view_bot);
 
-                        utils::GraphemeAnsiIter::new(line).for_each(|ga| match ga {
-                            utils::GraphemeOrAnsi::Grapheme(g) => {
+                        GraphemeAnsiIter::new(line).for_each(|ga| match ga {
+                            GraphemeOrAnsi::Grapheme(g) => {
                                 if is_in_view {
                                     frame.push_str(g.0);
                                 }
                             }
-                            utils::GraphemeOrAnsi::Ansi(s) => match is_in_view {
+                            GraphemeOrAnsi::Ansi(s) => match is_in_view {
                                 true => frame.push_str(s),
                                 false => frame.print_str(s),
                             },
