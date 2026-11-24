@@ -137,6 +137,19 @@ impl Database {
             .unwrap();
     }
 
+    pub fn track_artists_concat(&self, id: TrackId, f: impl FnOnce(&str)) {
+        self.sqlite
+            .single(
+                "SELECT GROUP_CONCAT(ar.name, ', ') \
+                FROM artists ar \
+                JOIN artist_tracks ar_t ON ar_t.artist_id = ar.id \
+                WHERE ar_t.track_id = ?",
+                [id],
+                |row| Ok(f(row.get_ref(0)?.as_str()?)),
+            )
+            .unwrap();
+    }
+
     pub fn track_table(&mut self, id: TrackId, f: impl FnOnce(TrackTable)) {
         self.sql.clear();
 

@@ -743,7 +743,6 @@ fn render_playback(
 
     frame.push_str(artists);
     if !(artists.is_empty() || title.is_empty()) {
-        // TODO: Artists should be split by a comma.
         frame.push_str(": ");
     }
     frame.push_str(title);

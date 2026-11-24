@@ -63,16 +63,9 @@ impl Metadata {
             });
         });
 
-        let start = self.text.len();
-        db.track_artists(id, |artist| {
-            self.text.push_str(artist);
-            self.text.push(' '); // TODO: comma
+        db.track_artists_concat(id, |artists| {
+            self.artists = self.text.push_str_get_range(artists);
         });
-        self.text.pop();
-        self.artists = Range {
-            start,
-            end: self.text.len(),
-        };
     }
 }
 
