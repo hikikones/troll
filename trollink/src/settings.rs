@@ -12,7 +12,7 @@ use widgets::{
 
 // TODO: Add show_scrollbars to config.
 
-pub type SettingsResult<T> = Result<T, ConfigError>;
+pub type SettingsResult<T = ()> = Result<T, ConfigError>;
 
 const VERSION: u8 = 0;
 
@@ -113,7 +113,7 @@ impl Settings {
         colors
     }
 
-    pub fn save(&self) -> SettingsResult<()> {
+    pub fn save(&self) -> SettingsResult {
         let Some(path) = self.path.as_deref() else {
             return Err(ConfigError::NoSavePath);
         };
@@ -162,7 +162,7 @@ impl Config {
         Ok(config)
     }
 
-    fn save(&self, path: &Path) -> SettingsResult<()> {
+    fn save(&self, path: &Path) -> SettingsResult {
         let toml = toml::to_string(self)?;
         std::fs::write(path, &toml)?;
 

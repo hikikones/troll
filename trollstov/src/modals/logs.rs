@@ -90,7 +90,7 @@ fn render_logs(mut frame: ResMut<Frame>, settings: Res<Settings>, logs: Res<Logs
     frame.push_str(log);
     frame.render(
         body.inner(Margin::proportional(1)),
-        TextOptions::paragraph_center(), // TODO: Left? Also, extra newline for sources.
+        TextOptions::paragraph(),
     );
 
     render_shortcuts(bottom, &mut frame, colors);

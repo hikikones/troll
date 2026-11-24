@@ -93,7 +93,7 @@ impl LogsModal {
         frame.push_str(log);
         frame.render(
             body.inner(Margin::proportional(1)),
-            TextOptions::paragraph_center(),
+            TextOptions::paragraph(),
         );
 
         render_shortcuts(bottom, frame, colors);

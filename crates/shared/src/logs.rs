@@ -53,14 +53,14 @@ impl Logs {
 
     pub fn push_error(&mut self, error: impl Error) {
         let start = self.text.len();
-        let _ = writeln!(self.text, "{error}");
+        let _ = writeln!(self.text, "{error}\n");
         self.write_sources(error);
         self.add_log(start);
     }
 
     pub fn push_context(&mut self, context: impl Display, error: impl Error) {
         let start = self.text.len();
-        let _ = writeln!(self.text, "{context}");
+        let _ = writeln!(self.text, "{context}\n");
         let _ = writeln!(self.text, "Caused by: {error}");
         self.write_sources(error);
         self.add_log(start);

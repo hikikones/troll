@@ -13,7 +13,7 @@ use crate::database::TrackRating;
 
 // TODO: Add show_scrollbars to config.
 
-pub type SettingsResult<T> = Result<T, ConfigError>;
+pub type SettingsResult<T = ()> = Result<T, ConfigError>;
 
 const VERSION: u8 = 0;
 
@@ -106,9 +106,9 @@ impl Settings {
         &mut self.config.colors
     }
 
-    pub fn save(&self) -> Result<(), ConfigError> {
+    pub fn save(&self) -> SettingsResult {
         let Some(path) = self.path.as_ref() else {
-            return Ok(());
+            return Err(ConfigError::NoSavePath);
         };
 
         self.config.save(path)
@@ -155,7 +155,7 @@ impl Config {
         Ok(config)
     }
 
-    fn save(&self, path: &Path) -> SettingsResult<()> {
+    fn save(&self, path: &Path) -> SettingsResult {
         let toml = toml::to_string(self)?;
         std::fs::write(path, &toml)?;
 
