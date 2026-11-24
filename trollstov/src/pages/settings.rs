@@ -191,7 +191,7 @@ fn input_settings(
                         page.config = settings.config().clone();
                     }
                     Err(err) => {
-                        logs.push_err(err);
+                        logs.push_error(err);
                     }
                 }
                 actions.push(Action::Render);
@@ -267,7 +267,7 @@ fn handle_setting(
                         settings.colors_mut().primary = color;
                     }
                     Err(err) => {
-                        logs.push_err(err);
+                        logs.push_error(err);
                     }
                 }
                 actions.push(Action::Render);
@@ -289,7 +289,7 @@ fn handle_setting(
                         settings.colors_mut().secondary = color;
                     }
                     Err(err) => {
-                        logs.push_err(err);
+                        logs.push_error(err);
                     }
                 }
                 actions.push(Action::Render);
@@ -311,7 +311,7 @@ fn handle_setting(
                         settings.colors_mut().neutral = color;
                     }
                     Err(err) => {
-                        logs.push_err(err);
+                        logs.push_error(err);
                     }
                 }
                 actions.push(Action::Render);

@@ -66,7 +66,7 @@ impl Metadata {
         let start = self.text.len();
         db.track_artists(id, |artist| {
             self.text.push_str(artist);
-            self.text.push(' ');
+            self.text.push(' '); // TODO: comma
         });
         self.text.pop();
         self.artists = Range {

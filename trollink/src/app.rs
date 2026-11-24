@@ -37,7 +37,7 @@ impl App {
 
         let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
             .unwrap_or_else(|error| {
-                logs.push_err(AppError::Config {
+                logs.push_error(AppError::Config {
                     path: args.settings.clone(),
                     error,
                 });
@@ -48,12 +48,12 @@ impl App {
             Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
                 .map(|rgb| (rgb.slight_offset().as_color(), TermTheme::from_bg(rgb)))
                 .unwrap_or_else(|error| {
-                    logs.push_err(AppError::QueryBg(error));
+                    logs.push_error(AppError::QueryBg(error));
                     (Color::Default, TermTheme::default())
                 });
         let fg = Rgb::query_fg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
             .unwrap_or_else(|error| {
-                logs.push_err(AppError::QueryFg(error));
+                logs.push_error(AppError::QueryFg(error));
                 match theme {
                     TermTheme::Dark => Rgb::WHITE,
                     TermTheme::Light => Rgb::BLACK,
@@ -71,7 +71,7 @@ impl App {
         if let Some(dir) = assets_dir.as_deref()
             && let Err(error) = std::fs::create_dir_all(dir)
         {
-            logs.push_err(AppError::Assets {
+            logs.push_error(AppError::Assets {
                 path: dir.to_path_buf(),
                 error,
             });

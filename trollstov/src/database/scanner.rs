@@ -1,125 +1,153 @@
 use std::{
+    hash::Hasher,
     path::{Path, PathBuf},
     range::Range,
-    sync::mpsc::TryRecvError,
 };
 
+use shared::{
+    logs::Logs,
+    sqlite::{SqliteError, SqliteId, SqliteResult, Transaction},
+    time::Timer,
+};
 use utils::StringExt;
 
 use crate::database::{
-    AudioFile, AudioFileError, AudioFileExt, AudioMetadata, AudioProperties, AudioResult,
-    TrackDuration, TrackNumber, TrackRating,
+    AudioFile, AudioFileExt, AudioMetadata, AudioProperties, AudioResult, Database, TrackDuration,
+    TrackNumber, TrackRating,
 };
 
-type Sender = std::sync::mpsc::Sender<ScanEvent>;
 type Receiver = std::sync::mpsc::Receiver<ScanEvent>;
+type Handle = std::thread::JoinHandle<(Database, Logs)>;
 
-pub struct Scanner {
-    sender: Option<(Sender, PathBuf)>,
-    receiver: Receiver,
-}
-
-pub enum ScanEvent {
-    Files(u32),
-    Track(u32, ScannedTrack),
-    Error(PathBuf, AudioFileError),
-    Done,
-}
+pub struct Scanner(PathBuf);
 
 impl Scanner {
-    pub fn new(dir: PathBuf) -> Self {
-        let (sender, receiver) = std::sync::mpsc::channel();
-        Self {
-            sender: Some((sender, dir)),
-            receiver,
-        }
+    pub const fn new(dir: PathBuf) -> Self {
+        Self(dir)
     }
 
-    pub fn start(&mut self) {
-        let Some((sender, dir)) = self.sender.take() else {
-            return;
-        };
+    pub fn spawn(self, mut database: Database, mut logs: Logs) -> (ScannerRecv, ScannerHandle) {
+        let Scanner(dir) = self;
+        let (sender, receiver) = std::sync::mpsc::channel();
 
-        std::thread::spawn(move || {
+        let handle = std::thread::spawn(move || {
             let files = collect_files(dir, true);
-            let _ = sender.send(ScanEvent::Files(files.len() as u32));
+            let _ = sender.send(ScanEvent::TotalFiles(files.len() as u32));
 
             let mut track = ScannedTrack::default();
+            let mut timer = Timer::new(4).with_loop().with_start();
 
             for ((path, ext), i) in files.into_iter().zip(1..) {
-                let event = match process_file(&path, ext, &mut track) {
-                    Ok(track) => ScanEvent::Track(i, track),
-                    Err(err) => ScanEvent::Error(path, err),
-                };
-                let _ = sender.send(event);
+                if let Err(error) = process_file(&path, ext, &mut track) {
+                    logs.push_context(
+                        format_args!("Failed to scan audio file '{}'.", path.display()),
+                        error,
+                    );
+                    track.clear();
+                    continue;
+                }
+
+                if let Err(error) = database.sqlite.transaction(|tx| add_track(tx, &track)) {
+                    let _ = sender.send(ScanEvent::Error(error));
+                    track.clear();
+                    continue;
+                }
+
+                if timer.tick() {
+                    let _ = sender.send(ScanEvent::Progress(i));
+                }
 
                 track.clear();
             }
-        });
-    }
 
-    pub fn recv(&self) -> Option<ScanEvent> {
-        match self.receiver.try_recv() {
-            Ok(event) => Some(event),
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => Some(ScanEvent::Done),
-        }
+            let _ = sender.send(ScanEvent::Done);
+
+            database.set_tracks_len();
+            database.sort_tracks();
+
+            (database, logs)
+        });
+
+        (ScannerRecv(receiver), ScannerHandle(handle))
     }
 }
 
-#[derive(Default, Clone)]
-pub struct ScannedTrack {
+pub struct ScannerRecv(Receiver);
+
+impl ScannerRecv {
+    pub fn recv(&self) -> Option<ScanEvent> {
+        self.0.try_recv().ok()
+    }
+}
+
+pub struct ScannerHandle(Handle);
+
+impl ScannerHandle {
+    pub fn join(self) -> (Database, Logs) {
+        self.0.join().unwrap()
+    }
+}
+
+pub enum ScanEvent {
+    TotalFiles(u32),
+    Progress(u32),
+    Done,
+    Error(SqliteError),
+}
+
+#[derive(Default)]
+struct ScannedTrack {
     path: Range<usize>,
     metadata: AudioMetadata,
     properties: AudioProperties,
 }
 
 impl ScannedTrack {
-    pub const fn number(&self) -> TrackNumber {
+    const fn number(&self) -> TrackNumber {
         self.metadata.number
     }
 
-    pub const fn rating(&self) -> TrackRating {
+    const fn rating(&self) -> TrackRating {
         self.metadata.rating
     }
 
-    pub const fn duration(&self) -> TrackDuration {
+    const fn duration(&self) -> TrackDuration {
         self.properties.duration
     }
 
-    pub const fn bit_rate_kbps(&self) -> u32 {
+    const fn bit_rate_kbps(&self) -> u32 {
         self.properties.bit_rate_kbps
     }
 
-    pub const fn bit_depth(&self) -> Option<u8> {
+    const fn bit_depth(&self) -> Option<u8> {
         self.properties.bit_depth
     }
 
-    pub const fn sample_rate(&self) -> Option<u32> {
+    const fn sample_rate(&self) -> Option<u32> {
         self.properties.sample_rate
     }
 
-    pub fn title(&self) -> &str {
+    fn title(&self) -> &str {
         self.slice(self.metadata.title)
     }
 
-    pub fn artists(&self) -> impl Iterator<Item = &str> {
+    fn artists(&self) -> impl Iterator<Item = &str> {
         self.metadata.artists.iter().map(|r| self.slice(*r))
     }
 
-    pub fn album(&self) -> &str {
+    fn album(&self) -> &str {
         self.slice(self.metadata.album)
     }
 
-    pub fn album_artist(&self) -> &str {
+    fn album_artist(&self) -> &str {
         self.slice(self.metadata.album_artist)
     }
 
-    pub fn date(&self) -> &str {
+    fn date(&self) -> &str {
         self.slice(self.metadata.date)
     }
 
-    pub fn path(&self) -> &str {
+    fn path(&self) -> &str {
         self.slice(self.path)
     }
 
@@ -134,11 +162,89 @@ impl ScannedTrack {
     }
 }
 
-fn process_file(
-    path: &Path,
-    ext: AudioFileExt,
-    track: &mut ScannedTrack,
-) -> AudioResult<ScannedTrack> {
+fn add_track(tx: &Transaction, track: &ScannedTrack) -> SqliteResult<()> {
+    // Album
+    let album_id = utils::hasher_fast(|hasher| {
+        hasher.write(track.album().as_bytes());
+        hasher.write(track.album_artist().as_bytes());
+        hasher.write(track.date().as_bytes());
+    }) as SqliteId;
+
+    tx.execute(
+        "INSERT INTO albums (id, name) \
+                VALUES (?1, ?2) ON CONFLICT(id) DO NOTHING",
+        (album_id, track.album()),
+    )?;
+
+    // Track
+    tx.execute(
+        "INSERT INTO tracks \
+                (title, \
+                number, \
+                rating, \
+                duration, \
+                bit_rate_kbps, \
+                bit_depth, \
+                sample_rate, \
+                path, album_id) \
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        (
+            track.title(),
+            track.number(),
+            track.rating(),
+            track.duration(),
+            track.bit_rate_kbps(),
+            track.bit_depth(),
+            track.sample_rate(),
+            track.path(),
+            album_id,
+        ),
+    )?;
+    let track_id = tx.last_insert_rowid() as u32;
+
+    // Artists
+    for artist in track.artists() {
+        let rows_changed = tx.execute(
+            "INSERT INTO artists (name) VALUES (?1) \
+                            ON CONFLICT(name) DO NOTHING",
+            [artist],
+        )?;
+        let artist_id: SqliteId = if rows_changed > 0 {
+            tx.last_insert_rowid()
+        } else {
+            tx.query_row("SELECT id FROM artists WHERE name = ?1", [artist], |row| {
+                row.get(0)
+            })?
+        };
+        tx.execute(
+            "INSERT INTO artist_tracks (artist_id, track_id) \
+                VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+            (artist_id, track_id),
+        )?;
+    }
+    tx.execute(
+        "INSERT INTO track_fts (rowid, title, artist, album, path) \
+            SELECT \
+                t.id, \
+                t.title, \
+                COALESCE(( \
+                    SELECT group_concat(ar.name, ' ') \
+                    FROM artist_tracks ar_t \
+                    JOIN artists ar ON ar.id = ar_t.artist_id \
+                    WHERE ar_t.track_id = t.id \
+                ), ''), \
+                al.name, \
+                t.path \
+            FROM tracks t \
+            JOIN albums al ON al.id = t.album_id \
+            WHERE t.id = ?1",
+        [track_id],
+    )?;
+
+    Ok(())
+}
+
+fn process_file(path: &Path, ext: AudioFileExt, track: &mut ScannedTrack) -> AudioResult<()> {
     let audio = AudioFile::read_metadata(path, ext)?;
 
     audio.metadata_in_place(&mut track.metadata)?;
@@ -152,7 +258,7 @@ fn process_file(
         track.metadata.artists.push(Range::default());
     }
 
-    Ok(track.clone())
+    Ok(())
 }
 
 fn collect_files(root: impl AsRef<Path>, follow_links: bool) -> Vec<(PathBuf, AudioFileExt)> {

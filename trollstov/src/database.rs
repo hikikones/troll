@@ -1,9 +1,6 @@
 #![allow(clippy::unit_arg)]
 
-use std::{
-    hash::Hasher,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use shared::sqlite::*;
 
@@ -13,7 +10,7 @@ mod track;
 mod writer;
 
 pub use audio::*;
-use scanner::*;
+pub use scanner::*;
 pub use track::*;
 use utils::StringExt;
 use writer::*;
@@ -25,29 +22,12 @@ pub struct Database {
     sql: String,
     sort: TrackSort,
     reverse_sort: bool,
-    scanner: Option<Scanner>,
     writer: RatingsWriter,
     tracks_len: u32,
 }
 
-pub enum DatabaseEvent {
-    Track(TrackId),
-    Error(DatabaseError),
-    FinishedLoading,
-}
-
-pub enum DatabaseLoadEvent {
-    Start(u32),
-    Progress(u32),
-    ScanError(DatabaseError),
-}
-
 impl Database {
-    pub fn new(music_dir: PathBuf, in_memory: bool) -> DatabaseResult<Self> {
-        if !music_dir.is_dir() {
-            return Err(DatabaseError::NotDir(music_dir));
-        }
-
+    pub fn new(in_memory: bool) -> DatabaseResult<Self> {
         let sqlite = if in_memory {
             Sqlite::open_in_memory()?
         } else {
@@ -63,20 +43,9 @@ impl Database {
             sql: String::new(),
             sort: TrackSort::default(),
             reverse_sort: false,
-            scanner: Some(Scanner::new(music_dir)),
             writer: RatingsWriter::new(),
             tracks_len: 0,
         })
-    }
-
-    pub fn load(&mut self) {
-        if let Some(scanner) = self.scanner.as_mut() {
-            scanner.start();
-        }
-    }
-
-    pub const fn has_finished_loading(&self) -> bool {
-        self.scanner.is_none()
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -378,51 +347,6 @@ impl Database {
         true
     }
 
-    pub fn poll_receiver(&mut self, mut on_event: impl FnMut(DatabaseLoadEvent)) {
-        let Some(scanner) = self.scanner.take() else {
-            return;
-        };
-
-        let mut is_done = false;
-        let mut progress = None;
-
-        while let Some(event) = scanner.recv() {
-            match event {
-                ScanEvent::Files(len) => {
-                    on_event(DatabaseLoadEvent::Start(len));
-                }
-                ScanEvent::Track(i, track) => {
-                    self.sqlite
-                        .transaction(|tx| Ok(Self::add_track(tx, track)))
-                        .unwrap();
-                    progress = Some(i);
-                }
-                ScanEvent::Error(path, error) => {
-                    on_event(DatabaseLoadEvent::ScanError(DatabaseError::ScanFile {
-                        path,
-                        error,
-                    }));
-                }
-                ScanEvent::Done => {
-                    is_done = true;
-                    break;
-                }
-            }
-        }
-
-        if let Some(progress) = progress {
-            on_event(DatabaseLoadEvent::Progress(progress));
-        }
-
-        if is_done {
-            self.set_tracks_len();
-            self.sort_tracks();
-            return;
-        }
-
-        self.scanner = Some(scanner);
-    }
-
     pub fn poll_writer(
         &mut self,
         current_track_id: Option<TrackId>,
@@ -517,93 +441,6 @@ impl Database {
             })
             .unwrap();
     }
-
-    fn add_track(tx: &Transaction, track: ScannedTrack) {
-        // Album
-        let album_id = utils::hasher_fast(|hasher| {
-            hasher.write(track.album().as_bytes());
-            hasher.write(track.album_artist().as_bytes());
-            hasher.write(track.date().as_bytes());
-        }) as SqliteId;
-
-        tx.execute(
-            "INSERT INTO albums (id, name) \
-                VALUES (?1, ?2) ON CONFLICT(id) DO NOTHING",
-            (album_id, track.album()),
-        )
-        .unwrap();
-
-        // Track
-        tx.execute(
-            "INSERT INTO tracks \
-                (title, \
-                number, \
-                rating, \
-                duration, \
-                bit_rate_kbps, \
-                bit_depth, \
-                sample_rate, \
-                path, album_id) \
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            (
-                track.title(),
-                track.number(),
-                track.rating(),
-                track.duration(),
-                track.bit_rate_kbps(),
-                track.bit_depth(),
-                track.sample_rate(),
-                track.path(),
-                album_id,
-            ),
-        )
-        .unwrap();
-        let track_id = tx.last_insert_rowid() as u32;
-
-        // Artists
-        for artist in track.artists() {
-            let rows_changed = tx
-                .execute(
-                    "INSERT INTO artists (name) VALUES (?1) \
-                            ON CONFLICT(name) DO NOTHING",
-                    [artist],
-                )
-                .unwrap();
-            let artist_id: SqliteId = if rows_changed > 0 {
-                tx.last_insert_rowid()
-            } else {
-                tx.query_row("SELECT id FROM artists WHERE name = ?1", [artist], |row| {
-                    row.get(0)
-                })
-                .unwrap()
-            };
-            tx.execute(
-                "INSERT INTO artist_tracks (artist_id, track_id) \
-                VALUES (?1, ?2) ON CONFLICT DO NOTHING",
-                (artist_id, track_id),
-            )
-            .unwrap();
-        }
-        tx.execute(
-            "INSERT INTO track_fts (rowid, title, artist, album, path) \
-            SELECT \
-                t.id, \
-                t.title, \
-                COALESCE(( \
-                    SELECT group_concat(ar.name, ' ') \
-                    FROM artist_tracks ar_t \
-                    JOIN artists ar ON ar.id = ar_t.artist_id \
-                    WHERE ar_t.track_id = t.id \
-                ), ''), \
-                al.name, \
-                t.path \
-            FROM tracks t \
-            JOIN albums al ON al.id = t.album_id \
-            WHERE t.id = ?1",
-            [track_id],
-        )
-        .unwrap();
-    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -646,12 +483,7 @@ impl FromSql for AlbumId {
 
 #[derive(Debug)]
 pub enum DatabaseError {
-    NotDir(PathBuf),
     Sqlite(SqliteError),
-    ScanFile {
-        path: PathBuf,
-        error: AudioFileError,
-    },
     SaveAudio {
         path: PathBuf,
         error: AudioFileError,
@@ -661,15 +493,7 @@ pub enum DatabaseError {
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NotDir(path) => f.write_fmt(format_args!(
-                "Provided music path '{}' is not a directory.",
-                path.display()
-            )),
             Self::Sqlite(err) => err.fmt(f),
-            Self::ScanFile { path, .. } => f.write_fmt(format_args!(
-                "Failed to scan audio file '{}'.",
-                path.display()
-            )),
             Self::SaveAudio { path, .. } => f.write_fmt(format_args!(
                 "Failed to write audio rating to '{}'.",
                 path.display()
@@ -681,9 +505,7 @@ impl std::fmt::Display for DatabaseError {
 impl std::error::Error for DatabaseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::NotDir(_) => None,
             Self::Sqlite(err) => Some(err),
-            Self::ScanFile { error, .. } => Some(error),
             Self::SaveAudio { error, .. } => Some(error),
         }
     }

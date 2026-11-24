@@ -1,4 +1,8 @@
-use std::range::Range;
+use std::{
+    error::Error,
+    fmt::{Display, Write},
+    range::Range,
+};
 
 #[derive(Default)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
@@ -35,32 +39,30 @@ impl Logs {
         self.index
     }
 
-    pub fn push_err(&mut self, error: impl std::error::Error) {
-        use std::fmt::Write;
-
-        let start = self.text.len();
-        let _ = writeln!(self.text, "{error}");
-
-        let mut source = error.source();
-        while let Some(cause) = source {
-            let _ = writeln!(self.text, "Caused by: {cause}");
-            source = cause.source();
-        }
-
-        self.add_log(start);
-    }
-
     pub fn push_str(&mut self, s: &str) {
         let start = self.text.len();
         self.text.push_str(s);
         self.add_log(start);
     }
 
-    pub fn push_fmt(&mut self, s: impl std::fmt::Display) {
-        use std::fmt::Write;
-
+    pub fn push_fmt(&mut self, s: impl Display) {
         let start = self.text.len();
         let _ = write!(self.text, "{s}");
+        self.add_log(start);
+    }
+
+    pub fn push_error(&mut self, error: impl Error) {
+        let start = self.text.len();
+        let _ = writeln!(self.text, "{error}");
+        self.write_sources(error);
+        self.add_log(start);
+    }
+
+    pub fn push_context(&mut self, context: impl Display, error: impl Error) {
+        let start = self.text.len();
+        let _ = writeln!(self.text, "{context}");
+        let _ = writeln!(self.text, "Caused by: {error}");
+        self.write_sources(error);
         self.add_log(start);
     }
 
@@ -124,6 +126,14 @@ impl Logs {
         self.text.clear();
         self.ranges.clear();
         self.index = 0;
+    }
+
+    fn write_sources(&mut self, error: impl Error) {
+        let mut source = error.source();
+        while let Some(cause) = source {
+            let _ = writeln!(self.text, "Caused by: {cause}");
+            source = cause.source();
+        }
     }
 
     fn add_log(&mut self, start: usize) {

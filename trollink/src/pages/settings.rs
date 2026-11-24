@@ -101,7 +101,7 @@ impl SettingsPage {
                             self.config = settings.config().clone();
                         }
                         Err(err) => {
-                            logs.push_err(err);
+                            logs.push_error(err);
                         }
                     }
                     return Action::Render;
@@ -298,7 +298,7 @@ impl SettingsPage {
                             settings.colors_mut().primary = color;
                         }
                         Err(err) => {
-                            logs.push_err(err);
+                            logs.push_error(err);
                         }
                     }
                     return Action::Render;
@@ -320,7 +320,7 @@ impl SettingsPage {
                             settings.colors_mut().secondary = color;
                         }
                         Err(err) => {
-                            logs.push_err(err);
+                            logs.push_error(err);
                         }
                     }
                     return Action::Render;
@@ -342,7 +342,7 @@ impl SettingsPage {
                             settings.colors_mut().neutral = color;
                         }
                         Err(err) => {
-                            logs.push_err(err);
+                            logs.push_error(err);
                         }
                     }
                     return Action::Render;

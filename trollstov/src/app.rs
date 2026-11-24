@@ -6,7 +6,7 @@ use terminal::*;
 use utils::ErrorExt;
 
 use crate::{
-    database::{Database, DatabaseLoadEvent},
+    database::{Database, ScanEvent, Scanner},
     jukebox::{Jukebox, JukeboxEvent},
     modals::{Modal, ModalsPlugin},
     mpris::{MediaControls, MprisCommand, MprisEvent, MprisMetadata, MprisStatus},
@@ -26,13 +26,14 @@ pub struct App {
 impl App {
     pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
         let jukebox = Jukebox::new().map_err(AppError::Jukebox)?;
-        let database = Database::new(args.dir, args.in_memory).map_err(AppError::Database)?;
+        let database = Database::new(args.in_memory).map_err(AppError::Database)?;
+        let scanner = Scanner::new(args.dir);
 
         let mut logs = Logs::new();
 
         let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
             .unwrap_or_else(|error| {
-                logs.push_err(AppError::Config {
+                logs.push_error(AppError::Config {
                     path: args.settings.clone(),
                     error,
                 });
@@ -42,7 +43,7 @@ impl App {
             Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
                 .map(|rgb| rgb.slight_offset().as_color())
                 .unwrap_or_else(|error| {
-                    logs.push_err(AppError::QueryBg(error));
+                    logs.push_error(AppError::QueryBg(error));
                     Color::Default
                 });
 
@@ -60,7 +61,9 @@ impl App {
             }
         };
 
-        app.insert_non_send(database).insert_non_send(jukebox);
+        app.insert_non_send(database)
+            .insert_non_send(scanner)
+            .insert_non_send(jukebox);
 
         if args.media_controls {
             match MediaControls::spawn() {
@@ -68,7 +71,7 @@ impl App {
                     app.insert_non_send(mc);
                 }
                 Err(err) => {
-                    logs.push_err(err.context("Failed to create media controls."));
+                    logs.push_error(err.context("Failed to create media controls."));
                 }
             }
         }
@@ -172,30 +175,42 @@ impl App {
     }
 
     fn run_load_loop(&mut self, terminal: &mut Terminal, events: &EventThread) -> AppResult<()> {
-        // Start loading
-        self.world.non_send_mut::<Database>().load();
-        self.timers.update.start();
+        let database = self.world.remove_non_send::<Database>().unwrap();
+        let logs = self.world.remove_resource::<Logs>().unwrap();
+        let colors = self.world.resource::<Settings>().colors().clone();
 
-        let load_db_sid = self.world.register_system(load_database);
+        let scanner = self.world.remove_non_send::<Scanner>().unwrap();
+        let (recv, handle) = scanner.spawn(database, logs);
+
+        let (mut total, mut curr) = (0, 0);
+        self.render_load(terminal, &colors, total, curr)?;
 
         while self.is_running {
-            if self.timers.update.tick() {
-                self.world.run_system(load_db_sid).unwrap();
-                self.world
-                    .resource_mut::<Frame>()
-                    .flush(&mut terminal.lock())
-                    .map_err(AppError::Render)?;
+            if let Some(event) = recv.recv() {
+                match event {
+                    ScanEvent::TotalFiles(len) => {
+                        total = len;
+                        self.render_load(terminal, &colors, total, curr)?;
+                    }
+                    ScanEvent::Progress(progress) => {
+                        curr = progress;
+                        self.render_load(terminal, &colors, total, curr)?;
+                    }
+                    ScanEvent::Done => {
+                        let (database, logs) = handle.join();
+                        self.insert_non_send(database).insert_resource(logs);
 
-                if self.world.non_send::<Database>().has_finished_loading() {
-                    // Init first run
-                    self.run_state_transitions();
-                    self.run_render(terminal)?;
-                    break;
+                        // Init first run
+                        self.run_state_transitions();
+                        self.run_render(terminal)?;
+                        break;
+                    }
+                    ScanEvent::Error(err) => return Err(AppError::Scanner(err)),
                 }
             }
 
             if let Some(event) = events
-                .recv(self.timers.update.timeout())
+                .recv(std::time::Duration::from_millis(100))
                 .map_err(AppError::Event)?
             {
                 match event {
@@ -207,17 +222,18 @@ impl App {
                     }
                     TermEvent::Resize => {
                         self.update_size()?;
+                        self.render_load(terminal, &colors, total, curr)?;
                     }
                 }
             };
         }
 
-        self.world.unregister_system(load_db_sid).unwrap();
-
         Ok(())
     }
 
     fn run_event_loop(&mut self, terminal: &mut Terminal, events: &EventThread) -> AppResult<()> {
+        self.timers.update.start();
+
         while self.is_running {
             if self.timers.update.tick() {
                 self.run_update(terminal)?;
@@ -348,6 +364,54 @@ impl App {
 
         self.world.insert_resource(actions);
         render
+    }
+
+    fn render_load(
+        &mut self,
+        terminal: &mut Terminal,
+        colors: &Colors,
+        len: u32,
+        progress: u32,
+    ) -> AppResult<()> {
+        let mut frame = self.world.resource_mut::<Frame>();
+        let area = frame.area();
+
+        if len == 0 {
+            // Not started yet
+            let logo = Logo::from_size(area.size);
+            frame.push_str(logo.ascii());
+            frame.render(
+                area.with_size(logo.size()).center(area),
+                TextOptions::paragraph(),
+            );
+            return frame.flush(&mut terminal.lock()).map_err(AppError::Render);
+        }
+
+        let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
+
+        frame.print_fmt(Sgr::Fg(colors.neutral));
+
+        // Logo
+        let logo = Logo::from_size(logo_area.size);
+        frame.push_str(logo.ascii());
+        frame.render(
+            logo_area.with_size(logo.size()).center(logo_area),
+            TextOptions::paragraph(),
+        );
+
+        // Progress
+        frame.push_fmt(format_args!("{progress} / {len}"));
+        frame.render(progress_area, TextOptions::span_center_top());
+
+        frame.print_fmt(Sgr::reset_fg());
+
+        // Shortcut
+        frame.push_str_fg("Esc", colors.primary);
+        frame.push_ch(' ');
+        frame.push_str_fg("Quit", colors.normal);
+        frame.render(shortcut_area, TextOptions::span_center_top());
+
+        frame.flush(&mut terminal.lock()).map_err(AppError::Render)
     }
 }
 
@@ -679,6 +743,7 @@ fn render_playback(
 
     frame.push_str(artists);
     if !(artists.is_empty() || title.is_empty()) {
+        // TODO: Artists should be split by a comma.
         frame.push_str(": ");
     }
     frame.push_str(title);
@@ -778,7 +843,7 @@ fn update_app(
     let mut render = false;
 
     database.poll_writer(jukebox.track_id(), |err| {
-        logs.push_err(err);
+        logs.push_error(err);
         render = true;
     });
 
@@ -819,7 +884,7 @@ fn update_app(
                 }
             }
             JukeboxEvent::Error(err) => {
-                logs.push_err(err);
+                logs.push_error(err);
             }
         }
     });
@@ -829,72 +894,11 @@ fn update_app(
     }
 }
 
-fn load_database(
-    mut database: NonSendMut<Database>,
-    mut frame: ResMut<Frame>,
-    mut logs: ResMut<Logs>,
-    settings: Res<Settings>,
-    mut len: Local<u32>,
-    mut progress: Local<u32>,
-) {
-    // Poll database for scanning progress
-    database.poll_receiver(|event| match event {
-        DatabaseLoadEvent::Start(total_files) => {
-            *len = total_files;
-        }
-        DatabaseLoadEvent::Progress(i) => {
-            *progress = i;
-        }
-        DatabaseLoadEvent::ScanError(err) => {
-            logs.push_err(err);
-        }
-    });
-
-    // Render
-    let (len, progress) = (*len, *progress);
-    let area = frame.area();
-
-    if len == 0 {
-        // Not started yet
-        let logo = Logo::from_size(area.size);
-        frame.push_str(logo.ascii());
-        frame.render(
-            area.with_size(logo.size()).center(area),
-            TextOptions::paragraph(),
-        );
-        return;
-    }
-
-    let (logo_area, progress_area, shortcut_area) = area.split_ends(area.rows() / 2, 1);
-
-    let colors = settings.colors();
-    frame.print_fmt(Sgr::Fg(colors.neutral));
-
-    // Logo
-    let logo = Logo::from_size(logo_area.size);
-    frame.push_str(logo.ascii());
-    frame.render(
-        logo_area.with_size(logo.size()).center(logo_area),
-        TextOptions::paragraph(),
-    );
-
-    // Progress
-    frame.push_fmt(format_args!("{progress} / {len}"));
-    frame.render(progress_area, TextOptions::span_center_top());
-
-    frame.print_fmt(Sgr::reset_fg());
-
-    // Shortcut
-    frame.push_str_fg("Esc", colors.primary);
-    frame.push_ch(' ');
-    frame.push_str_fg("Quit", colors.normal);
-    frame.render(shortcut_area, TextOptions::span_center_top());
-}
-
 #[derive(Debug)]
 pub enum AppError {
     Jukebox(crate::jukebox::JukeboxError),
     Database(crate::database::DatabaseError),
+    Scanner(shared::sqlite::SqliteError),
     Config {
         path: Option<PathBuf>,
         error: crate::settings::ConfigError,
@@ -910,6 +914,7 @@ impl std::fmt::Display for AppError {
         match self {
             Self::Jukebox(_) => f.write_str("Failed to create audio player."),
             Self::Database(_) => f.write_str("Failed to open database."),
+            Self::Scanner(_) => f.write_str("Failed to add scanned track to database."),
             Self::Config { path, .. } => f.write_fmt(format_args!(
                 "Failed to read or create settings at {path:?}. \
                 A default one will be used instead."
@@ -931,6 +936,7 @@ impl std::error::Error for AppError {
         match self {
             Self::Jukebox(err) => err.source(),
             Self::Database(err) => Some(err),
+            Self::Scanner(err) => Some(err),
             Self::Config { error, .. } => Some(error),
             Self::QueryBg(err) => Some(err),
             Self::QuerySize(err) => Some(err),

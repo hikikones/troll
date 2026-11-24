@@ -490,7 +490,7 @@ fn poll_cover(
                 cover.state = CoverState::NoImage;
             }
             Err(err) => {
-                logs.push_err(err);
+                logs.push_error(err);
                 cover.state = CoverState::Error;
             }
         }
