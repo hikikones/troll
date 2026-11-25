@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use shared::{env::AppDir, logs::Logs};
+use shared::{env::NoAppDir, logs::Logs};
 use terminal::*;
 use widgets::{KittyDeleteAll, Markup};
 
@@ -24,23 +24,13 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
-        let database =
-            Database::open(args.database.as_deref(), app_dir.as_deref()).map_err(|error| {
-                AppError::Database {
-                    path: args.database,
-                    error,
-                }
-            })?;
+    pub fn new(args: crate::cli::Args) -> AppResult<Self> {
+        let database = Database::open(args.database.as_deref()).map_err(AppError::Database)?;
 
         let mut logs = Logs::new();
-
-        let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
-            .unwrap_or_else(|error| {
-                logs.push_error(AppError::Config {
-                    path: args.settings.clone(),
-                    error,
-                });
+        let mut settings =
+            Settings::read_or_create(args.settings.as_deref()).unwrap_or_else(|error| {
+                logs.push_error(AppError::Config(error));
                 Settings::new(args.settings)
             });
 
@@ -64,18 +54,30 @@ impl App {
         colors.background = bg;
         colors.foreground = fg;
 
-        let assets_dir = args
-            .assets
-            .or_else(|| app_dir.map(|p| p.join("assets")).ok());
+        fn from_app_dir() -> AppResult<PathBuf> {
+            let mut dir = shared::env::get_app_dir(
+                crate::APP_QUALIFIER,
+                crate::APP_ORGANIZATION,
+                crate::APP_NAME,
+            )
+            .map_err(AppError::NoAppDir)?;
 
-        if let Some(dir) = assets_dir.as_deref()
-            && let Err(error) = std::fs::create_dir_all(dir)
-        {
-            logs.push_error(AppError::Assets {
-                path: dir.to_path_buf(),
-                error,
-            });
-        };
+            dir.push("assets");
+
+            if let Err(error) = std::fs::create_dir_all(&dir) {
+                return Err(AppError::CreateAssetsDir { path: dir, error });
+            }
+
+            Ok(dir)
+        }
+
+        let assets_dir = args.assets.or_else(|| match from_app_dir() {
+            Ok(path) => Some(path),
+            Err(error) => {
+                logs.push_error(error);
+                None
+            }
+        });
 
         Ok(Self {
             database,
@@ -292,15 +294,10 @@ pub enum Action {
 
 #[derive(Debug)]
 pub enum AppError {
-    Database {
-        path: Option<PathBuf>,
-        error: crate::database::DatabaseError,
-    },
-    Config {
-        path: Option<PathBuf>,
-        error: crate::settings::ConfigError,
-    },
-    Assets {
+    Database(crate::database::DatabaseError),
+    Config(crate::settings::ConfigError),
+    NoAppDir(NoAppDir),
+    CreateAssetsDir {
         path: PathBuf,
         error: std::io::Error,
     },
@@ -314,14 +311,12 @@ pub enum AppError {
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Database { path, .. } => {
-                f.write_fmt(format_args!("Failed to open database at {path:?}."))
-            }
-            Self::Config { path, .. } => f.write_fmt(format_args!(
-                "Failed to read or create settings at {path:?}. \
-                A default one will be used instead."
+            Self::Database(_) => f.write_str("Failed to open database."),
+            Self::Config(_) => f.write_fmt(format_args!(
+                "Failed to read or create settings. Using defaults instead."
             )),
-            Self::Assets { path, .. } => f.write_fmt(format_args!(
+            Self::NoAppDir(_) => f.write_str("Failed to create a default assets directory."),
+            Self::CreateAssetsDir { path, .. } => f.write_fmt(format_args!(
                 "Failed to create assets directory: '{}'.",
                 path.display()
             )),
@@ -344,9 +339,10 @@ impl std::fmt::Display for AppError {
 impl std::error::Error for AppError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Database { error, .. } => Some(error),
-            Self::Config { error, .. } => Some(error),
-            Self::Assets { error, .. } => Some(error),
+            Self::Database(err) => Some(err),
+            Self::Config(err) => Some(err),
+            Self::NoAppDir(err) => Some(err),
+            Self::CreateAssetsDir { error, .. } => Some(error),
             Self::QueryBg(error) => Some(error),
             Self::QueryFg(error) => Some(error),
             Self::QuerySize(error) => Some(error),

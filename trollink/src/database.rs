@@ -1,8 +1,11 @@
 #![allow(clippy::unit_arg)]
 
-use std::{fmt::NumBuffer, path::Path};
+use std::{
+    fmt::NumBuffer,
+    path::{Path, PathBuf},
+};
 
-use shared::{env::AppDirRef, sqlite::*};
+use shared::{env::NoAppDir, sqlite::*};
 
 mod scheduler;
 
@@ -29,7 +32,7 @@ impl Database {
         }
     }
 
-    pub fn open(path: Option<&Path>, app_dir: AppDirRef) -> DatabaseResult<Self> {
+    pub fn open(path: Option<&Path>) -> DatabaseResult<Self> {
         #[cfg(debug_assertions)]
         if path.is_none() {
             return Self::open_in_memory();
@@ -37,18 +40,34 @@ impl Database {
 
         match path {
             Some(path) => Self::open_in_path(path),
-            None => match app_dir {
-                Ok(dir) => Self::open_in_path(&dir.join("database.db")),
-                Err(err) => Err(DatabaseError::NoPath(err)),
-            },
+            None => Self::from_app_dir(),
         }
     }
 
-    fn open_in_path(path: &Path) -> DatabaseResult<Self> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+    fn from_app_dir() -> DatabaseResult<Self> {
+        let mut path = shared::env::get_app_dir(
+            crate::APP_QUALIFIER,
+            crate::APP_ORGANIZATION,
+            crate::APP_NAME,
+        )
+        .map_err(DatabaseError::NoAppDir)?;
+
+        path.push("database.db");
+
+        if path.exists() {
+            return Self::open_in_path(&path);
         }
 
+        if let Some(parent) = path.parent()
+            && let Err(error) = std::fs::create_dir_all(parent)
+        {
+            return Err(DatabaseError::CreateAppDirs { path, error });
+        }
+
+        Self::open_in_path(&path)
+    }
+
+    fn open_in_path(path: &Path) -> DatabaseResult<Self> {
         let db = Self::new(Sqlite::open(path)?);
         db.migrate()?;
         Ok(db)
@@ -571,21 +590,27 @@ impl FromSql for TagId {
 
 #[derive(Debug)]
 pub enum DatabaseError {
-    Io(std::io::Error),
     Sqlite(SqliteError),
     Version(SqliteId),
-    NoPath(&'static str),
+    NoAppDir(NoAppDir),
+    CreateAppDirs {
+        path: PathBuf,
+        error: std::io::Error,
+    },
 }
 
 impl std::fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Io(_) => f.write_str("Unable to create directories for database path."),
             Self::Sqlite(err) => err.fmt(f),
             Self::Version(v) => {
                 f.write_fmt(format_args!("Unknown version: {v}. Latest is {VERSION}"))
             }
-            Self::NoPath(s) => f.write_str(s),
+            Self::NoAppDir(err) => err.fmt(f),
+            Self::CreateAppDirs { path, .. } => f.write_fmt(format_args!(
+                "Failed to create directories for '{}'.",
+                path.display()
+            )),
         }
     }
 }
@@ -593,17 +618,11 @@ impl std::fmt::Display for DatabaseError {
 impl std::error::Error for DatabaseError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(err) => err.source(),
             Self::Sqlite(err) => err.source(),
             Self::Version(_) => None,
-            Self::NoPath(_) => None,
+            Self::NoAppDir(_) => None,
+            Self::CreateAppDirs { error, .. } => Some(error),
         }
-    }
-}
-
-impl From<std::io::Error> for DatabaseError {
-    fn from(err: std::io::Error) -> Self {
-        Self::Io(err)
     }
 }
 

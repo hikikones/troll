@@ -1,9 +1,6 @@
-use std::path::PathBuf;
-
 use ecs::*;
-use shared::{env::AppDir, logs::Logs, time::Timer};
+use shared::{logs::Logs, time::Timer};
 use terminal::*;
-use utils::ErrorExt;
 
 use crate::{
     database::{Database, ScanEvent, Scanner},
@@ -24,19 +21,16 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(args: crate::cli::Args, app_dir: AppDir) -> AppResult<Self> {
+    pub fn new(args: crate::cli::Args) -> AppResult<Self> {
         let jukebox = Jukebox::new().map_err(AppError::Jukebox)?;
         let database = Database::new(args.in_memory).map_err(AppError::Database)?;
         let scanner = Scanner::new(args.dir);
 
         let mut logs = Logs::new();
 
-        let mut settings = Settings::read_or_create(args.settings.as_deref(), app_dir.as_deref())
-            .unwrap_or_else(|error| {
-                logs.push_error(AppError::Config {
-                    path: args.settings.clone(),
-                    error,
-                });
+        let mut settings =
+            Settings::read_or_create(args.settings.as_deref()).unwrap_or_else(|error| {
+                logs.push_error(AppError::Config(error));
                 Settings::new(args.settings)
             });
         settings.colors_mut().background =
@@ -71,7 +65,7 @@ impl App {
                     app.insert_non_send(mc);
                 }
                 Err(err) => {
-                    logs.push_error(err.context("Failed to create media controls."));
+                    logs.push_context("Failed to create media controls.", err);
                 }
             }
         }
@@ -898,10 +892,7 @@ pub enum AppError {
     Jukebox(crate::jukebox::JukeboxError),
     Database(crate::database::DatabaseError),
     Scanner(shared::sqlite::SqliteError),
-    Config {
-        path: Option<PathBuf>,
-        error: crate::settings::ConfigError,
-    },
+    Config(crate::settings::ConfigError),
     QueryBg(RgbQueryError),
     QuerySize(std::io::Error),
     Render(std::io::Error),
@@ -914,9 +905,8 @@ impl std::fmt::Display for AppError {
             Self::Jukebox(_) => f.write_str("Failed to create audio player."),
             Self::Database(_) => f.write_str("Failed to open database."),
             Self::Scanner(_) => f.write_str("Failed to add scanned track to database."),
-            Self::Config { path, .. } => f.write_fmt(format_args!(
-                "Failed to read or create settings at {path:?}. \
-                A default one will be used instead."
+            Self::Config(_) => f.write_fmt(format_args!(
+                "Failed to read or create settings. Using defaults instead."
             )),
             Self::QueryBg(_) => f.write_str(
                 "Failed to query background color. \
@@ -933,10 +923,10 @@ impl std::fmt::Display for AppError {
 impl std::error::Error for AppError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Jukebox(err) => err.source(),
+            Self::Jukebox(err) => Some(err),
             Self::Database(err) => Some(err),
             Self::Scanner(err) => Some(err),
-            Self::Config { error, .. } => Some(error),
+            Self::Config(err) => Some(err),
             Self::QueryBg(err) => Some(err),
             Self::QuerySize(err) => Some(err),
             Self::Render(err) => Some(err),

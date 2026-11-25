@@ -4,7 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use shared::env::AppDirRef;
+use shared::env::NoAppDir;
 use terminal::{Color, Rgb};
 use widgets::{
     EditorColors, ListColors, MarkupCodeTheme, MarkupColors, PromptColors, ScrollbarColors,
@@ -30,37 +30,53 @@ impl Settings {
         }
     }
 
-    pub fn read_or_create(path: Option<&Path>, app_dir: AppDirRef) -> SettingsResult<Self> {
+    pub fn read_or_create(path: Option<&Path>) -> SettingsResult<Self> {
         #[cfg(debug_assertions)]
         if path.is_none() {
             return Ok(Settings::default());
         }
 
-        let file = match path {
-            Some(path) => path.to_path_buf(),
-            None => match app_dir {
-                Ok(dir) => dir.join("settings.toml"),
-                Err(err) => return Err(ConfigError::NoAppPath(err)),
-            },
+        let Some(path) = path else {
+            return Self::from_app_dir();
         };
 
-        if file.exists() {
-            return Ok(Self {
-                config: Config::read(&file)?,
-                path: Some(file),
-            });
-        }
-
-        if let Some(parent) = file.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let config = Config::default();
-        config.save(&file)?;
+        let config = Config::read(path)?;
 
         Ok(Self {
             config,
-            path: Some(file),
+            path: Some(path.to_path_buf()),
+        })
+    }
+
+    fn from_app_dir() -> SettingsResult<Self> {
+        let mut path = shared::env::get_app_dir(
+            crate::APP_QUALIFIER,
+            crate::APP_ORGANIZATION,
+            crate::APP_NAME,
+        )
+        .map_err(ConfigError::NoAppDir)?;
+
+        path.push("settings.toml");
+
+        if path.exists() {
+            return Ok(Self {
+                config: Config::read(&path)?,
+                path: Some(path),
+            });
+        }
+
+        if let Some(parent) = path.parent()
+            && let Err(error) = std::fs::create_dir_all(parent)
+        {
+            return Err(ConfigError::CreateAppDirs { path, error });
+        }
+
+        let config = Config::default();
+        config.save(&path)?;
+
+        Ok(Self {
+            config,
+            path: Some(path),
         })
     }
 
@@ -145,17 +161,26 @@ impl Default for Config {
 
 impl Config {
     fn read(path: &Path) -> SettingsResult<Self> {
-        let bytes = std::fs::read(path)?;
+        let bytes = std::fs::read(path).map_err(|error| ConfigError::Read {
+            path: path.to_path_buf(),
+            error,
+        })?;
 
         #[derive(Deserialize)]
         struct V {
             version: u8,
         }
 
-        let V { version } = toml::from_slice(&bytes)?;
+        let V { version } = toml::from_slice(&bytes).map_err(|error| ConfigError::Deserialize {
+            path: path.to_path_buf(),
+            error,
+        })?;
 
         let config: Self = match version {
-            VERSION => toml::from_slice(&bytes)?,
+            VERSION => toml::from_slice(&bytes).map_err(|error| ConfigError::Deserialize {
+                path: path.to_path_buf(),
+                error,
+            })?,
             _ => return Err(ConfigError::UnknownVersion),
         };
 
@@ -163,8 +188,11 @@ impl Config {
     }
 
     fn save(&self, path: &Path) -> SettingsResult {
-        let toml = toml::to_string(self)?;
-        std::fs::write(path, &toml)?;
+        let toml = toml::to_string(self).map_err(ConfigError::Serialize)?;
+        std::fs::write(path, &toml).map_err(|error| ConfigError::Save {
+            path: path.to_path_buf(),
+            error,
+        })?;
 
         Ok(())
     }
@@ -285,10 +313,24 @@ impl Colors {
 
 #[derive(Debug)]
 pub enum ConfigError {
-    Io(std::io::Error),
-    De(toml::de::Error),
-    Ser(toml::ser::Error),
-    NoAppPath(&'static str),
+    Read {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    Save {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    Deserialize {
+        path: PathBuf,
+        error: toml::de::Error,
+    },
+    Serialize(toml::ser::Error),
+    CreateAppDirs {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    NoAppDir(NoAppDir),
     NoSavePath,
     UnknownVersion,
 }
@@ -296,10 +338,24 @@ pub enum ConfigError {
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Io(err) => err.fmt(f),
-            Self::De(err) => err.fmt(f),
-            Self::Ser(err) => err.fmt(f),
-            Self::NoAppPath(err) => f.write_str(err),
+            Self::Read { path, .. } => f.write_fmt(format_args!(
+                "Failed to read settings from '{}'.",
+                path.display()
+            )),
+            Self::Save { path, .. } => f.write_fmt(format_args!(
+                "Failed to save settings to '{}'.",
+                path.display()
+            )),
+            Self::Deserialize { path, .. } => f.write_fmt(format_args!(
+                "Failed to deserialize settings from '{}'.",
+                path.display()
+            )),
+            Self::Serialize(_) => f.write_str("Failed to serialize settings."),
+            Self::CreateAppDirs { path, .. } => f.write_fmt(format_args!(
+                "Failed to create directories for '{}'.",
+                path.display()
+            )),
+            Self::NoAppDir(err) => err.fmt(f),
             Self::NoSavePath => f.write_str("No path to save settings to."),
             Self::UnknownVersion => f.write_str("Unknown version."),
         }
@@ -309,30 +365,14 @@ impl std::fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(err) => err.source(),
-            Self::De(err) => err.source(),
-            Self::Ser(err) => err.source(),
-            Self::NoAppPath(_) => None,
+            Self::Read { error, .. } => Some(error),
+            Self::Save { error, .. } => Some(error),
+            Self::Deserialize { error, .. } => Some(error),
+            Self::Serialize(error) => Some(error),
+            Self::CreateAppDirs { error, .. } => Some(error),
+            Self::NoAppDir(err) => err.source(),
             Self::NoSavePath => None,
             Self::UnknownVersion => None,
         }
-    }
-}
-
-impl From<std::io::Error> for ConfigError {
-    fn from(err: std::io::Error) -> Self {
-        Self::Io(err)
-    }
-}
-
-impl From<toml::de::Error> for ConfigError {
-    fn from(err: toml::de::Error) -> Self {
-        Self::De(err)
-    }
-}
-
-impl From<toml::ser::Error> for ConfigError {
-    fn from(err: toml::ser::Error) -> Self {
-        Self::Ser(err)
     }
 }
