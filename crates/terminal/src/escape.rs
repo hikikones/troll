@@ -3,9 +3,10 @@ use std::fmt::{Display, NumBuffer, Write};
 use crate::{Color, Pos, Rgb};
 
 pub(crate) const ESC: &str = "\x1b";
-pub(crate) const _BEL: &str = "\x07";
+pub(crate) const BEL: &str = "\x07";
 
 pub(crate) const CSI: &str = utils::concat!(ESC, "[");
+pub(crate) const OSC: &str = utils::concat!(ESC, "]");
 pub(crate) const SGR_END: &str = "m";
 pub(crate) const SGR_END_CH: char = 'm';
 
@@ -432,5 +433,41 @@ where
         }
 
         f.write_char(SGR_END_CH)
+    }
+}
+
+/// Control Sequence Introducer (CSI) sequences.
+#[derive(Debug, Clone, Copy)]
+pub enum Csi {
+    /// Query the terminal's status.
+    DeviceStatusReport,
+}
+
+impl Display for Csi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DeviceStatusReport => f.write_str(utils::concat!(CSI, "5n")),
+        }
+    }
+}
+
+/// Operating System Command (OSC) sequences.
+#[derive(Debug, Clone, Copy)]
+pub enum Osc {
+    /// OSC 10: query the terminal's default foreground color.
+    ForegroundColor,
+    /// OSC 11: query the terminal's default background color.
+    BackgroundColor,
+    /// OSC 12: query the terminal's cursor color.
+    CursorColor,
+}
+
+impl Display for Osc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ForegroundColor => f.write_str(utils::concat!(OSC, "10;?", BEL)),
+            Self::BackgroundColor => f.write_str(utils::concat!(OSC, "11;?", BEL)),
+            Self::CursorColor => f.write_str(utils::concat!(OSC, "12;?", BEL)),
+        }
     }
 }

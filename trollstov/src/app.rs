@@ -33,13 +33,12 @@ impl App {
                 logs.push_error(AppError::Config(error));
                 Settings::new(args.settings)
             });
-        settings.colors_mut().background =
-            Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
-                .map(|rgb| rgb.slight_offset().as_color())
-                .unwrap_or_else(|error| {
-                    logs.push_error(AppError::QueryBg(error));
-                    Color::Default
-                });
+        settings.colors_mut().background = Rgb::query_bg()
+            .map(|rgb| rgb.slight_offset().as_color())
+            .unwrap_or_else(|error| {
+                logs.push_error(AppError::QueryBg(error));
+                Color::Default
+            });
 
         let mut app = {
             let mut world = World::new();

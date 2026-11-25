@@ -1,4 +1,4 @@
-use std::io::Stdout;
+use std::{fmt::Display, io::Stdout};
 
 use crossterm::{
     cursor::Hide,
@@ -408,7 +408,6 @@ impl Default for CellDims {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
-// TODO: Remove query args. Also, move to color module?
 impl Rgb {
     pub const BLACK: Self = Self(0, 0, 0);
     pub const WHITE: Self = Self(255, 255, 255);
@@ -417,28 +416,16 @@ impl Rgb {
         Self(v, v, v)
     }
 
-    pub fn query_fg(
-        writer: &mut impl std::io::Write,
-        reader: &mut impl std::io::Read,
-    ) -> Result<Self, RgbQueryError> {
-        let fg = Self::query("\x1b]10;?\x07", writer, reader)?;
-        Ok(fg)
+    pub fn query_fg() -> Result<Self, RgbQueryError> {
+        Self::query(crate::Osc::ForegroundColor)
     }
 
-    pub fn query_bg(
-        writer: &mut impl std::io::Write,
-        reader: &mut impl std::io::Read,
-    ) -> Result<Self, RgbQueryError> {
-        let bg = Self::query("\x1b]11;?\x07", writer, reader)?;
-        Ok(bg)
+    pub fn query_bg() -> Result<Self, RgbQueryError> {
+        Self::query(crate::Osc::BackgroundColor)
     }
 
-    pub fn query_cursor(
-        writer: &mut impl std::io::Write,
-        reader: &mut impl std::io::Read,
-    ) -> Result<Self, RgbQueryError> {
-        let cursor = Self::query("\x1b]12;?\x07", writer, reader)?;
-        Ok(cursor)
+    pub fn query_cursor() -> Result<Self, RgbQueryError> {
+        Self::query(crate::Osc::CursorColor)
     }
 
     /// Returns true if the color is perceived as dark.
@@ -452,11 +439,14 @@ impl Rgb {
         Color::Rgb(self)
     }
 
+    /// Offsets the blue channel by one.
+    /// Useful for default bg so images behind are blocked.
     pub const fn slight_offset(self) -> Self {
         let Self(r, g, b) = self;
         Self(r, g, if b == 255 { 254 } else { b + 1 })
     }
 
+    /// Returns a color with a contrast that is readable on `self`.
     pub fn readable(self) -> Self {
         let rl = self.relative_luminance();
         let contrast_black = (rl + 0.05) / 0.05;
@@ -485,21 +475,14 @@ impl Rgb {
         0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 
-    fn query(
-        osc: &str,
-        writer: &mut impl std::io::Write,
-        reader: &mut impl std::io::Read,
-    ) -> Result<Self, RgbQueryError> {
+    fn query(osc: impl Display) -> Result<Self, RgbQueryError> {
         let mut buffer = [0; 32];
-
-        let n = Self::do_query(osc, &mut buffer, writer, reader).map_err(RgbQueryError::Io)?;
-
+        let n = Self::query_color(osc, &mut buffer).map_err(RgbQueryError::Io)?;
         let response = String::from_utf8_lossy(&buffer[..n]);
 
         let hex = Self::get_hex_parts(&response).ok_or_else(|| RgbQueryError::ParseResponse {
             response: format!("{response}"),
         })?;
-
         let rgb = Self::parse_hex_parts(hex).map_err(|err| RgbQueryError::ParseRgb {
             hex_parts: format!("{hex:?}"),
             error: err,
@@ -508,24 +491,20 @@ impl Rgb {
         Ok(rgb)
     }
 
-    fn do_query(
-        osc: &str,
-        buffer: &mut [u8],
-        writer: &mut impl std::io::Write,
-        reader: &mut impl std::io::Read,
-    ) -> std::io::Result<usize> {
-        /// Device Status Report control sequence that most terminals implement.
-        /// Makes sure that stdin responds.
-        const DEVICE_STATUS_REPORT: &str = "\x1b[5n";
+    fn query_color(osc: impl Display, buffer: &mut [u8]) -> std::io::Result<usize> {
+        use std::io::{Read, Write};
 
         crossterm::terminal::enable_raw_mode()?;
 
-        // Write query
-        writer.write_fmt(format_args!("{osc}{DEVICE_STATUS_REPORT}"))?;
-        writer.flush()?;
+        let stdout = &mut std::io::stdout().lock();
+        let stdin = &mut std::io::stdin().lock();
+
+        // Also add DSR to make sure that stdin responds.
+        stdout.write_fmt(format_args!("{osc}{}", crate::Csi::DeviceStatusReport))?;
+        stdout.flush()?;
 
         // Read response
-        let n = reader.read(buffer)?;
+        let n = stdin.read(buffer)?;
 
         crossterm::terminal::disable_raw_mode()?;
 
@@ -598,54 +577,6 @@ impl std::error::Error for RgbQueryError {
             Self::Io(err) => Some(err),
             Self::ParseResponse { .. } => None,
             Self::ParseRgb { error, .. } => Some(error),
-        }
-    }
-}
-
-// TODO: remove?
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
-pub struct TermPalette {
-    fg: Rgb,
-    bg: Rgb,
-    cursor: Rgb,
-}
-
-impl TermPalette {
-    pub fn query(
-        writer: &mut impl std::io::Write,
-        reader: &mut impl std::io::Read,
-    ) -> Result<Self, RgbQueryError> {
-        Ok(Self {
-            fg: Rgb::query_fg(writer, reader)?,
-            bg: Rgb::query_bg(writer, reader)?,
-            cursor: Rgb::query_cursor(writer, reader)?,
-        })
-    }
-
-    pub const fn foreground(&self) -> Rgb {
-        self.fg
-    }
-
-    pub const fn background(&self) -> Rgb {
-        self.bg
-    }
-
-    pub const fn cursor(&self) -> Rgb {
-        self.cursor
-    }
-
-    pub const fn theme(&self) -> TermTheme {
-        TermTheme::from_bg(self.bg)
-    }
-}
-
-impl Default for TermPalette {
-    fn default() -> Self {
-        Self {
-            fg: Rgb::WHITE,
-            bg: Rgb::BLACK,
-            cursor: Rgb::WHITE,
         }
     }
 }

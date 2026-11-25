@@ -34,21 +34,19 @@ impl App {
                 Settings::new(args.settings)
             });
 
-        let (bg, theme) =
-            Rgb::query_bg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
-                .map(|rgb| (rgb.slight_offset().as_color(), TermTheme::from_bg(rgb)))
-                .unwrap_or_else(|error| {
-                    logs.push_error(AppError::QueryBg(error));
-                    (Color::Default, TermTheme::default())
-                });
-        let fg = Rgb::query_fg(&mut std::io::stdout().lock(), &mut std::io::stdin().lock())
+        let (bg, theme) = Rgb::query_bg()
+            .map(|rgb| (rgb.slight_offset().as_color(), TermTheme::from_bg(rgb)))
             .unwrap_or_else(|error| {
-                logs.push_error(AppError::QueryFg(error));
-                match theme {
-                    TermTheme::Dark => Rgb::WHITE,
-                    TermTheme::Light => Rgb::BLACK,
-                }
+                logs.push_error(AppError::QueryBg(error));
+                (Color::Default, TermTheme::default())
             });
+        let fg = Rgb::query_fg().unwrap_or_else(|error| {
+            logs.push_error(AppError::QueryFg(error));
+            match theme {
+                TermTheme::Dark => Rgb::WHITE,
+                TermTheme::Light => Rgb::BLACK,
+            }
+        });
 
         let colors = settings.colors_mut();
         colors.background = bg;
