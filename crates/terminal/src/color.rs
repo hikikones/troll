@@ -148,8 +148,8 @@ impl std::str::FromStr for Color {
     }
 }
 
-// TODO: Add more color name variants.
 const COLOR_NAMES: &[(&str, Color)] = &[
+    // Standard
     ("black", Color::Black),
     ("red", Color::Red),
     ("green", Color::Green),
@@ -158,6 +158,7 @@ const COLOR_NAMES: &[(&str, Color)] = &[
     ("magenta", Color::Magenta),
     ("cyan", Color::Cyan),
     ("white", Color::White),
+    // Bright
     ("blackbright", Color::BlackBright),
     ("redbright", Color::RedBright),
     ("greenbright", Color::GreenBright),
@@ -166,6 +167,32 @@ const COLOR_NAMES: &[(&str, Color)] = &[
     ("magentabright", Color::MagentaBright),
     ("cyanbright", Color::CyanBright),
     ("whitebright", Color::WhiteBright),
+    ("brightblack", Color::BlackBright),
+    ("brightred", Color::RedBright),
+    ("brightgreen", Color::GreenBright),
+    ("brightyellow", Color::YellowBright),
+    ("brightblue", Color::BlueBright),
+    ("brightmagenta", Color::MagentaBright),
+    ("brightcyan", Color::CyanBright),
+    ("brightwhite", Color::WhiteBright),
+    // Light variants
+    ("blacklight", Color::BlackBright),
+    ("redlight", Color::RedBright),
+    ("greenlight", Color::GreenBright),
+    ("yellowlight", Color::YellowBright),
+    ("bluelight", Color::BlueBright),
+    ("magentalight", Color::MagentaBright),
+    ("cyanlight", Color::CyanBright),
+    ("whitelight", Color::WhiteBright),
+    ("lightblack", Color::BlackBright),
+    ("lightred", Color::RedBright),
+    ("lightgreen", Color::GreenBright),
+    ("lightyellow", Color::YellowBright),
+    ("lightblue", Color::BlueBright),
+    ("lightmagenta", Color::MagentaBright),
+    ("lightcyan", Color::CyanBright),
+    ("lightwhite", Color::WhiteBright),
+    // Default
     ("default", Color::Default),
     ("normal", Color::Default),
     ("reset", Color::Default),
