@@ -12,9 +12,8 @@ use crate::{
 pub struct SearchModal {
     state: State,
     prompt: Prompt,
-    results: Vec<CardId>,
-    writer: String,
-    viewer: AnsiViewer,
+    cards: Vec<CardId>,
+    ansi: AnsiViewer,
     message: Option<Message>,
     no_cards: bool,
     index: usize,
@@ -37,9 +36,8 @@ impl SearchModal {
         Self {
             state: State::Search,
             prompt: Prompt::new().with_placeholder("Search..."),
-            results: Vec::new(),
-            writer: String::new(),
-            viewer: AnsiViewer::new(),
+            cards: Vec::new(),
+            ansi: AnsiViewer::new(),
             message: None,
             no_cards: false,
             index: 0,
@@ -54,8 +52,8 @@ impl SearchModal {
     pub fn exit(&mut self) {
         self.state = State::Search;
         self.prompt.clear();
-        self.results.clear();
-        self.writer.clear();
+        self.cards.clear();
+        self.ansi.clear();
         self.message = None;
         self.index = 0;
     }
@@ -70,8 +68,7 @@ impl SearchModal {
                 KeyCode::Enter => {
                     self.index = 0;
                     self.message = None;
-                    self.results.clear();
-                    self.writer.clear();
+                    self.cards.clear();
 
                     let prompt = self.prompt.as_str_trim();
 
@@ -85,23 +82,23 @@ impl SearchModal {
                         return Action::Render;
                     }
 
-                    if let Err(err) = db.search(prompt, |id| self.results.push(id)) {
+                    if let Err(err) = db.search(prompt, |id| self.cards.push(id)) {
                         self.message = Some(Message::Error(err));
                         return Action::Render;
                     }
 
-                    if self.results.is_empty() {
+                    if self.cards.is_empty() {
                         self.message = Some(Message::NoCardsFound);
                         return Action::Render;
                     }
 
-                    self.highlight(self.results[0], db);
-                    self.viewer.move_to_start();
+                    self.highlight(self.cards[0], db);
+                    self.ansi.move_to_start();
                     self.state = State::Browse;
                     return Action::Render;
                 }
                 KeyCode::Down => {
-                    if !self.results.is_empty() {
+                    if !self.cards.is_empty() {
                         self.state = State::Browse;
                         return Action::Render;
                     }
@@ -115,30 +112,30 @@ impl SearchModal {
             },
             State::Browse => match key.code {
                 KeyCode::Up => {
-                    if self.viewer.current_scroll() == 0 {
+                    if self.ansi.current_scroll() == 0 {
                         self.state = State::Search;
                         return Action::Render;
-                    } else if self.viewer.move_up(1) {
+                    } else if self.ansi.move_up(1) {
                         return Action::Render;
                     }
                 }
                 KeyCode::Right => {
-                    if self.results.len() > 1 {
-                        self.index = (self.index + 1) % self.results.len();
+                    if self.cards.len() > 1 {
+                        self.index = (self.index + 1) % self.cards.len();
                         self.highlight(self.current_card().unwrap(), db);
-                        self.viewer.move_to_start();
+                        self.ansi.move_to_start();
                         return Action::Render;
                     }
                 }
                 KeyCode::Left => {
-                    if self.results.len() > 1 {
+                    if self.cards.len() > 1 {
                         if self.index == 0 {
-                            self.index = self.results.len() - 1;
+                            self.index = self.cards.len() - 1;
                         } else {
                             self.index -= 1;
                         }
                         self.highlight(self.current_card().unwrap(), db);
-                        self.viewer.move_to_start();
+                        self.ansi.move_to_start();
                         return Action::Render;
                     }
                 }
@@ -157,7 +154,7 @@ impl SearchModal {
                     return Action::Render;
                 }
                 _ => {
-                    if self.viewer.input(key.code) {
+                    if self.ansi.input(key.code) {
                         return Action::Render;
                     }
                 }
@@ -195,7 +192,7 @@ impl SearchModal {
             }
             State::Browse => {
                 frame.push_fmt_fg(
-                    format_args!(" {} / {} ", self.index + 1, self.results.len()),
+                    format_args!(" {} / {} ", self.index + 1, self.cards.len()),
                     colors.normal,
                 );
                 frame.render(top, TextOptions::span_center_top());
@@ -234,7 +231,7 @@ impl SearchModal {
                 frame.render(body, TextOptions::paragraph_center());
             }
             None => {
-                self.viewer.render(body, frame, self.writer.as_str());
+                self.ansi.set_colors(colors.ansi()).render(body, frame);
             }
         }
 
@@ -278,13 +275,13 @@ impl SearchModal {
     }
 
     fn current_card(&self) -> Option<CardId> {
-        self.results.get(self.index).copied()
+        self.cards.get(self.index).copied()
     }
 
     fn highlight(&mut self, id: CardId, db: &Database) {
         db.search_highlight(id, self.prompt.as_str_trim(), |content| {
-            self.writer.clear();
-            self.writer.push_str(content);
+            self.ansi.clear();
+            self.ansi.push_str(content);
         })
         .unwrap();
     }

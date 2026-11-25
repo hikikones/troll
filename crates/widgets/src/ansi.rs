@@ -1,12 +1,14 @@
+use std::fmt::Display;
+
 use terminal::*;
+use utils::StringExt;
 
 use crate::{Scroll, Scrollbar, ScrollbarColors, ScrollbarData};
-
-// TODO: Add writer. No need to pass immutable &ansi.
 
 #[derive(Debug)]
 pub struct AnsiViewer {
     ansi: String,
+    wrapped: String,
     scroll: u16,
     hash: u64,
     size: Size,
@@ -73,6 +75,7 @@ impl AnsiViewer {
     pub const fn new() -> Self {
         Self {
             ansi: String::new(),
+            wrapped: String::new(),
             scroll: 0,
             hash: 0,
             size: Size::ZERO,
@@ -169,14 +172,50 @@ impl AnsiViewer {
         true
     }
 
-    pub fn render(&mut self, area: Rect, frame: &mut Frame, ansi: &str) {
+    pub fn push(&mut self, ch: char) {
+        self.ansi.push(ch);
+    }
+
+    pub fn push_repeat(&mut self, ch: char, n: u16) {
+        self.ansi.push_repeat(ch, n as usize);
+    }
+
+    pub fn push_str(&mut self, text: &str) {
+        self.ansi.push_str(text);
+    }
+
+    pub fn push_str_fg(&mut self, text: &str, fg: Color) {
+        self.ansi.push_str_fg(text, fg);
+    }
+
+    pub fn push_fmt(&mut self, text: impl Display) {
+        self.ansi.push_fmt(text);
+    }
+
+    pub fn push_fmt_fg(&mut self, text: impl Display, fg: Color) {
+        self.ansi.push_fmt_fg(text, fg);
+    }
+
+    pub fn push_iter<I>(&mut self, iter: I)
+    where
+        I: IntoIterator,
+        String: Extend<I::Item>,
+    {
+        self.ansi.extend(iter);
+    }
+
+    pub fn clear(&mut self) {
+        self.ansi.clear();
+    }
+
+    pub fn render(&mut self, area: Rect, frame: &mut Frame) {
         let inner = area.inner(self.options.padding);
 
         if inner.is_empty() {
             return;
         }
 
-        self.process(ansi, area, inner);
+        self.process(area, inner);
         self.update_scroll();
 
         let view_start = self.scroll;
@@ -185,7 +224,7 @@ impl AnsiViewer {
         let max_width = self.view.cols;
         let mut pos = inner.pos;
 
-        for (line, i) in self.ansi.lines().zip(0..) {
+        for (line, i) in self.wrapped.lines().zip(0..) {
             let col = self.options.alignment.calc_line(pos.col, max_width, line);
             frame.cursor(pos.with_col(col));
 
@@ -203,8 +242,8 @@ impl AnsiViewer {
         self.render_scrollbar(frame);
     }
 
-    fn process(&mut self, ansi: &str, area: Rect, mut inner: Rect) {
-        let hash = utils::hash_fast(ansi);
+    fn process(&mut self, area: Rect, mut inner: Rect) {
+        let hash = utils::hash_fast(self.ansi.as_str());
 
         if !(self.hash != hash || self.size != area.size) {
             return;
@@ -213,7 +252,7 @@ impl AnsiViewer {
         self.scroll_area = None;
 
         // First pass
-        self.relayout(ansi, inner.cols());
+        self.relayout(inner.cols());
 
         if self.is_scrollable(inner.size) {
             let scroll_area = area.right_edge();
@@ -221,7 +260,7 @@ impl AnsiViewer {
             self.scroll_area = Some(scroll_area);
 
             // Second pass for scroll area
-            self.relayout(ansi, inner.cols());
+            self.relayout(inner.cols());
         }
 
         self.hash = hash;
@@ -229,12 +268,12 @@ impl AnsiViewer {
         self.view = inner.size;
     }
 
-    fn relayout(&mut self, ansi: &str, max_width: u16) {
-        self.ansi.clear();
+    fn relayout(&mut self, max_width: u16) {
+        self.wrapped.clear();
 
-        self.ansi.push_str(ansi);
-        utils::text_wrap(&mut self.ansi, max_width);
-        self.lines = self.ansi.lines().count() as u16;
+        self.wrapped.push_str(self.ansi.as_str());
+        utils::text_wrap(&mut self.wrapped, max_width);
+        self.lines = self.wrapped.lines().count() as u16;
     }
 
     const fn set_scroll(&mut self, v: u16) -> bool {

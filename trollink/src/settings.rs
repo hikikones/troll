@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use shared::env::NoAppDir;
 use terminal::{Color, Rgb};
 use widgets::{
-    EditorColors, ListColors, MarkupCodeTheme, MarkupColors, PromptColors, ScrollbarColors,
+    AnsiViewerColors, EditorColors, ListColors, MarkupCodeTheme, MarkupColors, PromptColors,
+    ScrollbarColors,
 };
 
 // TODO: Add show_scrollbars to config.
@@ -266,6 +267,12 @@ impl Colors {
             foreground: Rgb::all(98),
             red: grey,
             green: grey,
+        }
+    }
+
+    pub const fn ansi(&self) -> AnsiViewerColors {
+        AnsiViewerColors {
+            scrollbar: self.scrollbar(),
         }
     }
 
