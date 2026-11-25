@@ -148,6 +148,7 @@ impl std::str::FromStr for Color {
     }
 }
 
+// TODO: Add more color name variants.
 const COLOR_NAMES: &[(&str, Color)] = &[
     ("black", Color::Black),
     ("red", Color::Red),

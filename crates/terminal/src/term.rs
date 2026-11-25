@@ -408,6 +408,7 @@ impl Default for CellDims {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Rgb(pub u8, pub u8, pub u8);
 
+// TODO: Remove query args. Also, move to color module?
 impl Rgb {
     pub const BLACK: Self = Self(0, 0, 0);
     pub const WHITE: Self = Self(255, 255, 255);
@@ -601,6 +602,7 @@ impl std::error::Error for RgbQueryError {
     }
 }
 
+// TODO: remove?
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct TermPalette {
