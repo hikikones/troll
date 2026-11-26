@@ -16,7 +16,15 @@ impl<'a> SgrIter<'a> {
         }
     }
 
-    pub fn with_filter(self, sgr: bool) -> impl Iterator<Item = &'a str> {
+    pub fn only_sgr(self) -> impl Iterator<Item = &'a str> {
+        self.with_filter(true)
+    }
+
+    pub fn only_text(self) -> impl Iterator<Item = &'a str> {
+        self.with_filter(false)
+    }
+
+    fn with_filter(self, sgr: bool) -> impl Iterator<Item = &'a str> {
         self.filter(move |(_, is_sgr)| *is_sgr == sgr)
             .map(|(s, _)| s)
     }

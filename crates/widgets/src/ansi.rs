@@ -234,7 +234,7 @@ impl AnsiViewer {
                 frame.print_str(line);
                 pos.add_row(1);
             } else {
-                let sgr = SgrIter::new(line).with_filter(true);
+                let sgr = SgrIter::new(line).only_sgr();
                 frame.print_iter(sgr);
             }
         }

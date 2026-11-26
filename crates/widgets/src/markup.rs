@@ -229,7 +229,7 @@ impl Markup {
                             frame.render(area, TextOptions::span().with_horizontal(alignment));
                             area.shrink_down(1);
                         } else {
-                            let sgr = SgrIter::new(line).with_filter(true);
+                            let sgr = SgrIter::new(line).only_sgr();
                             frame.print_iter(sgr);
                         }
 
