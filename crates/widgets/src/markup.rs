@@ -958,7 +958,7 @@ pub enum MarkupBlock<'a> {
 
 pub struct MarkupBlockParser<'a> {
     input: &'a str,
-    graphemes: utils::PeekableGraphemesPrevious<'a>,
+    graphemes: PeekableGraphemesPrevious<'a>,
 }
 
 const MARKUP_CENTER: &str = ":";
@@ -1035,7 +1035,7 @@ impl<'a> MarkupBlockParser<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
             input,
-            graphemes: utils::PeekableGraphemesPrevious::new(input),
+            graphemes: PeekableGraphemesPrevious::new(input),
         }
     }
 
@@ -1299,7 +1299,7 @@ impl<'a> MarkupBlockParser<'a> {
 #[derive(Debug)]
 pub struct ListItems<'a> {
     text: &'a str,
-    graphemes: utils::PeekableGraphemesPrevious<'a>,
+    graphemes: PeekableGraphemesPrevious<'a>,
     start: usize,
 }
 
@@ -1307,7 +1307,7 @@ impl<'a> ListItems<'a> {
     fn new(text: &'a str) -> Self {
         Self {
             text,
-            graphemes: utils::PeekableGraphemesPrevious::new(text),
+            graphemes: PeekableGraphemesPrevious::new(text),
             start: 0,
         }
     }
@@ -1362,7 +1362,7 @@ impl InlineTag {
 
 struct InlineParser<'a> {
     input: &'a str,
-    chars: utils::PeekableCharsPrevious<'a>,
+    chars: PeekableCharsPrevious<'a>,
     start: usize,
     tag: Option<InlineTag>,
     bold: bool,
@@ -1373,7 +1373,7 @@ impl<'a> InlineParser<'a> {
     fn new(input: &'a str) -> Self {
         Self {
             input,
-            chars: utils::PeekableCharsPrevious::new(input),
+            chars: PeekableCharsPrevious::new(input),
             start: 0,
             tag: None,
             bold: false,
@@ -1478,5 +1478,299 @@ impl<'a> Iterator for InlineParser<'a> {
             self.start = self.input.len();
             Some(InlineEvent::Text(remaining))
         }
+    }
+}
+
+#[derive(Debug)]
+struct PeekableGraphemesPrevious<'a> {
+    graphemes: std::iter::Peekable<utils::GraphemeIndices<'a>>,
+    current: Option<(usize, &'a str)>,
+    previous: Option<&'a str>,
+}
+
+#[allow(unused)]
+impl<'a> PeekableGraphemesPrevious<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            graphemes: utils::grapheme_indices(input).peekable(),
+            current: None,
+            previous: None,
+        }
+    }
+
+    const fn previous(&self) -> Option<&'a str> {
+        self.previous
+    }
+
+    fn peek(&mut self) -> Option<&'a str> {
+        self.graphemes.peek().map(|(_, g)| *g).map(|g| g.0)
+    }
+
+    fn next_if(&mut self, func: impl Fn(&str) -> bool) -> Option<(usize, &'a str)> {
+        if let Some((_, peek)) = self.graphemes.peek()
+            && func(peek)
+        {
+            return self.next();
+        }
+        None
+    }
+
+    fn next_if_eq(&mut self, g: &str) -> Option<(usize, &'a str)> {
+        self.next_if(|n| n == g)
+    }
+
+    fn next_if_newline(&mut self) -> Option<(usize, &'a str)> {
+        self.next_if(|n| n.contains('\n'))
+    }
+
+    fn find(&mut self, g: &str) -> Option<(usize, &'a str)> {
+        self.find_by(|n| n == g)
+    }
+
+    fn find_by(&mut self, func: impl Fn(&str) -> bool) -> Option<(usize, &'a str)> {
+        loop {
+            let (i, n) = self.next()?;
+            if func(n) {
+                return Some((i, n));
+            }
+        }
+    }
+
+    fn find_newline(&mut self) -> Option<(usize, &'a str)> {
+        self.find_by(|n| n.contains('\n'))
+    }
+
+    fn find_with_previous(
+        &mut self,
+        g: &str,
+        prev_func: impl Fn(&str) -> bool,
+    ) -> Option<(usize, &'a str)> {
+        self.find_by_with_previous(|n| n == g, prev_func)
+    }
+
+    fn find_by_with_previous(
+        &mut self,
+        next_func: impl Fn(&str) -> bool,
+        prev_func: impl Fn(&str) -> bool,
+    ) -> Option<(usize, &'a str)> {
+        loop {
+            let (i, n) = self.find_by(&next_func)?;
+
+            if let Some(p) = self.previous
+                && prev_func(p)
+            {
+                return Some((i, n));
+            }
+        }
+    }
+
+    fn find_pattern(&mut self, prev: &str, next: &str) -> Option<(usize, &'a str, &'a str)> {
+        self.find_pattern_by(|p, n| p == prev && n == next)
+    }
+
+    fn find_pattern_by(
+        &mut self,
+        func: impl Fn(&str, &str) -> bool,
+    ) -> Option<(usize, &'a str, &'a str)> {
+        loop {
+            let (i, n) = self.next()?;
+
+            if let Some(p) = self.previous
+                && func(p, n)
+            {
+                return Some((i, p, n));
+            }
+        }
+    }
+
+    fn find_consecutive(&mut self, g: &str, n: usize) -> Option<(usize, &'a str)> {
+        self.find_consecutive_by(|s| s == g, n)
+    }
+
+    fn find_consecutive_by(
+        &mut self,
+        func: impl Fn(&str) -> bool,
+        n: usize,
+    ) -> Option<(usize, &'a str)> {
+        match n {
+            0 => None,
+            1 => self.find_by(func),
+            _ => loop {
+                self.find_by(&func)?;
+
+                let mut count = 1;
+                while let Some((i, g)) = self.next_if(&func) {
+                    count += 1;
+                    if count == n {
+                        return Some((i, g));
+                    }
+                }
+            },
+        }
+    }
+
+    fn count_consecutive(&mut self, g: &str, max: usize) -> usize {
+        self.count_consecutive_by(|n| n == g, max)
+    }
+
+    fn count_consecutive_by(&mut self, g: impl Fn(&str) -> bool, max: usize) -> usize {
+        if max == 0 {
+            return 0;
+        }
+
+        let mut count = 0;
+        while self.next_if(&g).is_some() {
+            count += 1;
+            if count == max {
+                break;
+            }
+        }
+        count
+    }
+}
+
+impl<'a> Iterator for PeekableGraphemesPrevious<'a> {
+    type Item = (usize, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.graphemes.next().map(|(i, g)| (i, g.0));
+
+        next?;
+
+        self.previous = self.current.map(|(_, g)| g);
+        self.current = next;
+        next
+    }
+}
+
+#[derive(Debug)]
+struct PeekableCharsPrevious<'a> {
+    chars: std::iter::Peekable<std::str::CharIndices<'a>>,
+    current: Option<(usize, char)>,
+    previous: Option<char>,
+}
+
+#[allow(unused)]
+impl<'a> PeekableCharsPrevious<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            chars: input.char_indices().peekable(),
+            current: None,
+            previous: None,
+        }
+    }
+
+    const fn previous(&self) -> Option<char> {
+        self.previous
+    }
+
+    fn peek(&mut self) -> Option<char> {
+        self.chars.peek().copied().map(|(_, c)| c)
+    }
+
+    fn next_if(&mut self, f: impl Fn(char) -> bool) -> Option<(usize, char)> {
+        if let Some(p) = self.peek()
+            && f(p)
+        {
+            return self.next();
+        }
+        None
+    }
+
+    fn next_if_eq(&mut self, c: char) -> Option<(usize, char)> {
+        self.next_if(|n| n == c)
+    }
+
+    fn find(&mut self, c: char) -> Option<(usize, char)> {
+        self.find_by(|n| n == c)
+    }
+
+    fn find_by(&mut self, f: impl Fn(char) -> bool) -> Option<(usize, char)> {
+        loop {
+            let (i, n) = self.next()?;
+
+            if f(n) {
+                return Some((i, n));
+            }
+        }
+    }
+
+    fn find_with_previous(
+        &mut self,
+        c: char,
+        prev_func: impl Fn(char) -> bool,
+    ) -> Option<(usize, char)> {
+        self.find_by_with_previous(|n| n == c, prev_func)
+    }
+
+    fn find_by_with_previous(
+        &mut self,
+        next_func: impl Fn(char) -> bool,
+        prev_func: impl Fn(char) -> bool,
+    ) -> Option<(usize, char)> {
+        loop {
+            let (i, n) = self.find_by(&next_func)?;
+
+            if let Some(p) = self.previous
+                && prev_func(p)
+            {
+                return Some((i, n));
+            }
+        }
+    }
+
+    fn find_consecutive(&mut self, c: char, n: usize) -> Option<(usize, char)> {
+        self.find_consecutive_by(|s| s == c, n)
+    }
+
+    fn find_consecutive_by(&mut self, f: impl Fn(char) -> bool, n: usize) -> Option<(usize, char)> {
+        match n {
+            0 => None,
+            1 => self.find_by(f),
+            _ => loop {
+                self.find_by(&f)?;
+
+                let mut count = 1;
+                while let Some((i, c)) = self.next_if(&f) {
+                    count += 1;
+                    if count == n {
+                        return Some((i, c));
+                    }
+                }
+            },
+        }
+    }
+
+    fn count_consecutive(&mut self, c: char, max: usize) -> usize {
+        self.count_consecutive_by(|n| n == c, max)
+    }
+
+    fn count_consecutive_by(&mut self, c: impl Fn(char) -> bool, max: usize) -> usize {
+        if max == 0 {
+            return 0;
+        }
+
+        let mut count = 0;
+        while self.next_if(&c).is_some() {
+            count += 1;
+            if count == max {
+                break;
+            }
+        }
+        count
+    }
+}
+
+impl<'a> Iterator for PeekableCharsPrevious<'a> {
+    type Item = (usize, char);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.chars.next();
+
+        next?;
+
+        self.previous = self.current.map(|(_, c)| c);
+        self.current = next;
+        next
     }
 }

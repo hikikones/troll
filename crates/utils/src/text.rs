@@ -22,7 +22,7 @@ pub fn grapheme_indices<'a>(s: &'a str) -> GraphemeIndices<'a> {
     GraphemeIndices::new(s)
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Grapheme<'a>(pub &'a str);
 
 impl<'a> Grapheme<'a> {
@@ -71,16 +71,14 @@ impl<'a> std::ops::Deref for Grapheme<'a> {
     }
 }
 
-#[derive(Debug)]
-pub struct Graphemes<'a> {
-    graphemes: unicode_segmentation::Graphemes<'a>,
-}
+#[derive(Debug, Clone)]
+pub struct Graphemes<'a>(unicode_segmentation::Graphemes<'a>);
 
 impl<'a> Graphemes<'a> {
     fn new(s: &'a str) -> Self {
-        Self {
-            graphemes: unicode_segmentation::UnicodeSegmentation::graphemes(s, true),
-        }
+        Self(unicode_segmentation::UnicodeSegmentation::graphemes(
+            s, true,
+        ))
     }
 }
 
@@ -88,26 +86,24 @@ impl<'a> Iterator for Graphemes<'a> {
     type Item = Grapheme<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.graphemes.next().map(Grapheme)
+        self.0.next().map(Grapheme)
     }
 }
 
 impl<'a> DoubleEndedIterator for Graphemes<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.graphemes.next_back().map(Grapheme)
+        self.0.next_back().map(Grapheme)
     }
 }
 
-#[derive(Debug)]
-pub struct GraphemeIndices<'a> {
-    grapheme_indices: unicode_segmentation::GraphemeIndices<'a>,
-}
+#[derive(Debug, Clone)]
+pub struct GraphemeIndices<'a>(unicode_segmentation::GraphemeIndices<'a>);
 
 impl<'a> GraphemeIndices<'a> {
     fn new(s: &'a str) -> Self {
-        Self {
-            grapheme_indices: unicode_segmentation::UnicodeSegmentation::grapheme_indices(s, true),
-        }
+        Self(unicode_segmentation::UnicodeSegmentation::grapheme_indices(
+            s, true,
+        ))
     }
 }
 
@@ -115,15 +111,13 @@ impl<'a> Iterator for GraphemeIndices<'a> {
     type Item = (usize, Grapheme<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.grapheme_indices.next().map(|(i, g)| (i, Grapheme(g)))
+        self.0.next().map(|(i, g)| (i, Grapheme(g)))
     }
 }
 
 impl<'a> DoubleEndedIterator for GraphemeIndices<'a> {
     fn next_back(&mut self) -> Option<Self::Item> {
-        self.grapheme_indices
-            .next_back()
-            .map(|(i, g)| (i, Grapheme(g)))
+        self.0.next_back().map(|(i, g)| (i, Grapheme(g)))
     }
 }
 
