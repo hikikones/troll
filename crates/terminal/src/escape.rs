@@ -4,9 +4,11 @@ use crate::{Color, Pos, Rgb};
 
 pub(crate) const ESC: &str = "\x1b";
 pub(crate) const BEL: &str = "\x07";
+pub(crate) const CSI_ID: &str = "[";
+pub(crate) const OSC_ID: &str = "]";
 
-pub(crate) const CSI: &str = utils::concat!(ESC, "[");
-pub(crate) const OSC: &str = utils::concat!(ESC, "]");
+pub(crate) const CSI: &str = utils::concat!(ESC, CSI_ID);
+pub(crate) const OSC: &str = utils::concat!(ESC, OSC_ID);
 pub(crate) const SGR_END: &str = "m";
 pub(crate) const SGR_END_CH: char = 'm';
 
