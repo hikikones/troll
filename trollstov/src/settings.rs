@@ -1,227 +1,264 @@
-use std::path::PathBuf;
+use std::{
+    hash::{Hash, Hasher},
+    path::{Path, PathBuf},
+};
 
-use ratatui::style::Color;
+use ecs::Resource;
 use serde::{Deserialize, Serialize};
-use widgets::{ListColors, ScrollbarColors, TableColors};
+use shared::env::NoAppDir;
+use terminal::Color;
+use widgets::{ListColors, PromptColors, ScrollbarColors};
 
-use crate::database::AudioRating;
+use crate::database::TrackRating;
+
+// TODO: Add show_scrollbars to config.
+
+pub type SettingsResult<T = ()> = Result<T, ConfigError>;
 
 const VERSION: u8 = 0;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Resource)]
 pub struct Settings {
-    version: u8,
-    general: General,
-    colors: Colors,
-
-    #[serde(skip)]
+    config: Config,
     path: Option<PathBuf>,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        let general = General {
-            skip_tracks_with_rating: AudioRating::None,
-            keep_selected_track_on_sort: false,
-            search_by_path: false,
-        };
-        let colors =
-            match terminal_colorsaurus::theme_mode(terminal_colorsaurus::QueryOptions::default())
-                .unwrap_or(terminal_colorsaurus::ThemeMode::Dark)
-            {
-                terminal_colorsaurus::ThemeMode::Dark => Colors {
-                    primary: Color::LightYellow,
-                    secondary: Color::Yellow,
-                    neutral: Color::Indexed(245),
-                },
-                terminal_colorsaurus::ThemeMode::Light => Colors {
-                    primary: Color::LightCyan,
-                    secondary: Color::Cyan,
-                    neutral: Color::Indexed(245),
-                },
-            };
+impl Settings {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self {
+            config: Config::default(),
+            path,
+        }
+    }
 
+    pub fn read_or_create(path: Option<&Path>) -> SettingsResult<Self> {
+        #[cfg(debug_assertions)]
+        if path.is_none() {
+            return Ok(Settings::default());
+        }
+
+        let Some(path) = path else {
+            return Self::from_app_dir();
+        };
+
+        let config = Config::read(path)?;
+
+        Ok(Self {
+            config,
+            path: Some(path.to_path_buf()),
+        })
+    }
+
+    fn from_app_dir() -> SettingsResult<Self> {
+        let mut path = shared::env::get_app_dir(
+            crate::APP_QUALIFIER,
+            crate::APP_ORGANIZATION,
+            crate::APP_NAME,
+        )
+        .map_err(ConfigError::NoAppDir)?;
+
+        path.push("settings.toml");
+
+        if path.exists() {
+            return Ok(Self {
+                config: Config::read(&path)?,
+                path: Some(path),
+            });
+        }
+
+        if let Some(parent) = path.parent()
+            && let Err(error) = std::fs::create_dir_all(parent)
+        {
+            return Err(ConfigError::CreateAppDirs { path, error });
+        }
+
+        let config = Config::default();
+        config.save(&path)?;
+
+        Ok(Self {
+            config,
+            path: Some(path),
+        })
+    }
+
+    pub const fn config(&self) -> &Config {
+        &self.config
+    }
+
+    pub const fn set_config(&mut self, config: &Config) {
+        self.config.general.skip_rating = config.general.skip_rating;
+        self.config.general.keep_selected = config.general.keep_selected;
+        self.config.general.search_by_path = config.general.search_by_path;
+        self.config.colors.primary = config.colors.primary;
+        self.config.colors.secondary = config.colors.secondary;
+        self.config.colors.neutral = config.colors.neutral;
+    }
+
+    pub const fn general(&self) -> &General {
+        &self.config.general
+    }
+
+    pub const fn general_mut(&mut self) -> &mut General {
+        &mut self.config.general
+    }
+
+    pub const fn skip_rating(&self) -> TrackRating {
+        self.config.general.skip_rating
+    }
+
+    pub const fn keep_selected(&self) -> bool {
+        self.config.general.keep_selected
+    }
+
+    pub const fn search_by_path(&self) -> bool {
+        self.config.general.search_by_path
+    }
+
+    pub const fn colors(&self) -> &Colors {
+        &self.config.colors
+    }
+
+    pub const fn colors_mut(&mut self) -> &mut Colors {
+        &mut self.config.colors
+    }
+
+    pub fn save(&self) -> SettingsResult {
+        let Some(path) = self.path.as_ref() else {
+            return Err(ConfigError::NoSavePath);
+        };
+
+        self.config.save(path)
+    }
+
+    pub fn hash(&self) -> u64 {
+        self.config.hash()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    pub version: u8,
+    pub general: General,
+    pub colors: Colors,
+}
+
+impl Default for Config {
+    fn default() -> Self {
         Self {
             version: VERSION,
-            general,
-            colors,
-            path: None,
+            general: Default::default(),
+            colors: Default::default(),
         }
     }
 }
 
-impl Settings {
-    pub const fn skip_rating(&self) -> AudioRating {
-        self.general.skip_tracks_with_rating
-    }
-
-    pub const fn keep_on_sort(&self) -> bool {
-        self.general.keep_selected_track_on_sort
-    }
-
-    pub const fn search_by_path(&self) -> bool {
-        self.general.search_by_path
-    }
-
-    pub const fn set_skip_rating(&mut self, rating: AudioRating) {
-        self.general.skip_tracks_with_rating = rating;
-    }
-
-    pub const fn set_keep_on_sort(&mut self, value: bool) {
-        self.general.keep_selected_track_on_sort = value;
-    }
-
-    pub const fn set_search_by_path(&mut self, value: bool) {
-        self.general.search_by_path = value;
-    }
-
-    pub const fn colors(&self) -> &Colors {
-        &self.colors
-    }
-
-    pub const fn primary(&self) -> Color {
-        self.colors.primary
-    }
-
-    pub const fn secondary(&self) -> Color {
-        self.colors.secondary
-    }
-
-    pub const fn neutral(&self) -> Color {
-        self.colors.neutral
-    }
-
-    pub const fn set_primary(&mut self, color: Color) {
-        self.colors.primary = color;
-    }
-
-    pub const fn set_secondary(&mut self, color: Color) {
-        self.colors.secondary = color;
-    }
-
-    pub const fn set_neutral(&mut self, color: Color) {
-        self.colors.neutral = color;
-    }
-
-    pub fn read(path: Option<PathBuf>) -> Result<Self, String> {
-        let Some(file) = path.or_else(|| get_config_file()) else {
-            return Ok(Self::default());
-        };
-
-        let bytes = match std::fs::read(&file) {
-            Ok(bytes) => bytes,
-            Err(err) => match err.kind() {
-                std::io::ErrorKind::NotFound => {
-                    return Ok(Self::default().with_path(Some(file)));
-                }
-                _ => {
-                    return Err(format!(
-                        "Failed to read settings from \"{}\" due to {}",
-                        file.display(),
-                        err
-                    ))?;
-                }
-            },
-        };
+impl Config {
+    fn read(path: &Path) -> SettingsResult<Self> {
+        let bytes = std::fs::read(path).map_err(|error| ConfigError::Read {
+            path: path.to_path_buf(),
+            error,
+        })?;
 
         #[derive(Deserialize)]
         struct V {
             version: u8,
         }
 
-        let V { version } = toml::from_slice(&bytes).map_err(|err| {
-            format!(
-                "Failed to deserialize settings from \"{}\" due to {}",
-                file.display(),
-                err
-            )
+        let V { version } = toml::from_slice(&bytes).map_err(|error| ConfigError::Deserialize {
+            path: path.to_path_buf(),
+            error,
         })?;
 
-        let mut settings: Self = match version {
-            VERSION => toml::from_slice(&bytes).map_err(|err| {
-                format!(
-                    "Failed to deserialize settings from \"{}\" due to {}",
-                    file.display(),
-                    err
-                )
+        let config: Self = match version {
+            VERSION => toml::from_slice(&bytes).map_err(|error| ConfigError::Deserialize {
+                path: path.to_path_buf(),
+                error,
             })?,
-            _ => Err(format!(
-                "Failed to deserialize settings from \"{}\" due to unknown version",
-                file.display()
-            ))?,
+            _ => return Err(ConfigError::UnknownVersion),
         };
 
-        settings.path = Some(file);
-        Ok(settings)
+        Ok(config)
     }
 
-    pub fn save(&self) -> Result<(), String> {
-        let Some(file) = self.path.clone().or_else(|| get_config_file()) else {
-            return Err("Unable to save settings due to no path specified or \
-                a default one could not be retrieved from the operating system")?;
-        };
-
-        if let Some(parent) = file.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(&parent).map_err(|err| {
-                    format!(
-                        "Unable to save settings as creating directory \"{}\" failed due to {}",
-                        parent.display(),
-                        err
-                    )
-                })?;
-            }
-        }
-
-        let toml = toml::to_string(self)
-            .map_err(|err| format!("Failed to serialize settings due to {}", err))?;
-        std::fs::write(&file, toml).map_err(|err| {
-            format!(
-                "Failed to write settings to \"{}\" due to {}",
-                file.display(),
-                err
-            )
+    fn save(&self, path: &Path) -> SettingsResult {
+        let toml = toml::to_string(self).map_err(ConfigError::Serialize)?;
+        std::fs::write(path, &toml).map_err(|error| ConfigError::Save {
+            path: path.to_path_buf(),
+            error,
         })?;
 
         Ok(())
     }
 
     pub fn hash(&self) -> u64 {
-        toml::to_string(self)
-            .map(|s| seahash::hash(s.as_bytes()))
-            .unwrap_or(0)
-    }
-
-    pub(super) fn with_path(mut self, path: Option<PathBuf>) -> Self {
-        self.path = path;
-        self
+        utils::hasher_fast(|hasher| {
+            hasher.write_u8(self.general.skip_rating as u8);
+            hasher.write_u8(self.general.keep_selected as u8);
+            hasher.write_u8(self.general.search_by_path as u8);
+            self.colors.primary.hash(hasher);
+            self.colors.secondary.hash(hasher);
+            self.colors.neutral.hash(hasher);
+        })
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct General {
-    skip_tracks_with_rating: AudioRating,
-    keep_selected_track_on_sort: bool,
-    search_by_path: bool,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct General {
+    #[serde(rename = "skip_tracks_with_rating")]
+    pub skip_rating: TrackRating,
+    #[serde(rename = "keep_selected_track_on_sort")]
+    pub keep_selected: bool,
+    #[serde(rename = "search_by_path")]
+    pub search_by_path: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+impl Default for General {
+    fn default() -> Self {
+        Self {
+            skip_rating: TrackRating::None,
+            keep_selected: false,
+            search_by_path: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Colors {
     pub primary: Color,
     pub secondary: Color,
     pub neutral: Color,
+
+    #[serde(skip)]
+    pub normal: Color,
+    #[serde(skip)]
+    pub background: Color,
+    #[serde(skip)]
+    pub red: Color,
 }
 
 impl Colors {
+    pub const fn all(color: Color) -> Self {
+        Self {
+            primary: color,
+            secondary: color,
+            neutral: color,
+            normal: color,
+            background: color,
+            red: color,
+        }
+    }
+
     pub const fn list(&self) -> ListColors {
         ListColors {
             scrollbar: self.scrollbar(),
         }
     }
 
-    pub const fn table(&self) -> TableColors {
-        TableColors {
-            scrollbar: self.scrollbar(),
+    pub const fn prompt(&self) -> PromptColors {
+        PromptColors {
+            normal: self.normal,
+            placeholder: self.neutral,
+            disabled: self.neutral,
         }
     }
 
@@ -231,119 +268,83 @@ impl Colors {
             track: None,
         }
     }
-
-    pub fn _generate_readable_fg(bg: Color) -> Option<Color> {
-        _readable_fg(bg)
-    }
 }
 
-fn get_config_file() -> Option<PathBuf> {
-    const FILENAME: &str = "settings.toml";
-    directories::ProjectDirs::from(
-        crate::APP_QUALIFIER,
-        crate::APP_ORGANIZATION,
-        crate::APP_NAME,
-    )
-    .map(|project_dirs| project_dirs.config_dir().join(FILENAME))
-}
-
-fn _readable_fg(mut bg: Color) -> Option<Color> {
-    if bg == Color::Reset {
-        return None;
-    }
-
-    if let Color::Indexed(i) = bg {
-        bg = _indexed_to_color(i);
-    }
-
-    let readable_fg = match bg {
-        Color::Black => Color::White,
-        Color::Red => Color::White,
-        Color::Green => Color::Black,
-        Color::Yellow => Color::Black,
-        Color::Blue => Color::White,
-        Color::Magenta => Color::White,
-        Color::Cyan => Color::White,
-        Color::Gray => Color::DarkGray,
-        Color::DarkGray => Color::Gray,
-        Color::LightRed => Color::White,
-        Color::LightGreen => Color::Black,
-        Color::LightYellow => Color::Black,
-        Color::LightBlue => Color::Black,
-        Color::LightMagenta => Color::White,
-        Color::LightCyan => Color::Black,
-        Color::White => Color::Black,
-        Color::Rgb(r, g, b) => _relative_luminance_color(r, g, b),
-        Color::Reset | Color::Indexed(_) => {
-            unreachable!()
-        }
-    };
-
-    Some(readable_fg)
-}
-
-fn _indexed_to_color(i: u8) -> Color {
-    match i {
-        // 0-15: standard ANSI colors
-        0 => Color::Black,
-        1 => Color::Red,
-        2 => Color::Green,
-        3 => Color::Yellow,
-        4 => Color::Blue,
-        5 => Color::Magenta,
-        6 => Color::Cyan,
-        7 => Color::Gray,
-        8 => Color::DarkGray,
-        9 => Color::LightRed,
-        10 => Color::LightGreen,
-        11 => Color::LightYellow,
-        12 => Color::LightBlue,
-        13 => Color::LightMagenta,
-        14 => Color::LightCyan,
-        15 => Color::White,
-
-        // 16-231: 6x6x6 color cube
-        16..=231 => {
-            let i = i - 16;
-            let r = (i / 36) % 6;
-            let g = (i / 6) % 6;
-            let b = i % 6;
-
-            let scale = |v| if v == 0 { 0 } else { v * 40 + 55 };
-
-            Color::Rgb(scale(r), scale(g), scale(b))
-        }
-
-        // 232-255: grayscale ramp
-        232..=255 => {
-            let gray = 8 + (i - 232) * 10;
-            Color::Rgb(gray, gray, gray)
+impl Default for Colors {
+    fn default() -> Self {
+        Self {
+            primary: Color::YellowBright,
+            secondary: Color::Yellow,
+            neutral: Color::Indexed(240),
+            normal: Color::Default,
+            background: Color::Default,
+            red: Color::Red,
         }
     }
 }
 
-fn _relative_luminance_color(r: u8, g: u8, b: u8) -> Color {
-    fn srgb_to_linear(c: u8) -> f64 {
-        let c = c as f64 / 255.0;
-        if c <= 0.04045 {
-            c / 12.92
-        } else {
-            ((c + 0.055) / 1.055).powf(2.4)
+#[derive(Debug)]
+pub enum ConfigError {
+    Read {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    Save {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    Deserialize {
+        path: PathBuf,
+        error: toml::de::Error,
+    },
+    Serialize(toml::ser::Error),
+    CreateAppDirs {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    NoAppDir(NoAppDir),
+    NoSavePath,
+    UnknownVersion,
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read { path, .. } => f.write_fmt(format_args!(
+                "Failed to read settings from '{}'.",
+                path.display()
+            )),
+            Self::Save { path, .. } => f.write_fmt(format_args!(
+                "Failed to save settings to '{}'.",
+                path.display()
+            )),
+            Self::Deserialize { path, .. } => f.write_fmt(format_args!(
+                "Failed to deserialize settings from '{}'.",
+                path.display()
+            )),
+            Self::Serialize(_) => f.write_str("Failed to serialize settings."),
+            Self::CreateAppDirs { path, .. } => f.write_fmt(format_args!(
+                "Failed to create app directory: '{}'.",
+                path.display()
+            )),
+            Self::NoAppDir(err) => err.fmt(f),
+            Self::NoSavePath => f.write_str("No path to save settings to."),
+            Self::UnknownVersion => f.write_str("Unknown version."),
         }
     }
+}
 
-    let r = srgb_to_linear(r);
-    let g = srgb_to_linear(g);
-    let b = srgb_to_linear(b);
-
-    let l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-    let contrast_black = (l + 0.05) / 0.05;
-    let contrast_white = (1.05) / (l + 0.05);
-
-    if contrast_black > contrast_white {
-        Color::Black
-    } else {
-        Color::White
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { error, .. } => Some(error),
+            Self::Save { error, .. } => Some(error),
+            Self::Deserialize { error, .. } => Some(error),
+            Self::Serialize(error) => Some(error),
+            Self::CreateAppDirs { error, .. } => Some(error),
+            Self::NoAppDir(err) => err.source(),
+            Self::NoSavePath => None,
+            Self::UnknownVersion => None,
+        }
     }
 }

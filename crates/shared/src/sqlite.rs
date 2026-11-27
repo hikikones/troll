@@ -6,7 +6,7 @@ pub use rusqlite::{Params, Row, Transaction, types::*};
 
 pub type SqliteId = i64;
 pub type SqliteError = rusqlite::Error;
-pub type SqliteResult<T> = Result<T, SqliteError>;
+pub type SqliteResult<T = ()> = Result<T, SqliteError>;
 
 pub struct Sqlite(Connection);
 

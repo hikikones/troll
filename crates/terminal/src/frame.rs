@@ -5,8 +5,11 @@ use utils::StringExt;
 use crate::{
     AnsiExt, CellDims, Color, Cursor, CursorClear, CursorErase, CursorMoveDown, CursorToHome,
     CursorToPos, CursorVisibility, Dims, HorizontalAlignment, Pos, Rect, ScreenHeight, ScreenSize,
-    ScreenSizeThresholds, ScreenWidth, Sgr, Size, TerminalSize, VerticalAlignment,
+    ScreenSizeThresholds, ScreenWidth, Sgr, SgrIter, Size, TerminalSize, VerticalAlignment,
 };
+
+// TODO: Should we ignore newlines when printing spans?
+// Currently, a newline will make span go to next line.
 
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
@@ -102,15 +105,15 @@ impl Frame {
     }
 
     pub fn print_ch_repeat(&mut self, ch: char, n: u16) {
-        self.buffer.extend(std::iter::repeat_n(ch, n as usize));
+        self.buffer.push_repeat(ch, n);
     }
 
-    pub fn print_str(&mut self, s: &str) {
-        self.buffer.push_str(s);
+    pub fn print_str(&mut self, text: &str) {
+        self.buffer.push_str(text);
     }
 
-    pub fn print_str_fg(&mut self, s: &str, fg: Color) {
-        self.buffer.push_str_fg(s, fg);
+    pub fn print_str_fg(&mut self, text: &str, fg: Color) {
+        self.buffer.push_str_fg(text, fg);
     }
 
     pub fn print_fmt(&mut self, text: impl Display) {
@@ -130,72 +133,52 @@ impl Frame {
     }
 
     pub fn print_span(&mut self, area: Rect, text: &str, options: SpanOptions) {
-        let SpanOptions {
-            horizontal,
-            vertical,
-            fill,
-        } = options;
-
-        // TODO: Newlines should be ignored?
-
-        let row = vertical.calc(area.pos.row, area.size.rows, 1);
-        let pos = area.pos.with_row(row);
-        let max_width = area.size.cols;
-
-        let text_width = utils::str_width(text);
-        match text_width.cmp(&max_width) {
-            Ordering::Less => {
-                // Room to spare, apply alignment
-                let start_text_col = horizontal.calc(pos.col, max_width, text_width);
-
-                if fill {
-                    // Fill remaining empty cells with spaces
-                    self.print_fmt(CursorToPos(pos));
-
-                    let empty_left_count = start_text_col - pos.col;
-                    self.print_ch_repeat(' ', empty_left_count);
-
-                    self.buffer.push_str(text);
-
-                    let empty_right_count = max_width - (empty_left_count + text_width);
-                    self.print_ch_repeat(' ', empty_right_count);
-                } else {
-                    self.print_fmt(CursorToPos(pos.with_col(start_text_col)));
-                    self.buffer.push_str(text);
-                }
-            }
-            Ordering::Equal => {
-                // Perfect fit, just print
-                self.print_fmt(CursorToPos(pos));
-                self.buffer.push_str(text);
-            }
-            Ordering::Greater => {
-                // No fit, print what we can
-                self.print_fmt(CursorToPos(pos));
-
-                let mut width = 0;
-                for g in utils::graphemes(text) {
-                    let w = utils::str_width(g.0);
-
-                    if width + w > max_width {
-                        if fill {
-                            let remaining = max_width - width;
-                            self.print_ch_repeat(' ', remaining);
-                        }
-                        break;
-                    }
-
-                    width += w;
-                    self.buffer.push_str(g.0);
-                }
-            }
-        }
+        let row = options.vertical.calc(area.pos.row, area.size.rows, 1);
+        print_span_with_ansi(
+            area.pos.with_row(row),
+            area.size.cols,
+            text,
+            options.horizontal,
+            options.fill,
+            &mut self.buffer,
+        );
     }
 
     pub fn print_span_fg(&mut self, area: Rect, text: &str, color: Color, options: SpanOptions) {
         self.print_fmt(Sgr::Fg(color));
         self.print_span(area, text, options);
         self.print_fmt(Sgr::reset_fg());
+    }
+
+    pub fn print_span_fmt(&mut self, area: Rect, text: impl Display, options: SpanOptions) {
+        let range = self.text.push_fmt_get_range(text);
+        let text = self.text.slice(range);
+
+        let row = options.vertical.calc(area.pos.row, area.size.rows, 1);
+        print_span_with_ansi(
+            area.pos.with_row(row),
+            area.size.cols,
+            text,
+            options.horizontal,
+            options.fill,
+            &mut self.buffer,
+        );
+
+        self.text.truncate(range.start);
+    }
+
+    pub fn print_span_fmt_fg(
+        &mut self,
+        area: Rect,
+        text: impl Display,
+        color: Color,
+        options: SpanOptions,
+    ) {
+        self.print_span_fmt(
+            area,
+            format_args!("{}{text}{}", Sgr::Fg(color), Sgr::reset_fg()),
+            options,
+        );
     }
 
     pub fn fill(&mut self, area: Rect, bg: Color, reset: bool) {
@@ -235,11 +218,11 @@ impl Frame {
     }
 
     pub fn push_ch_repeat(&mut self, ch: char, n: u16) {
-        self.text.extend(std::iter::repeat_n(ch, n as usize));
+        self.text.push_repeat(ch, n);
     }
 
-    pub fn push_str(&mut self, s: &str) {
-        self.text.push_str(s);
+    pub fn push_str(&mut self, text: &str) {
+        self.text.push_str(text);
     }
 
     pub fn push_str_fg(&mut self, text: &str, fg: Color) {
@@ -274,7 +257,7 @@ impl Frame {
                 print_span_with_ansi(
                     area.pos.with_row(row),
                     area.size.cols,
-                    &self.text, // TODO: Newlines should be ignored?
+                    &self.text,
                     opts.horizontal,
                     opts.fill,
                     &mut self.buffer,
@@ -341,12 +324,12 @@ fn print_span_with_ansi(
                 output.push_fmt(CursorToPos(pos));
 
                 let empty_left_count = start_text_col - pos.col;
-                output.extend(std::iter::repeat_n(' ', empty_left_count as usize));
+                output.push_repeat(' ', empty_left_count);
 
                 output.push_str(text);
 
                 let empty_right_count = max_width - (empty_left_count + display_width);
-                output.extend(std::iter::repeat_n(' ', empty_right_count as usize));
+                output.push_repeat(' ', empty_right_count);
             } else {
                 output.push_fmt(CursorToPos(pos.with_col(start_text_col)));
                 output.push_str(text);
@@ -362,30 +345,30 @@ fn print_span_with_ansi(
             output.push_fmt(CursorToPos(pos));
 
             let mut width = 0;
-            for g in utils::GraphemeAnsiIter::new(text) {
-                match g {
-                    utils::GraphemeOrAnsi::Grapheme(g) => {
-                        if width == max_width {
-                            continue;
+            for (s, is_sgr) in SgrIter::new(text) {
+                if is_sgr {
+                    output.push_str(s);
+                    continue;
+                }
+
+                if width == max_width {
+                    continue;
+                }
+
+                for g in utils::graphemes(s) {
+                    let w = g.width();
+
+                    if width + w > max_width {
+                        if fill {
+                            let remaining = max_width - width;
+                            output.push_repeat(' ', remaining);
                         }
-
-                        let w = utils::str_width(g.0);
-
-                        if width + w > max_width {
-                            if fill {
-                                let remaining = max_width - width;
-                                output.extend(std::iter::repeat_n(' ', remaining as usize));
-                            }
-                            width = max_width;
-                            continue;
-                        }
-
-                        width += w;
-                        output.push_str(g.0);
+                        width = max_width;
+                        break;
                     }
-                    utils::GraphemeOrAnsi::Ansi(s) => {
-                        output.push_str(s);
-                    }
+
+                    width += w;
+                    output.push_str(g.0);
                 }
             }
         }

@@ -1,11 +1,10 @@
-use ratatui::{crossterm::event::KeyCode, style::Style};
-
-use shared::symbols;
-use widgets::{KittyGraphics, Markup, RectExt, ScrollMove, Shortcut, Shortcuts};
+use terminal::*;
+use widgets::{Markup, MarkupScroll};
 
 use crate::{
-    app::{Action, AppInput, AppRender},
+    app::Action,
     database::{CardId, Database},
+    modals::Modal,
     pages::Route,
     settings::Colors,
 };
@@ -15,7 +14,6 @@ pub struct ReviewPage {
     progress: u32,
     state: ReviewState,
     review: ReviewCard,
-    desired_retention: f32,
 }
 
 enum ReviewState {
@@ -31,15 +29,10 @@ impl ReviewPage {
             progress: 0,
             state: ReviewState::None,
             review: ReviewCard::new(),
-            desired_retention: 0.0,
         }
     }
 
-    pub const fn set_desired_retention(&mut self, retention: f32) {
-        self.desired_retention = retention;
-    }
-
-    pub fn on_enter(&mut self, db: &Database, markup: &mut Markup) {
+    pub fn enter(&mut self, db: &Database, markup: &mut Markup) {
         self.total = db.get_due_count();
 
         if self.total > 0 {
@@ -47,90 +40,42 @@ impl ReviewPage {
         }
     }
 
-    pub fn on_render(
-        &mut self,
-        render: AppRender,
-        colors: &Colors,
-        markup: &mut Markup,
-        kitty: &mut KittyGraphics,
-        shortcuts: &mut Shortcuts,
-    ) {
-        let (mut area, buf) = render.area_and_buffer();
-
-        match self.state {
-            ReviewState::None => {
-                widgets::print_ascii(
-                    area,
-                    buf,
-                    "No cards to review",
-                    Style::new(),
-                    Some(widgets::Alignment::Center),
-                );
-            }
-            ReviewState::Review(_id) => {
-                utils::format_int2(self.progress + 1, self.total, |progress, total| {
-                    widgets::print_asciis(
-                        area,
-                        buf,
-                        [" ", progress, " / ", total, " "],
-                        colors.neutral,
-                        Some(widgets::Alignment::CenterHorizontal),
-                    );
-                });
-
-                area.shrink_down(2);
-
-                markup.render(area, buf, self.review.content(), kitty);
-
-                if self.review.is_fully_revealed() {
-                    shortcuts.extend([Shortcut::new("Yes", "y"), Shortcut::new("No", "n")]);
-                } else {
-                    shortcuts.extend([Shortcut::new("Show", symbols::SPACE)]);
-                }
-
-                if self.has_more_cards() {
-                    shortcuts.push(Shortcut::new("Skip", symbols::ARROW_RIGHT));
-                }
-
-                shortcuts.extend([
-                    Shortcut::new("Edit", "e"),
-                    Shortcut::new("Delete", symbols::DELETE),
-                ]);
-            }
-            ReviewState::Done => {
-                widgets::print_ascii(
-                    area,
-                    buf,
-                    "Good job!",
-                    Style::new(),
-                    Some(widgets::Alignment::Center),
-                );
-            }
-        }
+    pub fn exit(&mut self) {
+        self.total = 0;
+        self.progress = 0;
+        self.state = ReviewState::None;
+        self.review.clear();
     }
 
-    pub fn on_input(&mut self, input: AppInput, markup: &mut Markup, db: &mut Database) -> Action {
-        let key = input.key_pressed();
+    pub fn refresh(&mut self, db: &Database, markup: &mut Markup) {
+        self.total = self.total.saturating_sub(1);
+        self.next_card(db, markup);
+    }
+
+    pub fn input(
+        &mut self,
+        key: Key,
+        db: &mut Database,
+        markup: &mut Markup,
+        desired_retention: f32,
+    ) -> Action {
         match self.state {
-            ReviewState::Review(id) => match key {
+            ReviewState::Review(id) => match key.code {
                 KeyCode::Char('e') => return Action::Route(Route::Editor(Some(id))),
                 KeyCode::Delete => {
-                    db.delete_card(id);
-                    self.total = self.total.saturating_sub(1);
-                    self.next_card(db, markup);
-                    return Action::Render;
+                    return Action::Modal(Some(Modal::DeleteCard(id)));
                 }
                 KeyCode::Char(' ') => {
                     if !self.review.is_fully_revealed() {
                         self.review.reveal_more();
-                        markup.set_desired_scroll(ScrollMove::End);
+                        markup.set_desired_scroll(MarkupScroll::End);
                         return Action::Render;
                     }
                 }
                 KeyCode::Char('y' | 'n') => {
                     if self.review.is_fully_revealed() {
-                        let success = key == KeyCode::Char('y');
-                        db.review_card(id, success, self.desired_retention);
+                        let success = key.code == KeyCode::Char('y');
+                        db.review_card(id, success, desired_retention);
                         self.progress += 1;
                         if self.is_done() {
                             self.state = ReviewState::Done;
@@ -147,7 +92,7 @@ impl ReviewPage {
                     }
                 }
                 _ => {
-                    if markup.input(key) {
+                    if markup.input(key.code) {
                         return Action::Render;
                     }
                 }
@@ -158,11 +103,63 @@ impl ReviewPage {
         Action::None
     }
 
-    pub fn on_exit(&mut self) {
-        self.total = 0;
-        self.progress = 0;
-        self.state = ReviewState::None;
-        self.review.clear();
+    pub fn render(&self, mut area: Rect, frame: &mut Frame, colors: &Colors, markup: &mut Markup) {
+        match self.state {
+            ReviewState::None => {
+                frame.print_span_fg(
+                    area,
+                    "No cards to review",
+                    colors.neutral,
+                    SpanOptions::center(),
+                );
+            }
+            ReviewState::Review(_id) => {
+                frame.push_fmt_fg(
+                    format_args!("{} / {}", self.progress + 1, self.total),
+                    colors.neutral,
+                );
+                frame.render(area, TextOptions::span_center_top());
+
+                area.shrink_down(2);
+
+                markup
+                    .set_colors(colors.markup())
+                    .render(area, frame, self.review.content());
+            }
+            ReviewState::Done => {
+                frame.print_span_fg(area, "Good job!", colors.neutral, SpanOptions::center());
+            }
+        }
+    }
+
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Frame, colors: &Colors) {
+        if let ReviewState::Done = self.state {
+            return;
+        }
+
+        let gap = 1;
+
+        for (key, name, gap, _show) in [
+            ("y", "Yes", gap, self.review.is_fully_revealed()),
+            ("n", "No", gap, self.review.is_fully_revealed()),
+            ("Space", "Show", gap, !self.review.is_fully_revealed()),
+            ("➔", "Skip", gap, self.has_more_cards()),
+            ("e", "Edit", gap, true),
+            ("Del", "Delete", 0, true),
+        ]
+        .into_iter()
+        .filter(|s| s.3)
+        {
+            frame.push_fmt(Sgr::Fg(colors.secondary));
+            frame.push_str(key);
+            frame.push_fmt(Sgr::Fg(colors.normal));
+            frame.push_ch(' ');
+            frame.push_str(name);
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(area, TextOptions::span_center_top());
     }
 
     fn next_card(&mut self, db: &Database, markup: &mut Markup) {
@@ -178,7 +175,7 @@ impl ReviewPage {
                     self.review.start(content);
                 });
                 self.state = ReviewState::Review(id);
-                markup.scroll(ScrollMove::Start);
+                markup.scroll(MarkupScroll::Start);
             }
             None => {
                 self.state = ReviewState::Done;
@@ -191,7 +188,8 @@ impl ReviewPage {
     }
 
     const fn has_more_cards(&self) -> bool {
-        (self.total - self.progress) > 1
+        let remaining = self.total - self.progress;
+        remaining > 1
     }
 }
 

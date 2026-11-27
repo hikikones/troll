@@ -1,56 +1,103 @@
-use std::path::{Path, PathBuf};
+use std::{
+    hash::{Hash, Hasher},
+    path::{Path, PathBuf},
+};
 
-use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
-use shared::terminal::{TerminalCellSize, TerminalInfo, TerminalPalette, TerminalTheme};
+use shared::env::NoAppDir;
+use terminal::{Color, Rgb};
 use widgets::{
-    ListColors, MarkupColors, ScrollbarColors, SyntaxHighlightTheme, TextEditorColors,
-    TextInputColors, TokenListColors,
+    AnsiViewerColors, EditorColors, ListColors, MarkupCodeTheme, MarkupColors, PromptColors,
+    ScrollbarColors,
 };
 
 // TODO: Add show_scrollbars to config.
 
+pub type SettingsResult<T = ()> = Result<T, ConfigError>;
+
 const VERSION: u8 = 0;
 
+#[derive(Debug, Default)]
 pub struct Settings {
     config: Config,
-    config_file: PathBuf,
-    assets_dir: PathBuf,
-    info: TerminalInfo,
+    path: Option<PathBuf>,
 }
 
 impl Settings {
-    pub const fn new(config_file: PathBuf, assets_dir: PathBuf, info: TerminalInfo) -> Self {
+    pub fn new(path: Option<PathBuf>) -> Self {
         Self {
-            config: Config::new(info.theme),
-            config_file,
-            assets_dir,
-            info,
+            config: Config::default(),
+            path,
         }
+    }
+
+    pub fn read_or_create(path: Option<&Path>) -> SettingsResult<Self> {
+        #[cfg(debug_assertions)]
+        if path.is_none() {
+            return Ok(Settings::default());
+        }
+
+        let Some(path) = path else {
+            return Self::from_app_dir();
+        };
+
+        let config = Config::read(path)?;
+
+        Ok(Self {
+            config,
+            path: Some(path.to_path_buf()),
+        })
+    }
+
+    fn from_app_dir() -> SettingsResult<Self> {
+        let mut path = shared::env::get_app_dir(
+            crate::APP_QUALIFIER,
+            crate::APP_ORGANIZATION,
+            crate::APP_NAME,
+        )
+        .map_err(ConfigError::NoAppDir)?;
+
+        path.push("settings.toml");
+
+        if path.exists() {
+            return Ok(Self {
+                config: Config::read(&path)?,
+                path: Some(path),
+            });
+        }
+
+        if let Some(parent) = path.parent()
+            && let Err(error) = std::fs::create_dir_all(parent)
+        {
+            return Err(ConfigError::CreateAppDirs { path, error });
+        }
+
+        let config = Config::default();
+        config.save(&path)?;
+
+        Ok(Self {
+            config,
+            path: Some(path),
+        })
     }
 
     pub const fn config(&self) -> &Config {
         &self.config
     }
 
-    pub const fn set_config(&mut self, config: Config) {
-        self.config = config;
+    pub const fn set_config(&mut self, config: &Config) {
+        self.config.general.desired_retention = config.general.desired_retention;
+        self.config.colors.primary = config.colors.primary;
+        self.config.colors.secondary = config.colors.secondary;
+        self.config.colors.neutral = config.colors.neutral;
     }
 
-    pub fn assets_dir(&self) -> &Path {
-        &self.assets_dir
+    pub const fn general(&self) -> &General {
+        &self.config.general
     }
 
-    pub const fn theme(&self) -> TerminalTheme {
-        self.info.theme
-    }
-
-    pub const fn palette(&self) -> TerminalPalette {
-        self.info.palette
-    }
-
-    pub const fn cell_size(&self) -> TerminalCellSize {
-        self.info.cell_size
+    pub const fn general_mut(&mut self) -> &mut General {
+        &mut self.config.general
     }
 
     pub const fn desired_retention(&self) -> u8 {
@@ -62,65 +109,33 @@ impl Settings {
     }
 
     pub const fn set_desired_retention(&mut self, percent: u8) {
-        self.config.general.desired_retention = if percent > 100 { 100 } else { percent };
+        self.config.general.desired_retention = percent;
     }
 
     pub const fn colors(&self) -> &Colors {
         &self.config.colors
     }
 
-    pub const fn primary(&self) -> Color {
-        self.config.colors.primary
+    pub const fn colors_mut(&mut self) -> &mut Colors {
+        &mut self.config.colors
     }
 
-    pub const fn secondary(&self) -> Color {
-        self.config.colors.secondary
+    pub const fn set_colors(&mut self, colors: Colors) {
+        self.config.colors = colors;
     }
 
-    pub const fn neutral(&self) -> Color {
-        self.config.colors.neutral
+    pub fn replace_colors_with_dimmed(&mut self) -> Colors {
+        let colors = self.config.colors.clone();
+        self.config.colors = Colors::dimmed();
+        colors
     }
 
-    pub const fn set_primary(&mut self, color: Color) {
-        self.config.colors.primary = color;
-    }
+    pub fn save(&self) -> SettingsResult {
+        let Some(path) = self.path.as_deref() else {
+            return Err(ConfigError::NoSavePath);
+        };
 
-    pub const fn set_secondary(&mut self, color: Color) {
-        self.config.colors.secondary = color;
-    }
-
-    pub const fn set_neutral(&mut self, color: Color) {
-        self.config.colors.neutral = color;
-    }
-
-    pub const fn markup_colors(&self) -> MarkupColors {
-        MarkupColors {
-            syntax_theme: match self.info.theme {
-                TerminalTheme::Dark => SyntaxHighlightTheme::Base16EightiesDark,
-                TerminalTheme::Light => SyntaxHighlightTheme::InspiredGitHub,
-            },
-            scrollbar: self.config.colors.scrollbar(),
-            heading: self.config.colors.secondary,
-            break_char: self.config.colors.neutral,
-        }
-    }
-
-    pub fn read(
-        config_file: PathBuf,
-        assets_dir: PathBuf,
-        info: TerminalInfo,
-    ) -> Result<Self, String> {
-        let config = Config::read(&config_file)?;
-        Ok(Self {
-            config,
-            config_file,
-            assets_dir,
-            info,
-        })
-    }
-
-    pub fn save(&self) -> Result<(), String> {
-        self.config.save(&self.config_file)
+        self.config.save(path)
     }
 
     pub fn hash(&self) -> u64 {
@@ -128,32 +143,28 @@ impl Settings {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    version: u8,
-    general: General,
-    colors: Colors,
+    pub version: u8,
+    pub general: General,
+    pub colors: Colors,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            version: VERSION,
+            general: Default::default(),
+            colors: Default::default(),
+        }
+    }
 }
 
 impl Config {
-    pub const fn new(theme: TerminalTheme) -> Self {
-        Self {
-            version: VERSION,
-            general: General {
-                desired_retention: 80,
-            },
-            colors: Colors::new(theme),
-        }
-    }
-
-    pub fn read(path: impl AsRef<Path>) -> Result<Self, String> {
-        let path = path.as_ref();
-        let bytes = std::fs::read(path).map_err(|err| {
-            format!(
-                "Failed to read settings from '{}' due to {}",
-                path.display(),
-                err
-            )
+    fn read(path: &Path) -> SettingsResult<Self> {
+        let bytes = std::fs::read(path).map_err(|error| ConfigError::Read {
+            path: path.to_path_buf(),
+            error,
         })?;
 
         #[derive(Deserialize)]
@@ -161,96 +172,119 @@ impl Config {
             version: u8,
         }
 
-        let V { version } = toml::from_slice(&bytes).map_err(|err| {
-            format!(
-                "Failed to deserialize settings from '{}' due to {}",
-                path.display(),
-                err
-            )
+        let V { version } = toml::from_slice(&bytes).map_err(|error| ConfigError::Deserialize {
+            path: path.to_path_buf(),
+            error,
         })?;
 
         let config: Self = match version {
-            VERSION => toml::from_slice(&bytes).map_err(|err| {
-                format!(
-                    "Failed to deserialize settings from '{}' due to {}",
-                    path.display(),
-                    err
-                )
+            VERSION => toml::from_slice(&bytes).map_err(|error| ConfigError::Deserialize {
+                path: path.to_path_buf(),
+                error,
             })?,
-            _ => Err(format!(
-                "Failed to deserialize settings from '{}' due to unknown version",
-                path.display()
-            ))?,
+            _ => return Err(ConfigError::UnknownVersion),
         };
 
         Ok(config)
     }
 
-    pub fn save(&self, path: impl AsRef<Path>) -> Result<(), String> {
-        let path = path.as_ref();
-        let toml = toml::to_string(self)
-            .map_err(|err| format!("Failed to serialize settings due to {}", err))?;
-        std::fs::write(path, toml).map_err(|err| {
-            format!(
-                "Failed to write settings to '{}' due to {}",
-                path.display(),
-                err
-            )
+    fn save(&self, path: &Path) -> SettingsResult {
+        let toml = toml::to_string(self).map_err(ConfigError::Serialize)?;
+        std::fs::write(path, &toml).map_err(|error| ConfigError::Save {
+            path: path.to_path_buf(),
+            error,
         })?;
 
         Ok(())
     }
 
     pub fn hash(&self) -> u64 {
-        toml::to_string(self).map(utils::hash_fast).unwrap_or(0)
+        utils::hasher_fast(|hasher| {
+            hasher.write_u8(self.general.desired_retention);
+            self.colors.primary.hash(hasher);
+            self.colors.secondary.hash(hasher);
+            self.colors.neutral.hash(hasher);
+        })
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct General {
-    desired_retention: u8,
+    #[serde(rename = "desired_retention")]
+    pub desired_retention: u8,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+impl Default for General {
+    fn default() -> Self {
+        Self {
+            desired_retention: 80,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Colors {
     pub primary: Color,
     pub secondary: Color,
     pub neutral: Color,
+
+    #[serde(skip)]
+    pub normal: Color,
+    #[serde(skip)]
+    pub background: Color,
+    #[serde(skip)]
+    pub foreground: Rgb,
+    #[serde(skip)]
+    pub red: Color,
+    #[serde(skip)]
+    pub green: Color,
+}
+
+impl Default for Colors {
+    fn default() -> Self {
+        Self {
+            primary: Color::YellowBright,
+            secondary: Color::Yellow,
+            neutral: Color::Indexed(240),
+            normal: Color::Default,
+            background: Color::Default,
+            foreground: Rgb::WHITE,
+            red: Color::Red,
+            green: Color::Green,
+        }
+    }
 }
 
 impl Colors {
-    pub const fn new(theme: TerminalTheme) -> Self {
-        match theme {
-            TerminalTheme::Dark => Self {
-                primary: Color::LightYellow,
-                secondary: Color::Yellow,
-                neutral: Color::Indexed(245),
-            },
-            TerminalTheme::Light => Self {
-                primary: Color::LightCyan,
-                secondary: Color::Cyan,
-                neutral: Color::Indexed(245),
-            },
+    const fn dimmed() -> Self {
+        let grey = Color::Indexed(240);
+        Self {
+            primary: grey,
+            secondary: grey,
+            neutral: grey,
+            normal: grey,
+            background: grey,
+            foreground: Rgb::all(98),
+            red: grey,
+            green: grey,
         }
     }
 
-    pub const fn text_input(&self) -> TextInputColors {
-        TextInputColors {
-            normal: Color::Reset,
-            cursor: self.secondary,
-            selector: self.neutral,
-            placeholder: self.neutral,
-            disabled: self.neutral,
+    pub const fn ansi(&self) -> AnsiViewerColors {
+        AnsiViewerColors {
+            scrollbar: self.scrollbar(),
         }
     }
 
-    pub const fn text_editor(&self) -> TextEditorColors {
-        TextEditorColors {
-            normal: Color::Reset,
-            cursor: self.secondary,
-            selector: self.neutral,
-            placeholder: self.neutral,
-            disabled: self.neutral,
+    pub const fn markup(&self) -> MarkupColors {
+        MarkupColors {
+            scrollbar: self.scrollbar(),
+            text: self.normal,
+            error: self.red,
+            heading: self.secondary,
+            break_char: self.neutral,
+            math: self.foreground,
+            syntax_theme: MarkupCodeTheme::Base16EightiesDark,
         }
     }
 
@@ -260,9 +294,19 @@ impl Colors {
         }
     }
 
-    pub const fn token_list(&self) -> TokenListColors {
-        TokenListColors {
-            scrollbar: self.scrollbar(),
+    pub const fn prompt(&self) -> PromptColors {
+        PromptColors {
+            normal: self.normal,
+            placeholder: self.neutral,
+            disabled: self.neutral,
+        }
+    }
+
+    pub const fn editor(&self) -> EditorColors {
+        EditorColors {
+            normal: self.normal,
+            placeholder: self.neutral,
+            disabled: self.neutral,
         }
     }
 
@@ -270,6 +314,72 @@ impl Colors {
         ScrollbarColors {
             thumb: self.neutral,
             track: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ConfigError {
+    Read {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    Save {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    Deserialize {
+        path: PathBuf,
+        error: toml::de::Error,
+    },
+    Serialize(toml::ser::Error),
+    CreateAppDirs {
+        path: PathBuf,
+        error: std::io::Error,
+    },
+    NoAppDir(NoAppDir),
+    NoSavePath,
+    UnknownVersion,
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read { path, .. } => f.write_fmt(format_args!(
+                "Failed to read settings from '{}'.",
+                path.display()
+            )),
+            Self::Save { path, .. } => f.write_fmt(format_args!(
+                "Failed to save settings to '{}'.",
+                path.display()
+            )),
+            Self::Deserialize { path, .. } => f.write_fmt(format_args!(
+                "Failed to deserialize settings from '{}'.",
+                path.display()
+            )),
+            Self::Serialize(_) => f.write_str("Failed to serialize settings."),
+            Self::CreateAppDirs { path, .. } => f.write_fmt(format_args!(
+                "Failed to create directories for '{}'.",
+                path.display()
+            )),
+            Self::NoAppDir(err) => err.fmt(f),
+            Self::NoSavePath => f.write_str("No path to save settings to."),
+            Self::UnknownVersion => f.write_str("Unknown version."),
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { error, .. } => Some(error),
+            Self::Save { error, .. } => Some(error),
+            Self::Deserialize { error, .. } => Some(error),
+            Self::Serialize(error) => Some(error),
+            Self::CreateAppDirs { error, .. } => Some(error),
+            Self::NoAppDir(err) => err.source(),
+            Self::NoSavePath => None,
+            Self::UnknownVersion => None,
         }
     }
 }

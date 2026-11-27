@@ -1,37 +1,28 @@
 use std::collections::HashMap;
 
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::{KeyCode, KeyModifiers},
-    layout::Rect,
-    style::{Color, Style},
-};
-use shared::{symbols, terminal::Terminal};
-use widgets::{
-    CursorMove, KittyGraphics, List, ListItem, Markup, RectExt, Shortcut, Shortcuts, TextEditor,
-};
+use shared::logs::Logs;
+use terminal::*;
+use widgets::{Editor, List, Markup};
 
 use crate::{
-    app::{Action, AppInput, AppRender},
+    app::Action,
     database::{CardId, Database, TagId},
-    pages::Log,
+    modals::Modal,
     settings::Colors,
 };
 
-pub struct CardEditorPage {
-    editor: TextEditor,
+pub struct EditorPage {
+    editor: Editor,
     preview: bool,
     show_tags: bool,
     tags: TagsSidebar,
     card: Option<CardId>,
 }
 
-impl CardEditorPage {
+impl EditorPage {
     pub fn new() -> Self {
         Self {
-            editor: TextEditor::new()
-                .with_placeholder("Content...")
-                .with_margins(2),
+            editor: Editor::new().with_placeholder("Content..."),
             preview: false,
             show_tags: false,
             tags: TagsSidebar::new(),
@@ -39,7 +30,7 @@ impl CardEditorPage {
         }
     }
 
-    pub fn on_enter(&mut self, id: Option<CardId>, db: &Database) {
+    pub fn enter(&mut self, id: Option<CardId>, db: &Database) {
         self.preview = false;
         self.tags.update(db);
         self.card = id;
@@ -48,172 +39,97 @@ impl CardEditorPage {
             self.editor.clear();
             db.get_card_content(id, |content| {
                 self.editor.push_str(content);
-                self.editor.move_cursor(CursorMove::Start, false);
+                self.editor.move_to_start(false);
                 self.tags.reset_toggles(db, Some(id));
             });
         }
     }
 
-    pub fn on_render(
-        &mut self,
-        render: AppRender,
-        db: &Database,
-        colors: &Colors,
-        markup: &mut Markup,
-        kitty: &mut KittyGraphics,
-        shortcuts: &mut Shortcuts,
-    ) {
-        let (mut area, buf) = render.area_and_buffer();
-
-        if self.show_tags {
-            let tags_width = (0.30 * area.width as f32).round() as u16;
-            self.tags.render(
-                Rect {
-                    width: tags_width,
-                    ..area
-                },
-                buf,
-                db,
-                colors,
-            );
-            area.width = area.width.saturating_sub(tags_width);
-            area.x += tags_width + 2;
-
-            if !self.tags.is_empty() {
-                shortcuts.extend([
-                    Shortcut::new("Toggle", symbols::SPACE),
-                    Shortcut::new("Reset", "r"),
-                ]);
-            }
+    pub fn exit(&mut self) {
+        if self.card.is_some() {
+            self.editor.clear();
+            self.show_tags = false;
+            self.tags.clear_toggles();
         }
-
-        let title = if self.card.is_some() {
-            "Edit Card"
-        } else {
-            "New Card"
-        };
-        widgets::print_ascii(
-            area,
-            buf,
-            title,
-            colors.neutral,
-            Some(widgets::Alignment::CenterHorizontal),
-        );
-
-        area.shrink_down(2);
-
-        if area.height > 0 {
-            if self.preview {
-                markup.render(area, buf, self.editor.as_str(), kitty);
-            } else {
-                self.editor
-                    .set_colors(colors.text_editor())
-                    .render(area, buf);
-            }
-        }
-
-        shortcuts.extend([
-            Shortcut::new("Save", symbols::ctrl!("s")),
-            Shortcut::new("Preview", symbols::ctrl!("p")),
-            Shortcut::new("Tags", symbols::ctrl!("t")),
-            Shortcut::new("Edit", symbols::ctrl!("e")),
-        ]);
     }
 
-    pub fn on_input(
-        &mut self,
-        input: AppInput,
-        markup: &mut Markup,
-        db: &mut Database,
-        terminal: &mut Terminal,
-    ) -> Action {
-        let (key, modifiers) = input.key_pressed_and_modifiers();
-        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+    pub fn refresh(&mut self, db: &Database) {
+        self.tags.update(db);
+    }
 
-        match key {
-            KeyCode::Char('e') => {
-                if ctrl {
-                    match terminal.temp_leave(|| {
-                        edit::edit_with_builder(
-                            self.editor.as_str(),
-                            edit::Builder::new().suffix(".md"),
-                        )
-                    }) {
-                        Ok(content) => {
-                            self.editor.clear();
-                            self.editor.push_str(&content);
-                            self.editor.move_cursor(CursorMove::Start, false);
-                            return Action::Render;
-                        }
-                        Err(err) => {
-                            return Action::EnqueueLog(Log::new(err));
-                        }
+    pub fn input(
+        &mut self,
+        key: Key,
+        db: &mut Database,
+        markup: &mut Markup,
+        terminal: &mut Terminal,
+        logs: &mut Logs,
+    ) -> Action {
+        match key.code {
+            KeyCode::Delete if self.show_tags => {
+                if let Some(id) = self.tags.current() {
+                    return Action::Modal(Some(Modal::DeleteTag(id)));
+                }
+            }
+            KeyCode::Char('n') if self.show_tags => return Action::Modal(Some(Modal::AddTag)),
+            KeyCode::Char('e') if key.ctrl() => {
+                match terminal.temp_leave(|| {
+                    edit::edit_with_builder(
+                        self.editor.as_str(),
+                        edit::Builder::new().suffix(".md"),
+                    )
+                }) {
+                    Ok(content) => {
+                        self.editor.clear();
+                        self.editor.push_str(&content);
+                        self.editor.move_to_start(false);
                     }
-                } else if !self.show_tags && !self.preview {
-                    self.editor.push_char('e');
-                    return Action::Render;
-                }
-            }
-            KeyCode::Char('p') => {
-                if ctrl {
-                    self.preview = !self.preview;
-                    return Action::Render;
-                } else if !self.show_tags && !self.preview {
-                    self.editor.push_char('p');
-                    return Action::Render;
-                }
-            }
-            KeyCode::Char('s') => {
-                if ctrl {
-                    if !self.editor.is_empty() {
-                        self.save(db);
-                        markup.clear();
-                        return Action::Render;
+                    Err(err) => {
+                        logs.push_fmt(format_args!("Failed to launch $EDITOR: {err}"));
                     }
-                } else if !self.show_tags && !self.preview {
-                    self.editor.push_char('s');
-                    return Action::Render;
+                }
+                return Action::Clear;
+            }
+            KeyCode::Char('e') if self.show_tags => {
+                if let Some(id) = self.tags.current() {
+                    return Action::Modal(Some(Modal::EditTag(id)));
                 }
             }
-            KeyCode::Char('t') => {
-                if ctrl {
-                    self.show_tags = !self.show_tags;
-                } else if !self.show_tags && !self.preview {
-                    self.editor.push_char('t');
-                }
+            KeyCode::Char('p') if key.ctrl() => {
+                self.preview = !self.preview;
                 return Action::Render;
             }
-            KeyCode::Char(' ') => {
-                if self.show_tags {
-                    if self.tags.toggle_selection() {
-                        return Action::Render;
-                    }
-                } else if !self.preview {
-                    self.editor.push_char(' ');
+            KeyCode::Char('s') if key.ctrl() && !self.editor.is_empty() => {
+                self.save(db);
+                return Action::Render;
+            }
+            KeyCode::Char('t') if key.ctrl() => {
+                self.show_tags = !self.show_tags;
+                return Action::Render;
+            }
+            KeyCode::Char(' ') if self.show_tags => {
+                if self.tags.toggle_selection() {
                     return Action::Render;
                 }
             }
-            KeyCode::Char('r') => {
-                if self.show_tags {
-                    if self.tags.reset_toggles(db, self.card) {
-                        return Action::Render;
-                    }
-                } else if !self.preview {
-                    self.editor.push_char('r');
+            KeyCode::Char('r') if self.show_tags => {
+                if self.tags.reset_toggles(db, self.card) {
                     return Action::Render;
                 }
             }
             _ => {
                 if self.show_tags {
-                    if self.tags.list.input(key, modifiers) {
+                    if self.tags.list.input(key) {
                         return Action::Render;
                     }
                 } else if self.preview {
-                    if markup.input(key) {
+                    if markup.input(key.code) {
                         return Action::Render;
                     }
-                } else if self.editor.input(key, modifiers) {
-                    return Action::Render;
+                } else {
+                    if self.editor.input(key) {
+                        return Action::Render;
+                    }
                 }
             }
         }
@@ -221,12 +137,72 @@ impl CardEditorPage {
         Action::None
     }
 
-    pub fn on_exit(&mut self) {
-        if self.card.is_some() {
-            self.editor.clear();
-            self.show_tags = false;
-            self.tags.clear_toggles();
+    pub fn render(
+        &mut self,
+        mut area: Rect,
+        frame: &mut Frame,
+        colors: &Colors,
+        db: &Database,
+        markup: &mut Markup,
+    ) {
+        if self.show_tags {
+            let (left, right) = area.split_left(area.cols() / 3, 2);
+            self.tags.render(left, frame, db, colors);
+            area = right;
         }
+
+        frame.push_str_fg(
+            if self.card.is_some() {
+                "Edit Card"
+            } else {
+                "New Card"
+            },
+            colors.neutral,
+        );
+        frame.render(area, TextOptions::span_center_top());
+
+        area.shrink_down(2);
+
+        if self.preview {
+            markup
+                .set_colors(colors.markup())
+                .render(area, frame, self.editor.as_str());
+        } else {
+            self.editor
+                .set_disabled(self.show_tags)
+                .set_colors(colors.editor())
+                .render(area, frame);
+        }
+    }
+
+    pub fn render_shortcuts(&self, area: Rect, frame: &mut Frame, colors: &Colors) {
+        let gap = 1;
+        let has_tags = self.show_tags && !self.tags.is_empty();
+
+        for (key, name, gap, _show) in [
+            ("n", "New", gap, self.show_tags),
+            ("e", "Edit", gap, has_tags),
+            ("Space", "Toggle", gap, has_tags),
+            ("r", "Reset", gap, has_tags),
+            ("^t", "Tags", gap, true),
+            ("^s", "Save", gap, true),
+            ("^p", "Preview", gap, true),
+            ("^e", "$EDITOR", gap, true),
+            ("Del", "Delete", 0, has_tags),
+        ]
+        .into_iter()
+        .filter(|s| s.3)
+        {
+            frame.push_fmt(Sgr::Fg(colors.secondary));
+            frame.push_str(key);
+            frame.push_fmt(Sgr::Fg(colors.normal));
+            frame.push_ch(' ');
+            frame.push_str(name);
+            frame.push_ch_repeat(' ', gap);
+        }
+
+        frame.push_fmt(Sgr::reset_fg());
+        frame.render(area, TextOptions::span_center_top());
     }
 
     fn save(&mut self, db: &Database) {
@@ -276,6 +252,10 @@ impl TagsSidebar {
             toggles: HashMap::new(),
             list: List::new(),
         }
+    }
+
+    fn current(&self) -> Option<TagId> {
+        self.tags.get(self.list.index()).copied()
     }
 
     fn update(&mut self, db: &Database) {
@@ -350,52 +330,58 @@ impl TagsSidebar {
         self.toggles.clear();
     }
 
-    fn render(&mut self, mut area: Rect, buf: &mut Buffer, db: &Database, colors: &Colors) {
-        widgets::print_ascii(
-            area,
-            buf,
-            "Tags",
-            Style::new(),
-            Some(widgets::Alignment::CenterHorizontal),
-        );
+    fn render(&mut self, mut area: Rect, frame: &mut Frame, db: &Database, colors: &Colors) {
+        frame.print_fmt(Sgr::Fg(colors.normal));
+        frame.print_span(area, "Tags", SpanOptions::center_top());
 
         if self.tags.is_empty() {
-            widgets::print_ascii(
-                area,
-                buf,
-                "No tags",
-                Style::new(),
-                Some(widgets::Alignment::CenterHorizontal),
-            );
+            frame.push_str_fg("No tags", colors.neutral);
+            frame.render(area, TextOptions::span_center());
             return;
         }
 
         area.shrink_down(2);
 
         // Render tags
-        self.list.set_colors(colors.list()).render(
-            area,
-            buf,
-            self.tags.iter().copied(),
-            |line, buf, id, item| {
-                let symbol = match item {
-                    ListItem::Selected => symbols::concat!(symbols::SELECTED, " "),
-                    ListItem::Selection => symbols::concat!(symbols::SELECTION, " "),
-                    ListItem::Normal => "",
-                };
-                let color = self
-                    .toggles
-                    .get(&id)
-                    .map(|state| match state {
-                        TagState::Add | TagState::Keep => Color::Green,
-                        TagState::Remove => Color::Red,
-                    })
-                    .unwrap_or(Color::Reset);
+        let Some((area, lines)) = self
+            .list
+            .set_len(self.tags.len())
+            .set_colors(colors.list())
+            .render(area, frame)
+        else {
+            return;
+        };
 
-                db.get_tag_name(id, |name| {
-                    widgets::print_texts(line, buf, [symbol, name], color, false, None);
-                });
-            },
-        );
+        let mut line = area.with_rows(1);
+        let selected = self.list.index();
+        let selection = self.list.selection_inclusive();
+
+        for (index, tid) in lines.zip(self.tags.iter().copied().skip(self.list.scroll())) {
+            let color = self
+                .toggles
+                .get(&tid)
+                .map(|state| match state {
+                    TagState::Add | TagState::Keep => colors.green,
+                    TagState::Remove => colors.red,
+                })
+                .unwrap_or(colors.normal);
+
+            frame.push_fmt(Sgr::Fg(color));
+
+            if index == selected {
+                frame.push_str("> ");
+            } else if selection.contains(&index) {
+                frame.push_str("| ");
+            }
+
+            db.get_tag_name(tid, |name| {
+                frame.push_str(name);
+            });
+
+            frame.push_fmt(Sgr::reset_fg());
+            frame.render(line, TextOptions::span());
+
+            line.add_row(1);
+        }
     }
 }

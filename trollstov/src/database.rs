@@ -1,321 +1,531 @@
-use std::{collections::VecDeque, path::PathBuf, sync::mpsc};
+#![allow(clippy::unit_arg)]
 
-use indexmap::IndexMap;
+use std::path::{Path, PathBuf};
+
+use shared::sqlite::*;
 
 mod audio;
-mod matcher;
+mod scanner;
 mod track;
+mod writer;
 
 pub use audio::*;
-use matcher::*;
+pub use scanner::*;
 pub use track::*;
+use utils::StringExt;
+use writer::*;
 
-type AudioFileReceiver = mpsc::Receiver<Result<(AudioFile, AudioFileExtension), AudioFileReport>>;
-type AudioWriteHandle = std::thread::JoinHandle<Result<(TrackId, AudioRating), AudioFileReport>>;
+pub type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub struct Database {
-    music_dir: PathBuf,
-    tracks: IndexMap<TrackId, Track>,
+    sqlite: Sqlite,
+    sql: String,
     sort: TrackSort,
-    matcher: Matcher,
-    buffer: String,
-    receiver: Option<AudioFileReceiver>,
-    write_handle: Option<AudioWriteHandle>,
-    write_queue: VecDeque<(TrackId, AudioRating)>,
-}
-
-pub enum DatabaseEvent {
-    Rating(TrackId),
-    Error(AudioFileReport),
+    reverse_sort: bool,
+    writer: RatingsWriter,
+    tracks_len: u32,
 }
 
 impl Database {
-    pub fn new(music_dir: PathBuf) -> Self {
-        Self {
-            music_dir,
-            tracks: IndexMap::new(),
+    pub fn new(in_memory: bool) -> DatabaseResult<Self> {
+        let sqlite = if in_memory {
+            Sqlite::open_in_memory()?
+        } else {
+            let path = std::env::temp_dir().join(utils::concat!(crate::APP_NAME, ".db.tmp"));
+            let _ = std::fs::File::create(&path);
+            Sqlite::open(&path)?
+        };
+
+        sqlite.execute_batch(include_str!("database/schema.sql"))?;
+
+        Ok(Self {
+            sqlite,
+            sql: String::new(),
             sort: TrackSort::default(),
-            matcher: Matcher::new(),
-            buffer: String::new(),
-            receiver: None,
-            write_handle: None,
-            write_queue: VecDeque::new(),
-        }
+            reverse_sort: false,
+            writer: RatingsWriter::new(),
+            tracks_len: 0,
+        })
     }
 
-    pub fn load(&mut self) {
-        let (sender, receiver) = mpsc::channel();
-        traverse_and_process_audio_files(self.music_dir.clone(), true, sender);
-        self.receiver = Some(receiver);
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.tracks.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.tracks.len()
-    }
-
-    pub fn get(&self, id: TrackId) -> Option<&Track> {
-        self.tracks.get(&id)
-    }
-
-    pub fn get_mut(&mut self, id: TrackId) -> Option<&mut Track> {
-        self.tracks.get_mut(&id)
-    }
-
-    pub fn get_id_from_index(&self, i: usize) -> Option<TrackId> {
-        self.tracks.keys().nth(i).copied()
-    }
-
-    pub fn get_index_from_id(&self, id: TrackId) -> Option<usize> {
-        self.tracks.get_index_of(&id)
-    }
-
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = (TrackId, &Track)> {
-        self.tracks.iter().map(|(id, track)| (*id, track))
+    pub fn path(&self) -> Option<&Path> {
+        self.sqlite.path().map(Path::new)
     }
 
     pub const fn get_sort(&self) -> TrackSort {
         self.sort
     }
 
-    pub fn sort(&mut self, sort: TrackSort, reverse: bool) {
-        self.tracks.sort_unstable_by(|_, track1, _, track2| {
-            let ordering = sort.cmp(track1, track2);
-            if reverse {
-                ordering.reverse()
+    pub const fn get_reverse_sort(&self) -> bool {
+        self.reverse_sort
+    }
+
+    pub fn next_sort(&mut self) {
+        self.sort = self.sort.next();
+        self.sort_tracks();
+    }
+
+    pub fn toggle_reverse_sort(&mut self) {
+        self.reverse_sort = !self.reverse_sort;
+        self.sort_tracks();
+    }
+
+    pub const fn is_tracks_empty(&self) -> bool {
+        self.tracks_len == 0
+    }
+
+    pub const fn tracks_len(&self) -> u32 {
+        self.tracks_len
+    }
+
+    pub fn track_title(&self, id: TrackId, f: impl FnOnce(&str)) {
+        self.sqlite
+            .single("SELECT title FROM tracks WHERE id = ?", [id], |row| {
+                Ok(f(row.get_ref(0)?.as_str()?))
+            })
+            .unwrap();
+    }
+
+    pub fn track_rating(&self, id: TrackId) -> TrackRating {
+        self.sqlite
+            .single("SELECT rating FROM tracks WHERE id = ?", [id], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    }
+
+    pub fn track_path(&self, id: TrackId) -> PathBuf {
+        self.sqlite
+            .single("SELECT path FROM tracks WHERE id = ?", [id], |row| {
+                Ok(PathBuf::from(row.get_ref(0)?.as_str()?))
+            })
+            .unwrap()
+    }
+
+    pub fn track_data(&self, id: TrackId, f: impl FnOnce(TrackData)) {
+        self.sqlite
+            .single(
+                "SELECT \
+            path, title, rating, album_id, duration, bit_rate_kbps, bit_depth, sample_rate \
+            FROM tracks WHERE id = ?",
+                [id],
+                |row| {
+                    Ok(f(TrackData {
+                        path: Path::new(row.get_ref(0)?.as_str()?),
+                        title: row.get_ref(1)?.as_str()?,
+                        rating: row.get(2)?,
+                        album_id: row.get(3)?,
+                        duration: row.get(4)?,
+                        bit_rate_kbps: row.get(5)?,
+                        bit_depth: row.get(6)?,
+                        sample_rate: row.get(7)?,
+                    }))
+                },
+            )
+            .unwrap();
+    }
+
+    pub fn track_artists(&self, id: TrackId, mut f: impl FnMut(&str)) {
+        self.sqlite
+            .for_each(
+                "SELECT ar.name FROM artists ar \
+                JOIN artist_tracks ar_t ON ar_t.artist_id = ar.id \
+                WHERE ar_t.track_id = ?",
+                [id],
+                |row| Ok(f(row.get_ref(0)?.as_str()?)),
+            )
+            .unwrap();
+    }
+
+    pub fn track_artists_concat(&self, id: TrackId, f: impl FnOnce(&str)) {
+        self.sqlite
+            .single(
+                "SELECT GROUP_CONCAT(ar.name, ', ') \
+                FROM artists ar \
+                JOIN artist_tracks ar_t ON ar_t.artist_id = ar.id \
+                WHERE ar_t.track_id = ?",
+                [id],
+                |row| Ok(f(row.get_ref(0)?.as_str()?)),
+            )
+            .unwrap();
+    }
+
+    pub fn track_table(&mut self, id: TrackId, f: impl FnOnce(TrackTable)) {
+        self.sql.clear();
+
+        let artists = {
+            if self.sort == TrackSort::Artist {
+                if self.reverse_sort {
+                    "GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE DESC)"
+                } else {
+                    "GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE ASC)"
+                }
             } else {
-                ordering
+                "GROUP_CONCAT(ar.name, ', ')"
             }
-        });
-        self.sort = sort;
+        };
+        self.sql.push_fmt(format_args!(
+            "SELECT t.title, {artists}, al.name, t.duration, t.rating FROM tracks t \
+            JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
+            JOIN artists ar ON ar.id = ar_t.artist_id \
+            JOIN albums al ON al.id = t.album_id \
+            WHERE t.id = ? \
+            GROUP BY t.id"
+        ));
+        self.sqlite
+            .single(&self.sql, [id], |row| {
+                Ok(f(TrackTable {
+                    title: row.get_ref(0)?.as_str()?,
+                    artists: row.get_ref(1)?.as_str()?,
+                    album: row.get_ref(2)?.as_str()?,
+                    duration: row.get(3)?,
+                    rating: row.get(4)?,
+                }))
+            })
+            .unwrap();
+    }
+
+    pub fn track_play_queue(&self, id: TrackId, f: impl FnOnce(&str)) {
+        self.sqlite
+            .single(
+                "SELECT \
+                concat_ws(' · ', \
+                    NULLIF(t.title, ''), \
+                    NULLIF(GROUP_CONCAT(ar.name, ', '), ''), \
+                    NULLIF(al.name, '') \
+                ) \
+                FROM tracks t \
+                JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
+                JOIN artists ar ON ar.id = ar_t.artist_id \
+                JOIN albums al ON al.id = t.album_id \
+                WHERE t.id = ? \
+                GROUP BY t.id",
+                [id],
+                |row| Ok(f(row.get_ref(0)?.as_str()?)),
+            )
+            .unwrap();
+    }
+
+    pub fn tracks_sorted(&self, range: std::range::Range<usize>) -> impl Iterator<Item = TrackId> {
+        let limit = (range.end - range.start) as SqliteId;
+        let offset = range.start as SqliteId;
+        self.sqlite
+            .iter(
+                "SELECT track_id FROM tracks_sorted LIMIT ?1 OFFSET ?2",
+                [limit, offset],
+                |row| row.get(0),
+            )
+            .unwrap()
+            .map(Result::unwrap)
+    }
+
+    pub fn tracks_sorted_id(&self, index: usize) -> TrackId {
+        self.sqlite
+            .single(
+                "SELECT track_id FROM tracks_sorted WHERE position = ?",
+                [index as SqliteId],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    pub fn tracks_sorted_index(&self, id: TrackId) -> usize {
+        self.sqlite
+            .single::<SqliteId>(
+                "SELECT position FROM tracks_sorted WHERE track_id = ?",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap() as usize
+    }
+
+    pub fn album_name(&self, id: AlbumId, f: impl FnOnce(&str)) {
+        self.sqlite
+            .single("SELECT name FROM albums WHERE id = ?", [id], |row| {
+                Ok(f(row.get_ref(0)?.as_str()?))
+            })
+            .unwrap();
+    }
+
+    pub fn album_tracks(&self, id: AlbumId) -> impl Iterator<Item = TrackId> {
+        self.sqlite
+            .iter("SELECT id FROM tracks WHERE album_id = ?", [id], |row| {
+                row.get(0)
+            })
+            .unwrap()
+            .map(Result::unwrap)
     }
 
     pub fn search(
         &mut self,
-        keywords: &str,
+        input: &str,
         include_path: bool,
-    ) -> impl Iterator<Item = (TrackId, u16)> {
-        search(
-            &mut self.matcher,
-            &mut self.buffer,
-            self.tracks.iter().map(|(id, track)| (*id, track)),
-            keywords,
-            include_path,
+        mut f: impl FnMut(TrackId),
+    ) -> SqliteResult<()> {
+        self.sql.clear();
+
+        let param = if !include_path {
+            self.sql.extend(["-path:", input]);
+            self.sql.as_str()
+        } else {
+            input
+        };
+
+        self.sqlite.for_each(
+            "SELECT rowid FROM track_fts \
+                WHERE track_fts MATCH ? \
+                ORDER BY rank",
+            [param],
+            |row| Ok(f(row.get(0)?)),
         )
     }
 
-    pub fn write_rating(&mut self, id: TrackId, rating: AudioRating) {
-        self.write_queue.push_back((id, rating));
+    pub fn search_highlight(
+        &mut self,
+        id: TrackId,
+        input: &str,
+        markup_start: impl std::fmt::Display,
+        markup_end: impl std::fmt::Display,
+        f: impl FnOnce(&str),
+    ) -> SqliteResult<()> {
+        self.sql.clear();
+
+        self.sql.push_fmt(format_args!(
+            "SELECT
+                rowid, \
+                highlight(track_fts, 0, '{markup_start}', '{markup_end}') || ' ' || \
+                highlight(track_fts, 1, '{markup_start}', '{markup_end}') || ' ' || \
+                highlight(track_fts, 2, '{markup_start}', '{markup_end}') \
+            FROM track_fts \
+            WHERE rowid = ?1 AND track_fts MATCH ?2",
+        ));
+        self.sqlite.single(&self.sql, (id, input), |row| {
+            Ok(f(row.get_ref(1)?.as_str()?))
+        })
     }
 
-    pub fn random_id(&self) -> TrackId {
-        TrackId(fastrand::u64(0..self.tracks.len() as u64))
+    pub fn search_text(&self, id: TrackId, f: impl FnOnce(&str)) {
+        self.sqlite
+            .single(
+                "SELECT t.title || ' ' || GROUP_CONCAT(ar.name, ' ') || ' ' || al.name \
+                FROM tracks t \
+                JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
+                JOIN artists ar ON ar.id = ar_t.artist_id \
+                JOIN albums al ON al.id = t.album_id \
+                WHERE t.id = ? \
+                GROUP BY t.id",
+                [id],
+                |row| Ok(f(row.get_ref(0)?.as_str()?)),
+            )
+            .unwrap();
     }
 
-    fn start_write(&mut self, id: TrackId, rating: AudioRating) -> Option<AudioWriteHandle> {
-        let Some(track) = self.tracks.get(&id) else {
-            return None;
-        };
+    pub fn random_track_id(&self) -> TrackId {
+        self.sqlite
+            .single(
+                "SELECT id FROM tracks ORDER BY RANDOM() LIMIT 1",
+                (),
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
 
-        if track.rating() == rating {
-            return None;
+    pub fn random_track_id_except(&self, id: TrackId) -> Option<TrackId> {
+        self.sqlite
+            .first(
+                "SELECT id FROM tracks WHERE id != ? ORDER BY RANDOM() LIMIT 1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    pub fn write_rating(&mut self, id: TrackId, rating: TrackRating) -> bool {
+        let current_rating = self.track_rating(id);
+
+        if current_rating == rating {
+            return false;
         }
 
-        let path = track.path().to_path_buf();
-        let extension = track.extension();
-        let handle = std::thread::spawn(move || {
-            let mut audio_file = AudioFile::read_from(path, extension)?;
-            audio_file.write_rating(rating)?;
-            Ok((id, rating))
+        let path = self.track_path(id);
+        self.writer.push(WriteRequest {
+            id,
+            old_rating: current_rating,
+            new_rating: rating,
+            path,
         });
-        Some(handle)
+
+        // Update new rating immediately
+        self.set_track_rating(id, rating);
+        true
     }
 
-    pub fn update(&mut self, mut on_event: impl FnMut(DatabaseEvent)) {
-        // Receive processed audio files and convert to tracks
-        if let Some(receiver) = self.receiver.as_ref() {
-            loop {
-                match receiver.try_recv() {
-                    Ok(audio_file_res) => {
-                        let track_res = audio_file_res.and_then(|(audio_file, extension)| {
-                            let track = Track::new(
-                                audio_file.metadata()?,
-                                audio_file.properties(),
-                                audio_file.path().to_path_buf(),
-                                extension,
-                            );
-                            Ok(track)
-                        });
-                        match track_res {
-                            Ok(track) => {
-                                let last_id = self.tracks.len() as u64;
-                                self.tracks.insert_sorted_by(
-                                    TrackId(last_id),
-                                    track,
-                                    |_, track1, _, track2| self.sort.cmp(track1, track2),
-                                );
-                            }
-                            Err(err) => {
-                                on_event(DatabaseEvent::Error(err));
-                            }
-                        }
-                    }
-                    Err(err) => match err {
-                        mpsc::TryRecvError::Empty => {
-                            break;
-                        }
-                        mpsc::TryRecvError::Disconnected => {
-                            self.receiver = None;
-                            break;
-                        }
-                    },
+    pub fn poll_writer(
+        &mut self,
+        current_track_id: Option<TrackId>,
+        mut on_error: impl FnMut(DatabaseError),
+    ) {
+        if let Some(Err(WriteFailure {
+            id,
+            old_rating,
+            path,
+            error,
+        })) = self.writer.poll(current_track_id)
+        {
+            // Restore old rating
+            self.set_track_rating(id, old_rating);
+
+            // Notify
+            on_error(DatabaseError::SaveAudio { path, error });
+        }
+    }
+
+    fn set_tracks_len(&mut self) {
+        self.tracks_len = self
+            .sqlite
+            .single("SELECT COUNT(*) FROM tracks", (), |row| row.get(0))
+            .unwrap();
+    }
+
+    fn set_track_rating(&self, id: TrackId, rating: TrackRating) {
+        self.sqlite
+            .execute("UPDATE tracks SET rating = ?1 WHERE id = ?2", (rating, id))
+            .unwrap();
+    }
+
+    fn sort_tracks(&mut self) {
+        self.sql.clear();
+
+        let order = if self.reverse_sort { "DESC" } else { "ASC" };
+        let query = match self.sort {
+            TrackSort::Title => {
+                format_args!(
+                    "SELECT id FROM tracks \
+                    ORDER BY title COLLATE NOCASE {order}, id {order}"
+                )
+            }
+            TrackSort::Artist => {
+                format_args!(
+                    "SELECT \
+                        t.id, \
+                        GROUP_CONCAT(ar.name, ', ' ORDER BY ar.name COLLATE NOCASE {order}) \
+                    FROM tracks t \
+                    JOIN artist_tracks ar_t ON ar_t.track_id = t.id \
+                    JOIN artists ar ON ar.id = ar_t.artist_id \
+                    GROUP BY t.id \
+                    ORDER BY ar.name COLLATE NOCASE {order}, t.id {order}"
+                )
+            }
+            TrackSort::Album => {
+                format_args!(
+                    "SELECT t.id FROM tracks t \
+                    JOIN albums al ON al.id = t.album_id \
+                    ORDER BY al.name COLLATE NOCASE {order}, t.album_id {order}, t.number {order}, t.id {order}"
+                )
+            }
+            TrackSort::Time => {
+                format_args!("SELECT id FROM tracks ORDER BY duration {order}, id {order}")
+            }
+            TrackSort::Rating => {
+                format_args!("SELECT id FROM tracks ORDER BY rating {order}, id {order}")
+            }
+        };
+        self.sql.push_fmt(query);
+
+        self.sqlite
+            .transaction(|tx| {
+                tx.execute("DELETE FROM tracks_sorted", ()).unwrap();
+
+                let mut query = tx.prepare(&self.sql).unwrap();
+                let mut rows = query.query(()).unwrap();
+                let mut insert = tx
+                    .prepare("INSERT INTO tracks_sorted (position, track_id) VALUES (?1, ?2)")
+                    .unwrap();
+
+                let mut index: SqliteId = 0;
+
+                while let Some(row) = rows.next().unwrap() {
+                    let track_id: TrackId = row.get(0).unwrap();
+                    insert.execute((index, track_id)).unwrap();
+                    index += 1;
                 }
-            }
-        }
 
-        // Poll thread handle for finished tag writing
-        match self.write_handle.as_ref() {
-            Some(handle) => {
-                if handle.is_finished() {
-                    let handle = self.write_handle.take().unwrap();
-                    match handle.join().unwrap() {
-                        Ok((id, new_rating)) => {
-                            if let Some(track) = self.tracks.get_mut(&id) {
-                                track.set_rating(new_rating);
-                                on_event(DatabaseEvent::Rating(id));
-                            }
-                        }
-                        Err(err) => {
-                            on_event(DatabaseEvent::Error(err));
-                        }
-                    }
-                }
-            }
-            None => {
-                self.write_handle = self
-                    .write_queue
-                    .pop_front()
-                    .and_then(|(id, rating)| self.start_write(id, rating));
-            }
-        }
-    }
-
-    /// Gracefully shutdown by waiting for thread to finish writing the rating tag
-    pub fn shutdown(mut self) {
-        if let Some(handle) = self.write_handle.take() {
-            let _ = handle.join().unwrap();
-        }
-    }
-}
-
-fn search<'a>(
-    matcher: &mut Matcher,
-    buffer: &mut String,
-    tracks: impl Iterator<Item = (TrackId, &'a Track)>,
-    keywords: &str,
-    include_path: bool,
-) -> impl Iterator<Item = (TrackId, u16)> {
-    matcher.update(keywords);
-    tracks.filter_map(move |(id, track)| {
-        buffer.extend([track.artist(), " ", track.album(), " ", track.title()]);
-
-        if include_path {
-            buffer.extend([" ", track.path().to_string_lossy().as_ref()]);
-        }
-
-        let score = matcher.score(&buffer);
-        buffer.clear();
-
-        score.map(|score| (id, score))
-    })
-}
-
-fn traverse_and_process_audio_files(
-    root: PathBuf,
-    follow_links: bool,
-    sender: mpsc::Sender<Result<(AudioFile, AudioFileExtension), AudioFileReport>>,
-) {
-    std::thread::spawn(move || {
-        walkdir::WalkDir::new(root)
-            .follow_links(follow_links)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .filter(|entry| entry.file_type().is_file())
-            .filter_map(|file| {
-                AudioFileExtension::from_path(file.path()).map(|ext| (file.into_path(), ext))
+                Ok(())
             })
-            .for_each(|(path, extension)| {
-                let res = match extension {
-                    #[cfg(not(feature = "opus"))]
-                    AudioFileExtension::Opus => Err(AudioFileReport::new(format!(
-                        "Skipping unsupported audio format: \"{}\"",
-                        path.display()
-                    ))),
-                    AudioFileExtension::Aac
-                    | AudioFileExtension::Ape
-                    | AudioFileExtension::M4a
-                    | AudioFileExtension::Wav
-                    | AudioFileExtension::Wma => Err(AudioFileReport::new(format!(
-                        "Skipping unsupported audio format: \"{}\"",
-                        path.display()
-                    ))),
-                    _ => AudioFile::read_from(path, extension)
-                        .map(|audio_file| (audio_file, extension)),
-                };
-                let _ = sender.send(res);
-            });
-    });
+            .unwrap();
+    }
 }
 
-fn _traverse_and_process_audio_files_in_parallel(
-    root: PathBuf,
-    follow_links: bool,
-    sender: mpsc::Sender<Result<(AudioFile, AudioFileExtension), AudioFileReport>>,
-) {
-    std::thread::spawn(move || {
-        ignore::WalkBuilder::new(root)
-            .follow_links(follow_links)
-            .build_parallel()
-            .run(|| {
-                let sender = sender.clone();
-                Box::new(move |result| {
-                    if let Ok(dir_entry) = result {
-                        if let Some(file_type) = dir_entry.file_type() {
-                            if file_type.is_file() {
-                                let path = dir_entry.path();
-                                if let Some(extension) = AudioFileExtension::from_path(path) {
-                                    let res = match extension {
-                                        #[cfg(not(feature = "opus"))]
-                                        AudioFileExtension::Opus => {
-                                            Err(AudioFileReport::new(format!(
-                                                "Skipping unsupported audio format: \"{}\"",
-                                                path.display()
-                                            )))
-                                        }
-                                        AudioFileExtension::Aac
-                                        | AudioFileExtension::Ape
-                                        | AudioFileExtension::M4a
-                                        | AudioFileExtension::Wav
-                                        | AudioFileExtension::Wma => {
-                                            Err(AudioFileReport::new(format!(
-                                                "Skipping unsupported audio format: \"{}\"",
-                                                path.display()
-                                            )))
-                                        }
-                                        _ => AudioFile::read_from(path, extension)
-                                            .map(|audio_file| (audio_file, extension)),
-                                    };
-                                    let _ = sender.send(res);
-                                }
-                            }
-                        }
-                    }
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ArtistId(pub SqliteId);
 
-                    ignore::WalkState::Continue
-                })
-            });
-    });
+impl ArtistId {
+    pub const ZERO: Self = Self(0);
+}
+
+impl ToSql for ArtistId {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+    }
+}
+
+impl FromSql for ArtistId {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().map(Self)
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AlbumId(pub SqliteId);
+
+impl AlbumId {
+    pub const ZERO: Self = Self(0);
+}
+
+impl ToSql for AlbumId {
+    fn to_sql(&self) -> SqliteResult<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::Owned(Value::Integer(self.0)))
+    }
+}
+
+impl FromSql for AlbumId {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value.as_i64().map(Self)
+    }
+}
+
+#[derive(Debug)]
+pub enum DatabaseError {
+    Sqlite(SqliteError),
+    SaveAudio {
+        path: PathBuf,
+        error: AudioFileError,
+    },
+}
+
+impl std::fmt::Display for DatabaseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sqlite(err) => err.fmt(f),
+            Self::SaveAudio { path, .. } => f.write_fmt(format_args!(
+                "Failed to write audio rating to '{}'.",
+                path.display()
+            )),
+        }
+    }
+}
+
+impl std::error::Error for DatabaseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sqlite(err) => Some(err),
+            Self::SaveAudio { error, .. } => Some(error),
+        }
+    }
+}
+
+impl From<SqliteError> for DatabaseError {
+    fn from(err: SqliteError) -> Self {
+        Self::Sqlite(err)
+    }
 }

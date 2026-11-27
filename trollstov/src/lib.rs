@@ -1,12 +1,15 @@
+#![allow(clippy::too_many_arguments)]
+
 pub mod app;
+pub mod cli;
 pub mod database;
-pub mod events;
 pub mod jukebox;
-pub mod logo;
+pub mod modals;
+pub mod mpris;
 pub mod pages;
 pub mod settings;
 
-const APP_NAME: &str = env!("CARGO_PKG_NAME");
-const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const APP_QUALIFIER: &str = "org";
-const APP_ORGANIZATION: &str = "hikikones";
+pub const APP_NAME: &str = env!("CARGO_PKG_NAME");
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const APP_QUALIFIER: &str = "org";
+pub const APP_ORGANIZATION: &str = "hikikones";

@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 ahash = { workspace = true }
-itoa = { workspace = true }
+constcat = { workspace = true }
 seahash = { workspace = true }
 textwrap = { workspace = true }
 unicode-segmentation = { workspace = true }

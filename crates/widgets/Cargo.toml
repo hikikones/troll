@@ -7,18 +7,16 @@ license.workspace = true
 
 [dependencies]
 base64 = { workspace = true }
+bevy_ecs = { workspace = true, optional = true }
 image = { workspace = true }
-itoa = { workspace = true }
-ratatui = { workspace = true }
 ratex-layout = { workspace = true }
 ratex-parser = { workspace = true }
 ratex-render = { workspace = true }
 ratex-types = { workspace = true }
-seahash = { workspace = true }
-shared = { workspace = true }
 syntect = { workspace = true }
-textwrap = { workspace = true }
-unicode-segmentation = { workspace = true }
-unicode-width = { workspace = true }
+terminal = { workspace = true }
 utils = { workspace = true }
 zlib-rs = { workspace = true }
+
+[features]
+bevy = ["dep:bevy_ecs"]

@@ -1,301 +1,188 @@
 mod cards;
 mod editor;
-mod logs;
 mod review;
-mod search;
 mod settings;
-mod tags;
 
-pub use cards::*;
-pub use editor::*;
-pub use logs::*;
-pub use review::*;
-pub use search::*;
-pub use settings::*;
-pub use tags::*;
+use cards::*;
+use editor::*;
+use review::*;
+use settings::*;
 
-use ratatui::{buffer::Buffer, layout::Rect, style::Style};
-use shared::terminal::Terminal;
-use widgets::{KittyGraphics, Markup, Shortcuts};
+use shared::logs::Logs;
+use terminal::*;
+use widgets::Markup;
 
 use crate::{
-    app::{Action, AppInput, AppRender},
+    app::Action,
     database::{CardId, Database, TagId},
     settings::{Colors, Settings},
 };
 
 pub struct Pages {
-    review: ReviewPage,
-    editor: CardEditorPage,
-    cards: CardsPage,
-    tags: TagsPage,
-    settings: SettingsPage,
-    search: SearchPage,
-    logs: LogsPage,
     route: Route,
-    state: State,
+    review: ReviewPage,
+    editor: EditorPage,
+    cards: CardsPage,
+    settings: SettingsPage,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum Route {
     Review,
     Editor(Option<CardId>),
     Cards(Option<CardsParam>),
-    Tags,
     Settings,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum CardsParam {
     Card(CardId),
     Tag(TagId),
 }
 
 impl Route {
-    pub const DEFAULT: Self = Self::Review;
-
-    const fn next(self) -> Self {
+    pub const fn next(self) -> Self {
         match self {
             Self::Review => Self::Editor(None),
             Self::Editor(_) => Self::Cards(None),
-            Self::Cards(_) => Self::Tags,
-            Self::Tags => Self::Settings,
+            Self::Cards(_) => Self::Settings,
             Self::Settings => Self::Review,
         }
     }
 
-    const fn prev(self) -> Self {
+    pub const fn prev(self) -> Self {
         match self {
             Self::Review => Self::Settings,
             Self::Editor(_) => Self::Review,
             Self::Cards(_) => Self::Editor(None),
-            Self::Tags => Self::Cards(None),
-            Self::Settings => Self::Tags,
+            Self::Settings => Self::Cards(None),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PageState {
-    Route(Route),
-    Search,
-    Logs,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum State {
-    Route,
-    Search,
-    Logs,
 }
 
 impl Pages {
-    pub fn new(route: Route, settings: &Settings, db: &mut Database, markup: &mut Markup) -> Self {
-        let mut pages = Self {
-            review: ReviewPage::new(),
-            editor: CardEditorPage::new(),
-            cards: CardsPage::new(),
-            tags: TagsPage::new(db),
-            settings: SettingsPage::new(&settings),
-            search: SearchPage::new(),
-            logs: LogsPage::new(),
+    pub fn new(route: Route, settings: &Settings) -> Self {
+        Self {
             route,
-            state: State::Route,
-        };
-        pages.on_enter(route, db, markup);
-        pages
-    }
-
-    pub const fn forward(&self) -> PageState {
-        match self.state {
-            State::Route => PageState::Route(self.route.next()),
-            State::Search => PageState::Search,
-            State::Logs => PageState::Logs,
+            review: ReviewPage::new(),
+            editor: EditorPage::new(),
+            cards: CardsPage::new(),
+            settings: SettingsPage::new(settings),
         }
     }
 
-    pub const fn backward(&self) -> PageState {
-        match self.state {
-            State::Route => PageState::Route(self.route.prev()),
-            State::Search => PageState::Search,
-            State::Logs => PageState::Logs,
-        }
+    pub const fn current(&self) -> Route {
+        self.route
     }
 
-    pub fn set_state(&mut self, state: PageState, db: &mut Database, markup: &mut Markup) {
-        match (self.state, state) {
-            (State::Route, PageState::Route(route)) => {
-                if self.route == route {
-                    return;
-                }
-
-                self.set_route(route, db, markup);
-            }
-            (State::Route, PageState::Search) => {
-                self.search.on_enter(db);
-                self.state = State::Search;
-            }
-            (State::Route, PageState::Logs) => {
-                self.logs.on_enter();
-                self.state = State::Logs;
-            }
-            (State::Search, PageState::Route(route)) => {
-                self.search.on_exit();
-                self.state = State::Route;
-
-                if self.route != route {
-                    self.set_route(route, db, markup);
-                }
-            }
-            (State::Search, PageState::Search) => {
-                self.search.on_exit();
-                self.state = State::Route;
-            }
-            (State::Search, PageState::Logs) => {
-                self.search.on_exit();
-                self.logs.on_enter();
-                self.state = State::Logs;
-            }
-            (State::Logs, PageState::Route(route)) => {
-                self.logs.on_exit();
-                self.state = State::Route;
-
-                if self.route != route {
-                    self.set_route(route, db, markup);
-                }
-            }
-            (State::Logs, PageState::Search) => {
-                self.logs.on_exit();
-                self.search.on_enter(db);
-                self.state = State::Search;
-            }
-            (State::Logs, PageState::Logs) => {
-                self.logs.on_exit();
-                self.state = State::Route;
-            }
-        }
+    pub const fn forward(&self) -> Route {
+        self.route.next()
     }
 
-    fn set_route(&mut self, route: Route, db: &mut Database, markup: &mut Markup) {
-        self.on_exit(self.route);
+    pub const fn backward(&self) -> Route {
+        self.route.prev()
+    }
+
+    pub fn set(&mut self, route: Route, db: &mut Database, markup: &mut Markup) {
+        self.exit();
         self.route = route;
-        self.on_enter(route, db, markup);
+        self.enter(db, markup);
     }
 
-    fn on_enter(&mut self, route: Route, db: &mut Database, markup: &mut Markup) {
-        match route {
-            Route::Review => self.review.on_enter(db, markup),
-            Route::Editor(id) => self.editor.on_enter(id, db),
-            Route::Cards(id) => self.cards.on_enter(db, id),
-            Route::Tags => self.tags.on_enter(),
-            Route::Settings => self.settings.on_enter(),
-        };
-    }
-
-    fn on_exit(&mut self, route: Route) {
-        match route {
-            Route::Review => self.review.on_exit(),
-            Route::Editor(_) => self.editor.on_exit(),
-            Route::Cards(_) => self.cards.on_exit(),
-            Route::Tags => self.tags.on_exit(),
-            Route::Settings => self.settings.on_exit(),
+    pub fn enter(&mut self, db: &mut Database, markup: &mut Markup) {
+        match self.route {
+            Route::Review => self.review.enter(db, markup),
+            Route::Editor(id) => self.editor.enter(id, db),
+            Route::Cards(param) => self.cards.enter(db, param),
+            Route::Settings => self.settings.enter(),
         }
     }
 
-    pub fn on_render(
-        &mut self,
-        render: AppRender,
-        settings: &Settings,
-        db: &mut Database,
-        markup: &mut Markup,
-        kitty: &mut KittyGraphics,
-        shortcuts: &mut Shortcuts,
-    ) {
-        match self.state {
-            State::Route => match self.route {
-                Route::Review => {
-                    self.review
-                        .on_render(render, settings.colors(), markup, kitty, shortcuts)
-                }
-                Route::Editor(_) => {
-                    self.editor
-                        .on_render(render, db, settings.colors(), markup, kitty, shortcuts)
-                }
-                Route::Cards(_) => {
-                    self.cards
-                        .on_render(render, db, settings.colors(), markup, kitty, shortcuts)
-                }
-                Route::Tags => self.tags.on_render(render, settings.colors(), shortcuts),
-                Route::Settings => self.settings.on_render(render, settings, shortcuts),
-            },
-            State::Search => self.search.on_render(render, settings.colors(), shortcuts),
-            State::Logs => self.logs.on_render(render, settings.colors(), shortcuts),
+    fn exit(&mut self) {
+        match self.route {
+            Route::Review => self.review.exit(),
+            Route::Editor(_) => self.editor.exit(),
+            Route::Cards(_) => self.cards.exit(),
+            Route::Settings => self.settings.exit(),
         }
     }
 
-    pub fn on_input(
+    pub fn refresh(&mut self, db: &mut Database, markup: &mut Markup) {
+        match self.route {
+            Route::Review => self.review.refresh(db, markup),
+            Route::Editor(_) => self.editor.refresh(db),
+            Route::Cards(_) => self.cards.refresh(db),
+            Route::Settings => self.settings.refresh(),
+        }
+    }
+
+    pub fn input(
         &mut self,
-        input: AppInput,
+        key: Key,
         db: &mut Database,
         markup: &mut Markup,
-        terminal: &mut Terminal,
         settings: &mut Settings,
+        terminal: &mut Terminal,
+        logs: &mut Logs,
     ) -> Action {
-        match self.state {
-            State::Route => match self.route {
-                Route::Review => self.review.on_input(input, markup, db),
-                Route::Editor(_) => self.editor.on_input(input, markup, db, terminal),
-                Route::Cards(_) => self.cards.on_input(input, markup, db),
-                Route::Tags => self.tags.on_input(input, db),
-                Route::Settings => self.settings.on_input(input, settings),
-            },
-            State::Search => self.search.on_input(input, db, settings.colors()),
-            State::Logs => self.logs.on_input(input),
+        match self.route {
+            Route::Review => {
+                self.review
+                    .input(key, db, markup, settings.desired_retention_as_fraction())
+            }
+            Route::Editor(_) => self.editor.input(key, db, markup, terminal, logs),
+            Route::Cards(_) => self.cards.input(key, db, markup),
+            Route::Settings => self.settings.input(key, settings, logs),
         }
     }
 
-    pub fn render_navigation(&self, area: Rect, buf: &mut Buffer, colors: &Colors) {
-        const SPACING: &str = "   ";
-        widgets::print_asciis_with_styles(
-            area,
-            buf,
-            [
-                (Route::Review, "Review", SPACING),
-                (Route::Editor(None), "Editor", SPACING),
-                (Route::Cards(None), "Cards", SPACING),
-                (Route::Tags, "Tags", SPACING),
-                (Route::Settings, "Settings", ""),
-            ]
-            .into_iter()
-            .flat_map(|(route, name, spacing)| {
-                let is_current =
-                    std::mem::discriminant(&route) == std::mem::discriminant(&self.route);
-                let is_route = self.state == State::Route;
-                let style = if is_current && is_route {
-                    Style::new().fg(colors.primary).bold()
-                } else {
-                    Style::new()
-                };
-                [(name, style), (spacing, Style::new())]
-            }),
-            Some(widgets::Alignment::CenterHorizontal),
-        );
+    pub fn render(
+        &mut self,
+        area: Rect,
+        frame: &mut Frame,
+        settings: &Settings,
+        db: &Database,
+        markup: &mut Markup,
+    ) {
+        match self.route {
+            Route::Review => self.review.render(area, frame, settings.colors(), markup),
+            Route::Editor(_) => self
+                .editor
+                .render(area, frame, settings.colors(), db, markup),
+            Route::Cards(_) => self
+                .cards
+                .render(area, frame, db, settings.colors(), markup),
+            Route::Settings => self.settings.render(area, frame, settings),
+        }
     }
 
-    pub const fn apply_settings(&mut self, settings: &Settings) {
-        self.review
-            .set_desired_retention(settings.desired_retention_as_fraction());
+    pub fn render_shortcuts(&mut self, area: Rect, frame: &mut Frame, settings: &Settings) {
+        match self.route {
+            Route::Review => self.review.render_shortcuts(area, frame, settings.colors()),
+            Route::Editor(_) => self.editor.render_shortcuts(area, frame, settings.colors()),
+            Route::Cards(_) => self.cards.render_shortcuts(area, frame, settings.colors()),
+            Route::Settings => self.settings.render_shortcuts(area, frame, settings),
+        }
     }
 
-    pub const fn is_logs_empty(&self) -> bool {
-        self.logs.is_empty()
-    }
+    pub fn render_navigation(&self, area: Rect, frame: &mut Frame, colors: &Colors) {
+        for (route, name, gap) in [
+            (Route::Review, "Review", 3),
+            (Route::Editor(None), "Editor", 3),
+            (Route::Cards(None), "Cards", 3),
+            (Route::Settings, "Settings", 0),
+        ] {
+            let is_current = std::mem::discriminant(&self.route) == std::mem::discriminant(&route);
+            if is_current {
+                frame.push_fmt(Sgrs([Sgr::Bold, Sgr::Fg(colors.primary)]));
+                frame.push_str(name);
+                frame.push_fmt(Sgr::Reset);
+            } else {
+                frame.push_str_fg(name, colors.normal);
+            }
+            frame.push_ch_repeat(' ', gap);
+        }
 
-    pub const fn logs_queue_len(&self) -> u32 {
-        self.logs.queue_len()
-    }
-
-    pub fn enqueue_log(&mut self, log: Log) {
-        self.logs.enqueue(log);
+        frame.render(area, TextOptions::span_center_top());
     }
 }

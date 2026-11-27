@@ -1,256 +1,348 @@
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::{KeyCode, KeyModifiers},
-    layout::{Constraint, Rect},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Padding, Widget},
-};
-use shared::symbols;
-use widgets::{Shortcut, Shortcuts, Table, TableItem, TableLayout, TableMove};
+use ecs::*;
+use terminal::*;
+use widgets::{Block, List};
 
 use crate::{
-    app::Action,
-    database::{AudioRating, Database, Track, TrackId, TrackSort},
+    app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
+    database::{Database, TrackId, TrackRating, TrackSort},
     jukebox::Jukebox,
-    settings::Colors,
+    pages::Page,
+    settings::{Colors, Settings},
 };
 
-const N: usize = 5;
+pub struct TracksPagePlugin;
 
-pub struct TracksPage {
-    table: Table<N>,
-    reverse_sort: bool,
-    keep_on_sort: bool,
+impl TracksPagePlugin {
+    pub fn build(app: &mut App) {
+        app.insert_resource(TracksParam::default())
+            .insert_resource(TracksList::default())
+            .add_enter(Page::Tracks, tracks_enter)
+            .add_input(InputSet::Page, input_tracks.run_if(in_state(Page::Tracks)))
+            .add_render(
+                RenderSet::Page,
+                render_tracks.run_if(in_state(Page::Tracks)),
+            );
+    }
 }
 
-impl TracksPage {
-    pub const fn new() -> Self {
-        Self {
-            table: Table::new(TableLayout::new(
-                [
-                    Constraint::Ratio(4, 10),
-                    Constraint::Ratio(2, 10),
-                    Constraint::Ratio(4, 10),
-                    Constraint::Length(5),
-                    Constraint::Length(7),
-                ],
-                2,
-            ))
-            .with_padding(Padding::horizontal(1))
-            .with_scrollbar(0),
-            reverse_sort: false,
-            keep_on_sort: false,
+#[derive(Debug, Default, Resource)]
+pub struct TracksParam(Option<TrackId>);
+
+impl TracksParam {
+    pub const fn set(&mut self, id: TrackId) {
+        self.0 = Some(id);
+    }
+}
+
+#[derive(Debug, Resource, Deref, DerefMut)]
+struct TracksList(List);
+
+impl Default for TracksList {
+    fn default() -> Self {
+        Self(
+            List::new()
+                .with_scrollbar(0)
+                .with_padding(Margin::horizontal(1).with_top(1)),
+        )
+    }
+}
+
+struct TableAreas([Rect; 5]);
+
+impl TableAreas {
+    const fn new(gap: u16, line: Rect) -> Self {
+        Self(line.split_horizontal(
+            gap,
+            [
+                Constraint::Percent(35),
+                Constraint::Percent(30),
+                Constraint::Percent(35),
+                Constraint::Fixed(5),
+                Constraint::Fixed(7),
+            ],
+        ))
+    }
+
+    const fn title(&self) -> Rect {
+        self.0[0]
+    }
+
+    const fn artist(&self) -> Rect {
+        self.0[1]
+    }
+
+    const fn album(&self) -> Rect {
+        self.0[2]
+    }
+
+    const fn time(&self) -> Rect {
+        self.0[3]
+    }
+
+    const fn rating(&self) -> Rect {
+        self.0[4]
+    }
+
+    const fn set_row(&mut self, row: u16) {
+        let mut i = 0;
+        while i < self.0.len() {
+            self.0[i].set_row(row);
+            i += 1;
         }
     }
+}
 
-    pub const fn set_keep_on_sort(&mut self, value: bool) {
-        self.keep_on_sort = value;
-    }
+fn tracks_enter(
+    mut param: ResMut<TracksParam>,
+    mut list: ResMut<TracksList>,
+    database: NonSend<Database>,
+) {
+    let Some(id) = param.0.take() else {
+        return;
+    };
 
-    pub fn on_enter(&mut self, id: Option<TrackId>, db: &Database) {
-        if let Some(id) = id
-            && let Some(index) = db.get_index_from_id(id)
-        {
-            self.table.set_index(index).set_selector(None);
-        };
-    }
+    let index = database.tracks_sorted_index(id);
+    list.set_index(index).set_selector(None);
+}
 
-    pub fn on_render(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        db: &Database,
-        jb: &Jukebox,
-        colors: &Colors,
-        shortcuts: &mut Shortcuts,
-    ) {
-        if db.is_empty() {
-            widgets::print_ascii(
-                area,
-                buf,
-                "No tracks to be found",
-                Style::new().fg(colors.neutral),
-                Some(widgets::Alignment::Center),
-            );
-            return;
+fn input_tracks(
+    input: Res<Input>,
+    mut database: NonSendMut<Database>,
+    mut jukebox: NonSendMut<Jukebox>,
+    mut list: ResMut<TracksList>,
+    mut actions: ResMut<Actions>,
+    settings: Res<Settings>,
+) {
+    let Some(key) = input.get() else {
+        return;
+    };
+
+    match key.code {
+        KeyCode::Enter => {
+            let id = database.tracks_sorted_id(list.index());
+            jukebox.play_id(id, &database);
         }
-
-        let inner = {
-            let block = Block::bordered().border_style(colors.secondary);
-            let inner = block.inner(area);
-            block.render(area, buf);
-            inner
-        };
-
-        utils::format_int(db.len(), |len| {
-            widgets::print_asciis(
-                area,
-                buf,
-                [" All Tracks (", len, ") "],
-                Color::Reset,
-                Some(widgets::Alignment::CenterHorizontal),
-            );
-        });
-
-        let sort = db.get_sort();
-        let reverse = self.reverse_sort;
-        let current = jb.current_track_id();
-
-        self.table.set_colors(colors.table()).render(
-            inner,
-            buf,
-            db.iter(),
-            |_header, buf, areas| {
-                for (name, symbol, area) in named_headers(areas, sort, reverse) {
-                    let (x, y) =
-                        buf.set_stringn(area.x, area.y, name, area.width as usize, Style::new());
-                    buf.set_string(x, y, symbol, Style::new());
-                }
-            },
-            |row, buf, areas, (id, track), item| {
-                let mut style = match item {
-                    TableItem::Selected => Style::new().fg(colors.primary).reversed(),
-                    TableItem::Selection => Style::new().fg(colors.neutral).reversed(),
-                    TableItem::Normal => Style::new(),
-                };
-
-                if current == Some(id) {
-                    style.add_modifier.insert(Modifier::BOLD);
+        KeyCode::Char(c) => match c {
+            '0' | '1' | '2' | '3' | '4' | '5' => {
+                let rating = TrackRating::from_char(c).unwrap();
+                let mut render = false;
+                for i in list.selection_inclusive() {
+                    let id = database.tracks_sorted_id(i);
+                    if database.write_rating(id, rating) {
+                        render = true;
+                    }
                 }
 
-                if jb.is_faulty(id) {
-                    style.add_modifier.insert(Modifier::CROSSED_OUT);
-                }
-
-                buf.set_style(row, style);
-
-                for (name, area) in named_rows(areas, track) {
-                    buf.set_stringn(area.x, area.y, name, area.width as usize, Style::new());
-                }
-            },
-        );
-
-        shortcuts.extend([
-            Shortcut::new("Play", symbols::ENTER),
-            Shortcut::new("Add to queue", "q"),
-            Shortcut::new("Play next", "n"),
-            Shortcut::new("Rating", "0-5"),
-            Shortcut::new("Sort", symbols::shift!("s")),
-        ]);
-    }
-
-    pub fn on_input(
-        &mut self,
-        key: KeyCode,
-        modifiers: KeyModifiers,
-        db: &mut Database,
-        jb: &mut Jukebox,
-    ) -> Action {
-        match key {
-            KeyCode::Enter => {
-                if let Some(id) = db.get_id_from_index(self.table.index()) {
-                    jb.play_id(id, db);
+                if render {
+                    actions.push(Action::Render);
                 }
             }
-            KeyCode::Char(c) => match c {
-                '0' | '1' | '2' | '3' | '4' | '5' => {
-                    let rating = AudioRating::from_char(c).unwrap();
-                    for i in self.table.selection_inclusive() {
-                        if let Some(id) = db.get_id_from_index(i) {
-                            db.write_rating(id, rating);
-                        }
-                    }
+            'q' => {
+                jukebox.extend(
+                    list.selection_inclusive()
+                        .map(|i| database.tracks_sorted_id(i)),
+                );
+            }
+            'n' => {
+                for i in list.selection_inclusive().rev() {
+                    let id = database.tracks_sorted_id(i);
+                    jukebox.add_next(id);
                 }
-                'q' => {
-                    let ids = self
-                        .table
-                        .selection_inclusive()
-                        .filter_map(|i| db.get_id_from_index(i));
-                    jb.extend(ids);
+            }
+            's' => {
+                if settings.keep_selected() {
+                    let id = database.tracks_sorted_id(list.index());
+                    database.next_sort();
+                    list.set_index(database.tracks_sorted_index(id));
+                } else {
+                    database.next_sort();
                 }
-                'n' => {
-                    for i in self.table.selection_inclusive().rev() {
-                        if let Some(id) = db.get_id_from_index(i) {
-                            jb.enqueue_next(id);
-                        }
-                    }
+                actions.push(Action::Render);
+            }
+            'S' => {
+                if settings.keep_selected() {
+                    let id = database.tracks_sorted_id(list.index());
+                    database.toggle_reverse_sort();
+                    list.set_index(database.tracks_sorted_index(id));
+                } else {
+                    database.toggle_reverse_sort();
                 }
-                's' | 'S' => {
-                    let id = db.get_id_from_index(self.table.index());
-
-                    if c == 's' {
-                        db.sort(db.get_sort().next(), self.reverse_sort);
-                    } else {
-                        self.reverse_sort = !self.reverse_sort;
-                        db.sort(db.get_sort(), self.reverse_sort);
-                    }
-
-                    if self.keep_on_sort
-                        && let Some(id) = id
-                        && let Some(i) = db.get_index_from_id(id)
-                    {
-                        self.table.move_index(TableMove::Custom(i), false);
-                    }
-                    return Action::Render;
-                }
-                _ => {
-                    if self.table.input(key, modifiers) {
-                        return Action::Render;
-                    }
-                }
-            },
+                actions.push(Action::Render);
+            }
             _ => {
-                if self.table.input(key, modifiers) {
-                    return Action::Render;
+                if list.input(key) {
+                    actions.push(Action::Render);
                 }
             }
+        },
+        _ => {
+            if list.input(key) {
+                actions.push(Action::Render);
+            }
         }
+    }
+}
 
-        Action::None
+fn render_tracks(
+    area: Res<PageArea>,
+    shortcuts_area: Res<ShortcutsArea>,
+    mut frame: ResMut<Frame>,
+    settings: Res<Settings>,
+    mut list: ResMut<TracksList>,
+    mut database: NonSendMut<Database>,
+    jukebox: NonSend<Jukebox>,
+) {
+    let area = **area;
+    let colors = settings.colors();
+
+    if database.is_tracks_empty() {
+        frame.print_span_fg(
+            area,
+            "No tracks to be found",
+            colors.neutral,
+            SpanOptions::center(),
+        );
+        return;
     }
 
-    pub fn on_exit(&self) {}
+    // Block
+    frame.print_fmt(Sgr::Fg(colors.secondary));
+    Block::rectangle().render(area, &mut frame);
+    frame.push_fmt_fg(
+        format_args!(" All Tracks ({}) ", database.tracks_len()),
+        colors.normal,
+    );
+    frame.render(area, TextOptions::span_center_top());
+    frame.print_fmt(Sgr::reset_fg());
+
+    render_table(
+        area.inner(Margin::all(1)),
+        &mut frame,
+        colors,
+        &mut list,
+        &mut database,
+        &jukebox,
+    );
+
+    render_shortcuts(**shortcuts_area, &mut frame, colors);
 }
 
-const fn named_areas(areas: [Rect; N]) -> [(TrackSort, Rect); N] {
-    let [title, artist, album, time, rating] = areas;
-    [
-        (TrackSort::Title, title),
-        (TrackSort::Artist, artist),
-        (TrackSort::Album, album),
-        (TrackSort::Time, time),
-        (TrackSort::Rating, rating),
-    ]
-}
+fn render_table(
+    area: Rect,
+    frame: &mut Frame,
+    colors: &Colors,
+    list: &mut List,
+    database: &mut Database,
+    jukebox: &Jukebox,
+) {
+    let Some((table_area, lines)) = list
+        .set_len(database.tracks_len() as usize)
+        .set_colors(colors.list())
+        .render(area, frame)
+    else {
+        return;
+    };
 
-fn named_headers<'a>(
-    areas: [Rect; N],
-    current_sort: TrackSort,
-    reverse_sort: bool,
-) -> impl Iterator<Item = (&'a str, &'a str, Rect)> {
-    fn sort_symbol<'a>(current_sort: TrackSort, sort: TrackSort, reverse: bool) -> &'a str {
-        if current_sort == sort {
-            if reverse {
-                symbols::ARROW_HEAD_UP
-            } else {
-                symbols::ARROW_HEAD_DOWN
-            }
+    let gap = if area.cols() < 10 { 0 } else { 2 };
+    let mut areas = TableAreas::new(gap, table_area.with_rows(1));
+
+    // Header
+    const fn sort_symbol<'a>(current_sort: TrackSort, sort: TrackSort, reverse: bool) -> &'a str {
+        if current_sort.equals(sort) {
+            if reverse { "⌃" } else { "⌄" }
         } else {
             ""
         }
     }
 
-    named_areas(areas).into_iter().map(move |(sort, area)| {
-        (
-            sort.as_str(),
-            sort_symbol(current_sort, sort, reverse_sort),
-            area,
-        )
-    })
+    let sort = database.get_sort();
+    let reverse = database.get_reverse_sort();
+
+    areas.set_row(area.row());
+
+    frame.print_fmt(Sgr::Fg(colors.normal));
+
+    frame.push_str("Title");
+    frame.push_str(sort_symbol(sort, TrackSort::Title, reverse));
+    frame.render(areas.title(), TextOptions::span());
+    frame.push_str("Artist");
+    frame.push_str(sort_symbol(sort, TrackSort::Artist, reverse));
+    frame.render(areas.artist(), TextOptions::span());
+    frame.push_str("Album");
+    frame.push_str(sort_symbol(sort, TrackSort::Album, reverse));
+    frame.render(areas.album(), TextOptions::span());
+    frame.push_str("Time");
+    frame.push_str(sort_symbol(sort, TrackSort::Time, reverse));
+    frame.render(areas.time(), TextOptions::span());
+    frame.push_str("Rating");
+    frame.push_str(sort_symbol(sort, TrackSort::Rating, reverse));
+    frame.render(areas.rating(), TextOptions::span());
+
+    frame.print_fmt(Sgr::reset_fg());
+
+    // List
+    let line = table_area.with_rows(1);
+    let selected = list.index();
+    let selection = list.selection_inclusive();
+    let current_track = jukebox.track_id();
+
+    for (index, row) in lines.zip(table_area.pos.row..) {
+        let mut style = if index == selected {
+            frame.fill(line.with_row(row), colors.primary, true);
+            Style::fg(colors.primary).with_reverse()
+        } else if selection.contains(&index) {
+            frame.fill(line.with_row(row), colors.neutral, true);
+            Style::fg(colors.neutral).with_reverse()
+        } else {
+            Style::fg(colors.normal)
+        };
+
+        let id = database.tracks_sorted_id(index);
+
+        if current_track == Some(id) {
+            style.insert(Attributes::BOLD);
+        }
+
+        if jukebox.is_faulty(id) {
+            style.insert(Attributes::CROSSED_OUT);
+        }
+
+        areas.set_row(row);
+        frame.print_fmt(style);
+
+        database.track_table(id, |track| {
+            frame.print_span(areas.title(), track.title, SpanOptions::left());
+            frame.print_span(areas.artist(), track.artists, SpanOptions::left());
+            frame.print_span(areas.album(), track.album, SpanOptions::left());
+            frame.push_fmt(track.duration);
+            frame.render(areas.time(), TextOptions::span());
+            frame.print_span(areas.rating(), track.rating.stars(), SpanOptions::left());
+        });
+
+        frame.print_fmt(Sgr::Reset);
+    }
 }
 
-fn named_rows<'a>(areas: [Rect; N], track: &'a Track) -> impl Iterator<Item = (&'a str, Rect)> {
-    named_areas(areas)
-        .into_iter()
-        .map(|(sort, area)| (track.field_str(sort), area))
+fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
+    let key_color = colors.secondary;
+    let name_color = colors.normal;
+    let gap = 1;
+
+    for (key, name, gap) in [
+        ("↵", "Play", gap),
+        ("q", "Enqueue", gap),
+        ("n", "Play next", gap),
+        ("0-5", "Rating", gap),
+        ("(⇧)s", "Sort", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
+
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(area, TextOptions::span_center_top());
 }

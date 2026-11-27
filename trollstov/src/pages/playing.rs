@@ -1,495 +1,574 @@
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::{KeyCode, KeyModifiers},
-    layout::{Constraint, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Padding, StatefulWidget, Widget},
+use ecs::*;
+use shared::logs::Logs;
+use terminal::*;
+use widgets::{
+    Block, Image, ImageEncode, ImageError, ImageLoadOptions, ImageRenderOptions, KittyDeleteAll,
+    List, ScrollMargins,
 };
-use ratatui_image::StatefulImage;
-use shared::symbols;
-use widgets::{List, ListItem, ScrollMargins, Shortcut, Shortcuts};
 
 use crate::{
-    app::{Action, FrontCover, ScreenSize},
-    database::{AudioRating, Database},
+    app::{Action, Actions, App, Input, InputSet, PageArea, RenderSet, ShortcutsArea},
+    database::{AudioFile, AudioFileError, AudioFileExt, Database, TrackId, TrackRating},
     jukebox::Jukebox,
-    pages::Route,
-    settings::Colors,
+    pages::{Page, Route},
+    settings::{Colors, Settings},
 };
 
-pub struct PlayingPage {
-    current_qi: Option<usize>,
-    list: List,
-    view_mode: ViewMode,
-}
+type ImageResult = Result<Option<Image>, LoadImageError>;
+type ImageHandle = std::thread::JoinHandle<ImageResult>;
 
-#[derive(Clone, Copy)]
-enum ViewMode {
-    Queue,
-    Cover,
-    Both,
-}
+pub struct PlayingPagePlugin;
 
-impl ViewMode {
-    const fn next(self, screen_size: ScreenSize) -> Self {
-        match screen_size {
-            ScreenSize::Small => match self {
-                ViewMode::Queue => ViewMode::Cover,
-                ViewMode::Cover | ViewMode::Both => ViewMode::Queue,
-            },
-            ScreenSize::Medium | ScreenSize::Large => match self {
-                ViewMode::Queue => ViewMode::Cover,
-                ViewMode::Cover => ViewMode::Both,
-                ViewMode::Both => ViewMode::Queue,
-            },
-        }
+impl PlayingPagePlugin {
+    pub fn build(app: &mut App) {
+        app.insert_resource(PlayingPage::default())
+            .insert_non_send(FrontCover::default())
+            .add_input(
+                InputSet::Page,
+                input_playing.run_if(in_state(Page::NowPlaying)),
+            )
+            .add_enter(Page::NowPlaying, update_cover)
+            .add_exit(Page::NowPlaying, exit_playing)
+            .add_render(
+                RenderSet::Page,
+                render_playing.run_if(in_state(Page::NowPlaying)),
+            )
+            .add_update((update_cover, poll_cover).chain());
     }
+}
+
+#[derive(Debug, Resource)]
+struct PlayingPage {
+    list: List,
+    current_id: Option<TrackId>,
+    current_qi: Option<usize>,
+    image_id: u8,
+    view: ViewLayout,
 }
 
 impl PlayingPage {
-    pub const fn new() -> Self {
-        Self {
-            current_qi: None,
-            list: List::new()
-                .with_padding(Padding::horizontal(1))
-                .with_scrollbar(0),
-            view_mode: ViewMode::Both,
-        }
-    }
-
-    pub fn on_enter(&self) {}
-
-    pub fn on_render(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        db: &Database,
-        jb: &Jukebox,
-        screen_size: ScreenSize,
-        front_cover: &mut FrontCover,
-        colors: &Colors,
-        shortcuts: &mut Shortcuts,
-    ) {
-        self.update_scroll_on_new_track(jb);
-
-        // Render based on screen size and view mode
-        match screen_size {
-            ScreenSize::Small => match self.view_mode {
-                ViewMode::Queue => {
-                    self.render_queue(area, buf, db, jb, colors);
-                }
-                ViewMode::Cover => {
-                    render_cover_with_stars(area, buf, db, jb, front_cover, colors);
-                }
-                ViewMode::Both => {
-                    self.view_mode = ViewMode::Cover;
-                    render_cover_with_stars(area, buf, db, jb, front_cover, colors);
-                }
-            },
-            ScreenSize::Medium | ScreenSize::Large => {
-                match self.view_mode {
-                    ViewMode::Queue => {
-                        self.render_queue(area, buf, db, jb, colors);
-                    }
-                    ViewMode::Cover => {
-                        render_cover_with_stars(area, buf, db, jb, front_cover, colors);
-                    }
-                    ViewMode::Both => {
-                        let [cover_area, _, queue_area] = Layout::horizontal([
-                            Constraint::Percentage(40),
-                            Constraint::Length(1),
-                            Constraint::Min(3),
-                        ])
-                        .areas(area);
-
-                        render_cover_with_stars(cover_area, buf, db, jb, front_cover, colors);
-                        self.render_queue(queue_area, buf, db, jb, colors);
-                    }
-                }
-
-                // Shortcuts
-                if !jb.is_empty() {
-                    match self.view_mode {
-                        ViewMode::Queue => {
-                            shortcuts.extend([
-                                Shortcut::new("Play", symbols::ENTER),
-                                Shortcut::new("Move", symbols::shift!("m")),
-                                Shortcut::new("Shuffle", "s"),
-                                Shortcut::new("Remove", "r"),
-                                Shortcut::new("Clear", "c"),
-                                Shortcut::new("Goto", "g"),
-                            ]);
-                        }
-                        ViewMode::Cover => {
-                            if jb.has_current() {
-                                shortcuts.extend([
-                                    Shortcut::new("Rating", "0-5"),
-                                    Shortcut::new("Goto", "g"),
-                                ]);
-                            }
-                        }
-                        ViewMode::Both => {
-                            shortcuts.push(Shortcut::new("Play", symbols::ENTER));
-                            if jb.has_current() {
-                                shortcuts.push(Shortcut::new("Rating", "0-5"));
-                            }
-                            shortcuts.extend([
-                                Shortcut::new("Move", symbols::shift!("m")),
-                                Shortcut::new("Shuffle", "s"),
-                                Shortcut::new("Remove", "r"),
-                                Shortcut::new("Clear", "c"),
-                                Shortcut::new("Goto", "g"),
-                            ]);
-                        }
-                    }
-                }
-
-                shortcuts.push(Shortcut::new("View", "v"));
-            }
-        }
-    }
-
-    pub fn on_input(
-        &mut self,
-        key: KeyCode,
-        modifiers: KeyModifiers,
-        db: &mut Database,
-        jb: &mut Jukebox,
-        screen_size: ScreenSize,
-    ) -> Action {
-        if jb.is_empty() {
-            if let KeyCode::Char('v') = key {
-                self.view_mode = self.view_mode.next(screen_size);
-                return Action::Render;
-            }
-
-            return Action::None;
-        }
-
-        match key {
-            KeyCode::Enter => {
-                if matches!(self.view_mode, ViewMode::Queue | ViewMode::Both) {
-                    let index = self.list.index();
-                    jb.play_index(index, db);
-                }
-            }
-            KeyCode::Char(c) => match c {
-                '0' | '1' | '2' | '3' | '4' | '5' => {
-                    if matches!(self.view_mode, ViewMode::Cover | ViewMode::Both) {
-                        if let Some(id) = jb.current_track_id() {
-                            let rating = AudioRating::from_char(c).unwrap();
-                            db.write_rating(id, rating);
-                        }
-                    }
-                }
-                'c' => {
-                    if matches!(self.view_mode, ViewMode::Queue | ViewMode::Both) {
-                        if jb.clear() {
-                            return Action::Render;
-                        }
-                    }
-                }
-                's' => {
-                    if matches!(self.view_mode, ViewMode::Queue | ViewMode::Both) {
-                        if jb.shuffle() {
-                            return Action::Render;
-                        }
-                    }
-                }
-                'g' => match self.view_mode {
-                    ViewMode::Queue | ViewMode::Both => {
-                        let index = self.list.index();
-                        let id = jb.get(index);
-                        return Action::Route(Route::Tracks(id));
-                    }
-                    ViewMode::Cover => {
-                        if let Some(id) = jb.current_track_id() {
-                            return Action::Route(Route::Tracks(Some(id)));
-                        }
-                    }
-                },
-                'm' => {
-                    if matches!(self.view_mode, ViewMode::Queue | ViewMode::Both) {
-                        let (start, end) = {
-                            let selection = self.list.selection_inclusive();
-                            (*selection.start(), *selection.end())
-                        };
-
-                        let success = if start == end {
-                            jb.move_down(start)
-                        } else {
-                            jb.move_down_range(start, end)
-                        };
-
-                        if success {
-                            self.current_qi = jb.current_queue_index();
-                            self.list.move_selection_down();
-                            return Action::Render;
-                        }
-                    }
-                }
-                'M' => {
-                    if matches!(self.view_mode, ViewMode::Queue | ViewMode::Both) {
-                        let (start, end) = {
-                            let selection = self.list.selection_inclusive();
-                            (*selection.start(), *selection.end())
-                        };
-
-                        let success = if start == end {
-                            jb.move_up(start)
-                        } else {
-                            jb.move_up_range(start, end)
-                        };
-
-                        if success {
-                            self.current_qi = jb.current_queue_index();
-                            self.list.move_selection_up();
-                            return Action::Render;
-                        }
-                    }
-                }
-                'r' => {
-                    if matches!(self.view_mode, ViewMode::Queue | ViewMode::Both) {
-                        let (start, end) = {
-                            let selection = self.list.selection_inclusive();
-                            (*selection.start(), *selection.end())
-                        };
-
-                        let success = if start == end {
-                            jb.remove(start)
-                        } else {
-                            jb.remove_range(start, end)
-                        };
-
-                        if success {
-                            self.current_qi = jb.current_queue_index();
-                            self.list.set_index(start).set_selector(None);
-                            return Action::Render;
-                        }
-                    }
-                }
-                'v' => {
-                    self.view_mode = self.view_mode.next(screen_size);
-                    return Action::Render;
-                }
-                _ => {
-                    if matches!(self.view_mode, ViewMode::Queue | ViewMode::Both) {
-                        if self.list.input(key, modifiers) {
-                            return Action::Render;
-                        }
-                    }
-                }
-            },
-            _ => {
-                if matches!(self.view_mode, ViewMode::Queue | ViewMode::Both) {
-                    if self.list.input(key, modifiers) {
-                        return Action::Render;
-                    }
-                }
-            }
-        }
-
-        Action::None
-    }
-
-    pub fn on_exit(&mut self) {}
-
     fn update_scroll_on_new_track(&mut self, jb: &Jukebox) {
-        let current_queue_index = jb.current_queue_index();
-        if self.current_qi != current_queue_index {
-            self.current_qi = current_queue_index;
-            if let Some(idx) = current_queue_index {
-                self.list.set_index(idx).set_selector(None);
-            }
-        }
-    }
+        let current_queue_index = jb.queue_index();
 
-    fn render_queue(
-        &mut self,
-        area: Rect,
-        buf: &mut Buffer,
-        db: &Database,
-        jb: &Jukebox,
-        colors: &Colors,
-    ) {
-        let block = Block::bordered().border_style(colors.secondary);
-        let queue_inner_area = block.inner(area);
-        block.render(area, buf);
-
-        // Title for bordered play queue
-        utils::format_int2(jb.history(), jb.queue(), |hlen, qlen| {
-            widgets::print_asciis(
-                Rect {
-                    y: area.y,
-                    height: 1,
-                    ..queue_inner_area
-                },
-                buf,
-                [" History (", hlen, ") / Queue (", qlen, ") "],
-                Color::Reset,
-                Some(widgets::Alignment::CenterHorizontal),
-            );
-        });
-
-        if jb.is_empty() {
-            widgets::print_ascii(
-                queue_inner_area,
-                buf,
-                "No tracks in the queue",
-                colors.neutral,
-                Some(widgets::Alignment::Center),
-            );
+        if self.current_qi == current_queue_index {
             return;
         }
 
-        let scrolloff = queue_inner_area.height / 2;
-        self.list.set_scrolloff(ScrollMargins::all(scrolloff));
+        self.current_qi = current_queue_index;
 
-        let hlen = jb.history();
-        let current_qi = jb.current_queue_index();
-        self.list.set_colors(colors.list()).render(
-            queue_inner_area,
-            buf,
-            jb.iter(),
-            |line, buf, (id, qi), item| {
-                let Some(track) = db.get(id) else {
-                    return;
-                };
+        if let Some(idx) = current_queue_index {
+            self.list.set_index(idx).set_selector(None);
+        }
+    }
 
-                let mut style = if qi < hlen {
-                    Style::new().fg(colors.neutral)
-                } else if current_qi == Some(qi) {
-                    Style::new().fg(colors.primary)
-                } else {
-                    Style::new()
-                };
-
-                if jb.is_faulty(id) {
-                    style.add_modifier.insert(Modifier::CROSSED_OUT);
-                }
-
-                let symbol = match item {
-                    ListItem::Selected => symbols::concat!(symbols::SELECTED, " "),
-                    ListItem::Selection => symbols::concat!(symbols::SELECTION, " "),
-                    ListItem::Normal => "",
-                };
-
-                widgets::print_texts_with_styles(
-                    line,
-                    buf,
-                    [
-                        (symbol, style.not_crossed_out()),
-                        (track.title(), style),
-                        (" ", style),
-                        (track.artist(), style),
-                        (" ", style),
-                        (track.album(), style),
-                    ],
-                    Some(style.not_crossed_out()),
-                    None,
-                );
-            },
-        );
+    const fn next_image_id(&mut self) -> u32 {
+        self.image_id = if self.image_id == 1 { 2 } else { 1 };
+        self.image_id as u32
     }
 }
 
-fn render_cover_with_stars(
-    area: Rect,
-    buf: &mut Buffer,
-    db: &Database,
-    jb: &Jukebox,
-    front_cover: &mut FrontCover,
-    colors: &Colors,
-) {
-    match jb
-        .current_track_id()
-        .and_then(|id| db.get(id).map(|track| track.rating()))
-    {
-        Some(rating) => {
-            if area.width > 12 && area.height > 10 {
-                let margin = Margin::new(1, 1);
-                let cover_area = render_cover(area.inner(margin), buf, front_cover, colors);
-                let (filled_stars, empty_stars) = rating.stars_split();
-                widgets::print_texts_with_styles(
-                    Rect {
-                        y: cover_area.y + cover_area.height,
-                        height: 1,
-                        ..cover_area
-                    },
-                    buf,
-                    [
-                        (filled_stars, Style::new().fg(colors.primary)),
-                        (empty_stars, Style::new().fg(colors.neutral)),
-                    ],
-                    None,
-                    Some(widgets::Alignment::CenterHorizontal),
-                );
-            } else {
-                render_cover(area, buf, front_cover, colors);
-            }
-        }
-        None => {
-            widgets::print_ascii(
-                area,
-                buf,
-                "No track currently playing",
-                colors.neutral,
-                Some(widgets::Alignment::Center),
-            );
+impl Default for PlayingPage {
+    fn default() -> Self {
+        Self {
+            list: List::new()
+                .with_scrollbar(0)
+                .with_padding(Margin::horizontal(1)),
+            current_id: None,
+            current_qi: None,
+            image_id: 1,
+            view: ViewLayout::Horizontal,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ViewLayout {
+    Cover,
+    Horizontal,
+    Vertical,
+}
+
+impl ViewLayout {
+    const fn from(screen_size: ScreenSize) -> Self {
+        match screen_size.both() {
+            (ScreenWidth::Narrow, ScreenHeight::Short) => Self::Cover,
+            (ScreenWidth::Narrow, ScreenHeight::Normal) => Self::Vertical,
+            (ScreenWidth::Narrow, ScreenHeight::Tall) => Self::Vertical,
+            (ScreenWidth::Normal, ScreenHeight::Tall) => Self::Vertical,
+            (_, _) => Self::Horizontal,
+        }
+    }
+
+    const fn shows_queue(self) -> bool {
+        !matches!(self, Self::Cover)
+    }
+}
+
+#[derive(Default)]
+struct FrontCover {
+    state: CoverState,
+    handle: Option<ImageHandle>,
+    image: Image,
+}
+
+#[derive(Default)]
+enum CoverState {
+    #[default]
+    None,
+    NoImage,
+    Error,
+    Image,
+}
+
+impl FrontCover {
+    fn clear(&mut self) {
+        self.state = CoverState::default();
+        self.handle = None;
+    }
+
+    fn render(&mut self, area: Rect, frame: &mut Frame, colors: &Colors) -> Option<Rect> {
+        let msg = match &self.state {
+            CoverState::None => return None,
+            CoverState::NoImage => "No image",
+            CoverState::Error => "Failed to load image",
+            CoverState::Image => {
+                return Some(
+                    self.image
+                        .render(area, frame, ImageRenderOptions::fit_center()),
+                );
+            }
+        };
+
+        frame.print_fmt(Sgr::Fg(colors.neutral));
+        Block::rectangle().render(area, frame);
+        frame.push_str(msg);
+        frame.render(
+            area.inner(Margin::proportional(1)),
+            TextOptions::paragraph_center(),
+        );
+        frame.print_fmt(Sgr::reset_fg());
+
+        Some(area)
+    }
+}
+
+fn input_playing(
+    input: Res<Input>,
+    mut page: ResMut<PlayingPage>,
+    mut actions: ResMut<Actions>,
+    mut database: NonSendMut<Database>,
+    mut jukebox: NonSendMut<Jukebox>,
+) {
+    if jukebox.is_empty() {
+        return;
+    }
+
+    let Some(key) = input.get() else {
+        return;
+    };
+
+    let shows_queue = page.view.shows_queue();
+
+    match key.code {
+        KeyCode::Enter => {
+            let index = page.list.index();
+            jukebox.play_index(index, &database);
+        }
+        KeyCode::Char(c) => match c {
+            '0' | '1' | '2' | '3' | '4' | '5' => {
+                if let Some(id) = jukebox.track_id() {
+                    let rating = TrackRating::from_char(c).unwrap();
+                    if database.write_rating(id, rating) {
+                        actions.push(Action::Render);
+                    }
+                }
+            }
+            'c' if shows_queue => {
+                if jukebox.clear() {
+                    actions.push(Action::Render);
+                }
+            }
+            's' if shows_queue => {
+                if jukebox.shuffle() {
+                    actions.push(Action::Render);
+                }
+            }
+            'g' => {
+                let index = page.list.index();
+                let id = jukebox.get(index);
+                actions.push(Action::Route(Route::Tracks(id)));
+            }
+            'm' if shows_queue => {
+                let (start, end) = page.list.selection_inclusive().into_inner();
+
+                let success = if start == end {
+                    jukebox.move_down(start)
+                } else {
+                    jukebox.move_down_range(start, end)
+                };
+
+                if success {
+                    page.current_qi = jukebox.queue_index();
+                    page.list.move_selection_down();
+                    actions.push(Action::Render);
+                }
+            }
+            'M' if shows_queue => {
+                let (start, end) = page.list.selection_inclusive().into_inner();
+
+                let success = if start == end {
+                    jukebox.move_up(start)
+                } else {
+                    jukebox.move_up_range(start, end)
+                };
+
+                if success {
+                    page.current_qi = jukebox.queue_index();
+                    page.list.move_selection_up();
+                    actions.push(Action::Render);
+                }
+            }
+            'r' if shows_queue => {
+                let (start, end) = page.list.selection_inclusive().into_inner();
+
+                let success = if start == end {
+                    jukebox.remove(start)
+                } else {
+                    jukebox.remove_range(start, end)
+                };
+
+                if success {
+                    page.current_qi = jukebox.queue_index();
+                    page.list.set_index(start).set_selector(None);
+                    actions.push(Action::Render);
+                }
+            }
+            _ => {
+                if shows_queue && page.list.input(key) {
+                    actions.push(Action::Render);
+                }
+            }
+        },
+        _ => {
+            if shows_queue && page.list.input(key) {
+                actions.push(Action::Render);
+            }
+        }
+    }
+}
+
+fn render_playing(
+    area: Res<PageArea>,
+    shortcuts_area: Res<ShortcutsArea>,
+    mut frame: ResMut<Frame>,
+    settings: Res<Settings>,
+    database: NonSend<Database>,
+    jukebox: NonSend<Jukebox>,
+    mut page: ResMut<PlayingPage>,
+    mut cover: NonSendMut<FrontCover>,
+) {
+    let colors = settings.colors();
+
+    // Always delete image
+    frame.print_fmt(KittyDeleteAll);
+
+    // Render layout based on screen size
+    page.view = ViewLayout::from(frame.screen_size());
+    let (cover_area, queue_area) = match page.view {
+        ViewLayout::Cover => {
+            render_cover(**area, &mut frame, colors, &database, &jukebox, &mut cover);
+            return;
+        }
+        ViewLayout::Horizontal => area.split_vertically(1, 1),
+        ViewLayout::Vertical => area.split_top(area.size.mul_rows_f32_as_u16(0.6), 1),
+    };
+
+    page.update_scroll_on_new_track(&jukebox);
+
+    render_cover(
+        cover_area, &mut frame, colors, &database, &jukebox, &mut cover,
+    );
+    render_queue(
+        queue_area,
+        **shortcuts_area,
+        &mut frame,
+        colors,
+        &database,
+        &jukebox,
+        &mut page.list,
+    );
 }
 
 fn render_cover(
     area: Rect,
-    buf: &mut Buffer,
-    front_cover: &mut FrontCover,
+    frame: &mut Frame,
     colors: &Colors,
-) -> Rect {
-    let neutral_style = Style::new().fg(colors.neutral);
-
-    const MAX_COVER_SIZE: u16 = 24;
-    let mut image_area = {
-        let s = area.width.min(area.height).min(MAX_COVER_SIZE);
-        let w = area.width.min(s * 2);
-        let h = s.min(w.div_ceil(2));
-        let a = Rect {
-            width: w,
-            height: h,
-            ..area
-        };
-        widgets::align(a, area, widgets::Alignment::Center)
+    database: &Database,
+    jukebox: &Jukebox,
+    cover: &mut FrontCover,
+) {
+    let Some(rating) = jukebox.track_id().map(|id| database.track_rating(id)) else {
+        frame.push_str_fg("No track currently playing", colors.neutral);
+        frame.render(
+            area.inner(Margin::proportional(1)),
+            TextOptions::paragraph_center(),
+        );
+        return;
     };
 
-    match front_cover.as_mut() {
-        Some(image) => {
-            let resized_area = image.size_for(ratatui_image::Resize::default(), image_area.into());
-            image_area = widgets::align(
-                Rect {
-                    width: resized_area.width,
-                    height: resized_area.height,
-                    ..area
-                },
-                area,
-                widgets::Alignment::Center,
+    if area.size.rows >= 10 {
+        if let Some(image_area) = cover.render(area.inner(Margin::vertical(1)), frame, colors) {
+            let stars = rating.stars_split(colors.primary, colors.neutral);
+            frame.push_fmt(stars);
+            frame.render(
+                image_area.with_row(image_area.bottom_row_out()),
+                TextOptions::span_center_top(),
             );
-            StatefulImage::default().render(image_area, buf, image);
         }
-        None => {
-            if front_cover.has_loaded() {
-                Block::bordered()
-                    .style(neutral_style)
-                    .render(image_area, buf);
-                widgets::print_ascii(
-                    image_area,
-                    buf,
-                    "NO IMAGE",
-                    neutral_style,
-                    Some(widgets::Alignment::Center),
-                );
-            }
-        }
+    } else {
+        cover.render(area, frame, colors);
+    }
+}
+
+fn render_queue(
+    area: Rect,
+    shortcuts_area: Rect,
+    frame: &mut Frame,
+    colors: &Colors,
+    database: &Database,
+    jukebox: &Jukebox,
+    list: &mut List,
+) {
+    frame.print_fmt(Sgr::Fg(colors.secondary));
+    Block::rectangle().render(area, frame);
+
+    frame.print_fmt(Sgr::Fg(colors.normal));
+    frame.push_fmt(format_args!(
+        " History ({}) / Queue ({}) ",
+        jukebox.history(),
+        jukebox.queue()
+    ));
+    frame.render(area, TextOptions::span_center_top());
+
+    if jukebox.is_empty() {
+        frame.print_span_fg(
+            area.inner(Margin::proportional(1)),
+            "No tracks in the queue",
+            colors.neutral,
+            SpanOptions::center(),
+        );
+        return;
     }
 
-    image_area
+    let inner = area.inner(Margin::all(1));
+    let scrolloff = inner.rows() / 2;
+
+    let Some((list_area, lines)) = list
+        .set_scrolloff(ScrollMargins::all(scrolloff))
+        .set_len(jukebox.len())
+        .set_colors(colors.list())
+        .render(inner, frame)
+    else {
+        return;
+    };
+
+    let line = list_area.with_rows(1);
+    let selected = list.index();
+    let selection = list.selection_inclusive();
+    let hlen = jukebox.history();
+    let current_qi = jukebox.queue_index();
+
+    for ((index, (id, qi)), row) in lines
+        .zip(jukebox.iter().skip(list.scroll()))
+        .zip(line.row()..)
+    {
+        let fg = if qi < hlen {
+            colors.neutral
+        } else if current_qi == Some(qi) {
+            colors.primary
+        } else {
+            colors.normal
+        };
+
+        frame.push_fmt(Sgr::Fg(fg));
+
+        if index == selected {
+            frame.push_str("> ");
+        } else if selection.contains(&index) {
+            frame.push_str("| ");
+        }
+
+        if jukebox.is_faulty(id) {
+            frame.push_fmt(Sgr::CrossedOut);
+        }
+
+        database.track_play_queue(id, |info| {
+            frame.push_str(info);
+        });
+
+        frame.push_fmt(Sgr::Reset);
+        frame.render(line.with_row(row), TextOptions::span());
+    }
+
+    render_shortcuts(shortcuts_area, frame, colors);
+}
+
+fn render_shortcuts(area: Rect, frame: &mut Frame, colors: &Colors) {
+    let key_color = colors.secondary;
+    let name_color = colors.normal;
+    let gap = 1;
+
+    for (key, name, gap) in [
+        ("↵", "Play", gap),
+        ("0-5", "Rating", gap),
+        ("(⇧)m", "Move", gap),
+        ("s", "Shuffle", gap),
+        ("r", "Remove", gap),
+        ("c", "Clear", gap),
+        ("g", "Goto", 0),
+    ] {
+        frame.push_fmt(Sgr::Fg(key_color));
+        frame.push_str(key);
+        frame.push_fmt(Sgr::Fg(name_color));
+        frame.push_ch(' ');
+        frame.push_str(name);
+        frame.push_ch_repeat(' ', gap);
+    }
+
+    frame.push_fmt(Sgr::reset_fg());
+    frame.render(area, TextOptions::span_center_top());
+}
+
+fn exit_playing(mut frame: ResMut<Frame>) {
+    frame.print_fmt(KittyDeleteAll);
+}
+
+fn update_cover(
+    mut page: ResMut<PlayingPage>,
+    mut cover: NonSendMut<FrontCover>,
+    jukebox: NonSend<Jukebox>,
+    frame: Res<Frame>,
+) {
+    let id = jukebox.track_id();
+
+    if page.current_id == id {
+        return;
+    }
+
+    page.current_id = id;
+
+    let Some(track) = jukebox.track() else {
+        cover.clear();
+        return;
+    };
+
+    cover.handle = Some(load_front_cover(
+        track.path().to_path_buf(),
+        track.ext(),
+        page.next_image_id(),
+        cover.image.take_encode(),
+        frame.generation(),
+    ));
+}
+
+fn poll_cover(
+    mut cover: NonSendMut<FrontCover>,
+    mut logs: ResMut<Logs>,
+    mut actions: ResMut<Actions>,
+) {
+    if let Some(handle) = cover.handle.as_ref()
+        && handle.is_finished()
+        && let Some(handle) = cover.handle.take()
+        && let Ok(result) = handle.join()
+    {
+        match result {
+            Ok(Some(image)) => {
+                cover.state = CoverState::Image;
+                cover.image = image;
+            }
+            Ok(None) => {
+                cover.state = CoverState::NoImage;
+            }
+            Err(err) => {
+                logs.push_error(err);
+                cover.state = CoverState::Error;
+            }
+        }
+
+        actions.push(Action::Render);
+    }
+}
+
+fn load_front_cover(
+    path: std::path::PathBuf,
+    ext: AudioFileExt,
+    image_id: u32,
+    encode: ImageEncode,
+    generation: i32,
+) -> ImageHandle {
+    std::thread::spawn(move || {
+        let audio_file = match AudioFile::read_cover(&path, ext) {
+            Ok(file) => file,
+            Err(err) => {
+                return Err(LoadImageError {
+                    path,
+                    source: LoadErrorSource::Audio(err),
+                });
+            }
+        };
+
+        let Some(bytes) = audio_file.front_cover() else {
+            return Ok(None);
+        };
+
+        let mut image = Image::new_with_encode(image_id, encode);
+
+        if let Err(err) = image.load_from_bytes(bytes, ImageLoadOptions::max(Dims::all(512))) {
+            return Err(LoadImageError {
+                path,
+                source: LoadErrorSource::Image(err),
+            });
+        }
+
+        if let Err(err) = image.transmit(generation) {
+            return Err(LoadImageError {
+                path,
+                source: LoadErrorSource::Transmit(err),
+            });
+        }
+
+        Ok(Some(image))
+    })
+}
+
+#[derive(Debug)]
+struct LoadImageError {
+    path: std::path::PathBuf,
+    source: LoadErrorSource,
+}
+
+#[derive(Debug)]
+enum LoadErrorSource {
+    Audio(AudioFileError),
+    Image(ImageError),
+    Transmit(std::io::Error),
+}
+
+impl std::fmt::Display for LoadImageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!(
+            "Failed to load front cover from \"{}\".",
+            self.path.display()
+        ))
+    }
+}
+
+impl std::error::Error for LoadImageError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match &self.source {
+            LoadErrorSource::Audio(err) => Some(err),
+            LoadErrorSource::Image(err) => Some(err),
+            LoadErrorSource::Transmit(err) => Some(err),
+        }
+    }
 }

@@ -1,61 +1,29 @@
-use shared::terminal::Terminal;
-use trollstov::{
-    app::App,
-    database::Database,
-    events::EventHandler,
-    jukebox::{AudioPlayer, Jukebox},
-};
+use terminal::Terminal;
+use trollstov::{app::App, cli::Args};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> std::process::ExitCode {
     let args: Args = clap::Parser::parse();
 
-    // Create events early with media controls in case of zbus panic due to dbus name taken
-    let events = EventHandler::new(args.media_controls)?;
+    if let Err(err) = run(args) {
+        eprintln!("Error: {err}");
 
-    let mut terminal = Terminal::init()?;
+        let mut source = err.source();
+        while let Some(cause) = source {
+            eprintln!("Caused by: {cause}");
+            source = cause.source();
+        }
 
-    // Create picker after entering alternate screen, but before reading terminal events
-    let picker = ratatui_image::picker::Picker::from_query_stdio()?;
+        return std::process::ExitCode::FAILURE;
+    }
 
-    let player = AudioPlayer::new()?;
-    let jukebox = Jukebox::new(player);
-    let database = Database::new(args.dir);
-
-    let mut app = App::new(events, database, jukebox, picker, args.settings);
-    let res = app.run(&mut terminal);
-    app.quit();
-
-    terminal.restore()?;
-
-    res
+    std::process::ExitCode::SUCCESS
 }
 
-// TODO: Use a list for paths so we can do "trollstov /my/music a.flac *.mp3 dir/**/*.opus".
-// TODO: Add some sort of daemon flag? No app, just system media interaction.
-
-#[derive(Debug, clap::Parser)]
-#[command(version, about, styles = CLAP_STYLING)]
-struct Args {
-    /// The directory for your music.
-    #[arg(value_name = "DIR", value_hint = clap::ValueHint::DirPath)]
-    dir: std::path::PathBuf,
-
-    /// Optional path for your settings file. By default,
-    /// the location will be determined by the conventions of your operating system.
-    #[arg(long, value_name = "FILE.toml", value_hint = clap::ValueHint::FilePath)]
-    settings: Option<std::path::PathBuf>,
-
-    /// Add system media controls for player interaction
-    /// with media keys and your operating system.
-    #[clap(long, action)]
-    media_controls: bool,
+fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let mut app = App::new(args)?;
+    let terminal = Terminal::stdout();
+    terminal.enter(|term| {
+        app.run(term)?;
+        Ok(())
+    })
 }
-
-const CLAP_STYLING: clap::builder::styling::Styles = clap::builder::styling::Styles::styled()
-    .header(clap_cargo::style::HEADER)
-    .usage(clap_cargo::style::USAGE)
-    .literal(clap_cargo::style::LITERAL)
-    .placeholder(clap_cargo::style::PLACEHOLDER)
-    .error(clap_cargo::style::ERROR)
-    .valid(clap_cargo::style::VALID)
-    .invalid(clap_cargo::style::INVALID);

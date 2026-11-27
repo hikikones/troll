@@ -29,7 +29,7 @@ A simple flashcard application for the terminal.
 
 Cards are written in a custom lightweight markup language, inspired by [Markdown](https://en.wikipedia.org/wiki/Markdown), [Typst](https://typst.app) and [Djot](https://djot.net). It provides a small set of syntax for formatting text in the terminal.
 
-Use `---` to mark reveal points in a card. You can have as many as you like. During review, cards are revealed one section at a time until the entire card is visible. At that point, you simply answer yes or no based on whether you successfully recalled everything.
+You can use `---` to mark reveal points in a card, and have as many as you like. During review, cards are revealed one section at a time until the entire card is visible. At that point, you simply answer yes or no based on whether you successfully recalled everything.
 
 A card with no reveal marks is considered a plain note, and will not show up in reviews.
 
@@ -103,6 +103,10 @@ def add(a, b):
 </tr>
 </table>
 
+## 💻 Platform Support
+
+Linux only on any ANSI-compatible terminal that fully supports the [kitty graphics protocol][kitty_graphics_protocol], including animated images with scaling and cropping. As far as I know, only [kitty][kitty_terminal] and [ghostty][ghostty_terminal] currently supports this.
+
 ## 🔖 Install
 
 ```sh
@@ -119,20 +123,12 @@ Usage: trollink [OPTIONS]
 Example: trollink --database /path/to/my/database.db --assets /path/to/my/assets
 
 Options:
-      --database <FILE.db>    Optional path for your database file. By default, the location will be determined by the conventions of your operating system.
-      --assets <DIR>          Optional path for your assets directory. By default, the location will be determined by the conventions of your operating system.
-      --settings <FILE.toml>  Optional path for your settings file. By default, the location will be determined by the conventions of your operating system.
+      --database <FILE.db>    Optional path for your database file.
+      --assets <DIR>          Optional path for your assets directory.
+      --settings <FILE.toml>  Optional path for your settings file.
   -h, --help                  Print help.
   -V, --version               Print version.
 ```
-
-## ⬛ Terminal Support
-
-Currently the only supported terminal is [kitty][kitty_terminal], as that is the only terminal that fully supports the [kitty graphics protocol][kitty_graphics_protocol]. This includes animated images with scaling and cropping.
-
-## 💻 Platform Support
-
-The application is mainly developed on Linux, as that is what I use, but hopefully it also works on Windows and macOS. I try to keep cross-platform in mind when developing, but have no means of testing it.
 
 ## ⚠️ Non-goals
 
@@ -141,5 +137,6 @@ The application is mainly developed on Linux, as that is what I use, but hopeful
 [spaced_repetition]: https://en.wikipedia.org/wiki/Spaced_repetition
 [fsrs]: https://github.com/open-spaced-repetition/awesome-fsrs/wiki/The-Algorithm
 [kitty_terminal]: https://sw.kovidgoyal.net/kitty
+[ghostty_terminal]: https://ghostty.org
 [kitty_graphics_protocol]: https://sw.kovidgoyal.net/kitty/graphics-protocol
 [katex]: https://katex.org

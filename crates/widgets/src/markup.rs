@@ -1,590 +1,40 @@
-use std::{
-    ops::{Range, RangeInclusive},
-    path::{Path, PathBuf},
-};
-
-use ratatui::{
-    buffer::Buffer,
-    crossterm::event::KeyCode,
-    layout::{Alignment, Rect, Size},
-    style::Color,
-    widgets::Padding,
-};
-use shared::terminal::{TerminalCellSize, TerminalPalette};
-use syntect::{
-    easy::HighlightLines, highlighting::ThemeSet, parsing::SyntaxSet, util::LinesWithEndings,
-};
-use unicode_segmentation::UnicodeSegmentation;
-use utils::Formatter;
+use std::{path::PathBuf, range::Range};
+use terminal::*;
+use utils::StringExt;
 
 use crate::{
-    KittyError, RectExt, ScrollableData, Scrollbar, ScrollbarColors, ScrollbarData,
-    ansi::{AnsiParser, AnsiTag, AnsiWriter},
-    image::{Dimensions, Image, KittyGraphics, ResizeMode},
-    text_span::TextSpan,
+    Image, ImageError, ImageFitMode, ImageLoadOptions, ImageRenderOptions, Scroll, Scrollbar,
+    ScrollbarColors, ScrollbarData,
 };
 
+type MarkupResult<T> = Result<T, MarkupError>;
+
+#[cfg_attr(feature = "bevy", derive(bevy_ecs::resource::Resource))]
 pub struct Markup {
-    plain: MarkupPlainData,
-    rich: MarkupRichData,
-    scroll: MarkupScroll,
-    kitty: MarkupKitty,
-    cache: MarkupCache,
+    text: String,
+    scroll: u16,
+    desired_scroll: Option<MarkupScroll>,
+    plain: Vec<MarkupPlain>,
+    rich: Vec<MarkupRich>,
+    highlighter: CodeHighlighter,
+    images: MarkupImages,
+    view: Size,
+    size: Size,
+    hash: u64,
+    total_lines: u16,
+    scroll_area: Option<Rect>,
     options: MarkupOptions,
     colors: MarkupColors,
-    assets: PathBuf,
 }
 
-impl Markup {
-    pub fn new(assets: PathBuf, cell_size: TerminalCellSize, palette: TerminalPalette) -> Self {
-        Self {
-            plain: MarkupPlainData::new(),
-            rich: MarkupRichData::new(),
-            scroll: MarkupScroll::new(),
-            kitty: MarkupKitty::new(cell_size, palette),
-            cache: MarkupCache::new(),
-            options: MarkupOptions::new(),
-            colors: MarkupColors::new(),
-            assets,
-        }
-    }
-
-    pub const fn with_options(mut self, options: MarkupOptions) -> Self {
-        self.options = options;
-        self
-    }
-
-    pub const fn with_colors(mut self, colors: MarkupColors) -> Self {
-        self.colors = colors;
-        self
-    }
-
-    pub const fn scroll_index(&self) -> u16 {
-        self.scroll.current
-    }
-
-    pub const fn set_desired_scroll(&mut self, sm: ScrollMove) -> &mut Self {
-        self.scroll.desired = Some(sm);
-        self
-    }
-
-    pub const fn set_colors(&mut self, colors: MarkupColors) -> &mut Self {
-        self.colors = colors;
-        self
-    }
-
-    pub fn input(&mut self, key: KeyCode) -> bool {
-        match key {
-            KeyCode::Down => self.scroll(ScrollMove::Down),
-            KeyCode::Up => self.scroll(ScrollMove::Up),
-            KeyCode::PageDown => self.scroll(ScrollMove::PageDown),
-            KeyCode::PageUp => self.scroll(ScrollMove::PageUp),
-            KeyCode::Home => self.scroll(ScrollMove::Start),
-            KeyCode::End => self.scroll(ScrollMove::End),
-            _ => false,
-        }
-    }
-
-    pub fn scroll(&mut self, sm: ScrollMove) -> bool {
-        let old_scroll = self.scroll.current;
-        self.scroll.set(sm, self.cache.area.height);
-        self.scroll.current != old_scroll
-    }
-
-    pub fn render(
-        &mut self,
-        mut area: Rect,
-        buf: &mut Buffer,
-        markup: &str,
-        kitty: &mut KittyGraphics,
-    ) {
-        if area.inner_padding(self.options.padding).is_empty() {
-            return;
-        }
-
-        // Prepare markup
-        self.parse_and_load(markup, kitty);
-        self.process_markup(&mut area, kitty);
-
-        // Scroll
-        self.update_scroll();
-        self.render_scrollbar(buf);
-
-        // Setup
-        let mut area = self.cache.area;
-
-        let top_y = area.y;
-        let viewport_top = self.scroll.current;
-        let viewport_bot = self.scroll.current + area.height;
-        let mut current_line = 0;
-
-        // Render
-        for item in self.rich.items.iter().cloned() {
-            if area.height == 0 {
-                break;
-            }
-
-            const fn is_in_viewport(curr_line: u16, top: u16, bot: u16) -> bool {
-                curr_line >= top && curr_line < bot
-            }
-
-            match item {
-                MarkupRich::Text { range, alignment } => {
-                    let mut ansi_parser = AnsiParser::new("").with_style();
-                    self.rich.span.set_alignment(alignment);
-
-                    for line in self.rich.formatter.slice(range).lines() {
-                        let is_in_viewport =
-                            is_in_viewport(current_line, viewport_top, viewport_bot);
-
-                        for (s, style) in ansi_parser.continue_with(line) {
-                            if is_in_viewport {
-                                self.rich.span.push_str(s, style);
-                            }
-                        }
-
-                        if is_in_viewport {
-                            self.rich.span.render(area, buf);
-                            self.rich.span.clear();
-                            area.shrink_down(1);
-                        }
-
-                        current_line += 1;
-                    }
-                }
-                MarkupRich::Image { index } => {
-                    let dims = self.kitty.dims(index);
-                    let max_width = kitty.width(area.width);
-                    let resized_dims = KittyGraphics::resize(dims, dims.with_width(max_width));
-                    let resized_rows = kitty.rows(resized_dims.height);
-
-                    if is_in_viewport(
-                        current_line,
-                        viewport_top.saturating_sub(resized_rows - 1),
-                        viewport_bot,
-                    ) {
-                        let is_at_top = area.y == top_y;
-                        let rows_outside_top = if is_at_top {
-                            current_line.abs_diff(self.scroll.current)
-                        } else {
-                            0
-                        };
-                        let image_rows = (resized_rows - rows_outside_top).min(area.height);
-                        let image_area = Rect {
-                            height: image_rows,
-                            ..area
-                        };
-                        self.kitty.image_mut(index).render(
-                            image_area,
-                            buf,
-                            ResizeMode::FitWidthCropHeight { rows_outside_top },
-                            crate::Alignment::CenterHorizontal,
-                            kitty,
-                        );
-                        self.kitty.has_rendered = true;
-                        area.shrink_down(image_rows);
-                    }
-
-                    current_line += resized_rows;
-                }
-                MarkupRich::Break => {
-                    if is_in_viewport(current_line, viewport_top, viewport_bot) {
-                        crate::print_char_repeat(
-                            area,
-                            buf,
-                            self.options.break_char,
-                            area.width,
-                            self.colors.break_char,
-                        );
-                        area.shrink_down(1);
-                    }
-
-                    current_line += 1;
-                }
-                MarkupRich::EmptyLine => {
-                    if is_in_viewport(current_line, viewport_top, viewport_bot) {
-                        area.shrink_down(1);
-                    }
-
-                    current_line += 1;
-                }
-            }
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.plain.clear();
-        self.rich.clear();
-        self.scroll.clear();
-        self.cache.clear();
-    }
-
-    pub fn delete_images(&mut self, kitty: &KittyGraphics) -> std::io::Result<()> {
-        if self.kitty.has_rendered {
-            kitty.delete_range(self.kitty.id_range())?;
-            self.kitty.has_rendered = false;
-        }
-        Ok(())
-    }
-
-    fn parse_and_load(&mut self, markup: &str, kitty: &mut KittyGraphics) {
-        let hash = utils::hash_fast(markup);
-        if self.cache.hash == hash {
-            return;
-        }
-
-        self.cache.clear();
-        self.cache.hash = hash;
-        self.plain.clear();
-
-        // Convert tabs to spaces before we parse and load markup
-        let markup = if markup.contains('\t') {
-            self.plain.buffer.extend(
-                markup
-                    .graphemes(true)
-                    .map(|g| if g == "\t" { "    " } else { g }),
-            );
-            self.plain.buffer.as_str()
-        } else {
-            markup
-        };
-
-        let mut image_counter = 0;
-
-        // Parse and load markup
-        for (block, _) in MarkupBlockParser::new(markup) {
-            match block {
-                MarkupBlock::Paragraph { text, alignment } => {
-                    self.plain.items.push(MarkupPlain::Paragraph {
-                        text: self.plain.formatter.push_str(text),
-                        alignment,
-                    });
-                    self.plain.items.push(MarkupPlain::EmptyLine);
-                }
-                MarkupBlock::Heading {
-                    text,
-                    alignment,
-                    newline,
-                } => {
-                    self.plain.items.push(MarkupPlain::Heading {
-                        text: self.plain.formatter.push_str(text),
-                        alignment,
-                    });
-                    if newline {
-                        self.plain.items.push(MarkupPlain::EmptyLine);
-                    }
-                }
-                MarkupBlock::List { items } => {
-                    for item in items {
-                        self.plain.items.push(MarkupPlain::ListItem {
-                            text: self.plain.formatter.push_str(item),
-                        });
-                    }
-                    self.plain.items.push(MarkupPlain::EmptyLine);
-                }
-                MarkupBlock::Code { language, text } => {
-                    self.plain.items.push(MarkupPlain::Code {
-                        text: self.plain.formatter.push_str(text),
-                        _language: self.plain.formatter.push_str(language),
-                    });
-                    self.plain.items.push(MarkupPlain::EmptyLine);
-                }
-                MarkupBlock::Image { description, path } => {
-                    let image_path = Path::new(path)
-                        .file_name()
-                        .map(|name| self.assets.join(name));
-
-                    match self
-                        .kitty
-                        .load(image_counter, LoadImageFrom::Path(image_path), kitty)
-                    {
-                        Ok(_) => {
-                            self.plain.items.push(MarkupPlain::Image {
-                                index: image_counter,
-                            });
-                        }
-                        Err(err) => {
-                            self.plain.items.push(MarkupPlain::ImageError {
-                                text: self.plain.formatter.extend(["ERROR\n", err.as_str()]),
-                            });
-                        }
-                    }
-
-                    image_counter += 1;
-
-                    if !description.is_empty() {
-                        self.plain.items.push(MarkupPlain::ImageDescription {
-                            text: self.plain.formatter.push_str(description),
-                        });
-                    }
-
-                    self.plain.items.push(MarkupPlain::EmptyLine);
-                }
-                MarkupBlock::Math { text } => {
-                    match self
-                        .kitty
-                        .load(image_counter, LoadImageFrom::Math(text), kitty)
-                    {
-                        Ok(_) => {
-                            self.plain.items.push(MarkupPlain::Image {
-                                index: image_counter,
-                            });
-                        }
-                        Err(err) => {
-                            self.plain.items.push(MarkupPlain::ImageError {
-                                text: self.plain.formatter.extend(["ERROR\n", err.as_str()]),
-                            });
-                        }
-                    }
-
-                    image_counter += 1;
-
-                    self.plain.items.push(MarkupPlain::EmptyLine);
-                }
-                MarkupBlock::Break => {
-                    self.plain.items.push(MarkupPlain::Break);
-                    self.plain.items.push(MarkupPlain::EmptyLine);
-                }
-                MarkupBlock::Comment { .. } => continue,
-            }
-        }
-
-        // Remove last empty line
-        let is_last_empty_line = self
-            .plain
-            .items
-            .last()
-            .map(|mp| matches!(mp, MarkupPlain::EmptyLine))
-            .unwrap_or(false);
-        if is_last_empty_line {
-            self.plain.items.pop();
-        }
-    }
-
-    fn process_markup(&mut self, area: &mut Rect, kitty: &KittyGraphics) {
-        if self.cache.size == area.as_size() {
-            return;
-        }
-
-        self.cache.size = area.as_size();
-        self.cache.area = area.inner_padding(self.options.padding);
-        self.cache.scroll_area = None;
-
-        self.relayout(kitty);
-
-        if self.is_scrollable() {
-            let scroll_area =
-                Scrollbar::make_scroll_area_with_margin(area, self.options.scrollbar_margin);
-            self.cache.area.width = self
-                .cache
-                .area
-                .width
-                .saturating_sub(scroll_area.width + self.options.scrollbar_margin);
-            self.cache.scroll_area = Some(scroll_area);
-            self.relayout(kitty);
-        }
-    }
-
-    fn relayout(&mut self, kitty: &KittyGraphics) {
-        self.rich.clear();
-
-        let width = self.cache.area.width;
-
-        // Process parsed markup
-        self.rich
-            .items
-            .extend(self.plain.items.iter().cloned().map(|item| match item {
-                MarkupPlain::Paragraph { text, alignment } => MarkupRich::Text {
-                    range: markup_to_rich_ansi(
-                        self.plain.formatter.slice(text),
-                        width,
-                        None,
-                        &mut self.rich.writer,
-                        &mut self.rich.formatter,
-                    ),
-                    alignment,
-                },
-                MarkupPlain::Heading { text, alignment } => {
-                    self.rich.writer.push_tag(AnsiTag::Bold);
-                    self.rich
-                        .writer
-                        .push_tag(AnsiTag::from_color_fg(self.colors.heading));
-                    self.rich.writer.push_str(self.plain.formatter.slice(text));
-
-                    self.rich.writer.textwrap(width);
-
-                    let range = self.rich.formatter.push_str(self.rich.writer.as_str());
-                    self.rich.writer.clear();
-
-                    MarkupRich::Text { range, alignment }
-                }
-                MarkupPlain::ListItem { text } => MarkupRich::Text {
-                    range: markup_to_rich_ansi(
-                        self.plain.formatter.slice(text),
-                        width.saturating_sub(4),
-                        Some(("  • ", "    ")),
-                        &mut self.rich.writer,
-                        &mut self.rich.formatter,
-                    ),
-                    alignment: Alignment::Left,
-                },
-                MarkupPlain::Code { text, _language } => {
-                    let lang = self.plain.formatter.slice(_language);
-                    let code = self.plain.formatter.slice(text);
-
-                    self.rich.highlighter.highlight(
-                        lang,
-                        code,
-                        self.colors.syntax_theme,
-                        |span, color| match color {
-                            Some((r, g, b)) => {
-                                self.rich.writer.push_tag(AnsiTag::FgTrueColor(r, g, b));
-                                self.rich.writer.push_str(span);
-                                self.rich.writer.push_tag(AnsiTag::Reset);
-                            }
-                            None => {
-                                self.rich.writer.push_str(span);
-                            }
-                        },
-                    );
-
-                    let range = self.rich.formatter.push_str(self.rich.writer.as_str());
-                    self.rich.writer.clear();
-
-                    MarkupRich::Text {
-                        range,
-                        alignment: Alignment::Left,
-                    }
-                }
-                MarkupPlain::Image { index } => MarkupRich::Image { index },
-                MarkupPlain::ImageError { text } => {
-                    self.rich.writer.push_tag(AnsiTag::FgRed);
-                    self.rich.writer.push_str(self.plain.formatter.slice(text));
-
-                    self.rich.writer.textwrap(width);
-
-                    let range = self.rich.formatter.push_str(self.rich.writer.as_str());
-                    self.rich.writer.clear();
-
-                    MarkupRich::Text {
-                        range,
-                        alignment: Alignment::Center,
-                    }
-                }
-                MarkupPlain::ImageDescription { text } => MarkupRich::Text {
-                    range: markup_to_rich_ansi(
-                        self.plain.formatter.slice(text),
-                        width,
-                        None,
-                        &mut self.rich.writer,
-                        &mut self.rich.formatter,
-                    ),
-                    alignment: Alignment::Center,
-                },
-                MarkupPlain::Break => MarkupRich::Break,
-                MarkupPlain::EmptyLine => MarkupRich::EmptyLine,
-            }));
-
-        // Compute total lines
-        self.scroll.total_lines = self.compute_total_lines(kitty);
-
-        // Helper function
-        fn markup_to_rich_ansi(
-            markup: &str,
-            width: u16,
-            indent: Option<(&str, &str)>,
-            writer: &mut AnsiWriter,
-            storage: &mut Formatter,
-        ) -> Range<usize> {
-            // Convert markup to ansi
-            for event in InlineParser::new(markup) {
-                match event {
-                    InlineEvent::Text(s) => writer.push_str(s),
-                    InlineEvent::Tag(tag) => writer.push_tag(tag.into_ansi()),
-                }
-            }
-
-            // Break text into lines using textwrap which ignores ansi codes
-            writer.textwrap(width);
-
-            // Store result for later usage
-            let range = match indent {
-                Some((first_indent, other_indent)) => {
-                    let start = storage.len();
-                    for (i, line) in writer.as_str().lines().enumerate() {
-                        let indent = if i == 0 { first_indent } else { other_indent };
-                        storage.extend([indent, line, "\n"]);
-                    }
-                    start..storage.len()
-                }
-                None => storage.push_str(writer.as_str()),
-            };
-            writer.clear();
-            range
-        }
-    }
-
-    const fn is_scrollable(&self) -> bool {
-        self.options.scrollbar
-            && Scrollbar::is_scrollable(ScrollableData::new(
-                self.scroll.total_lines as usize,
-                self.cache.area.as_size(),
-            ))
-    }
-
-    fn update_scroll(&mut self) {
-        let height = self.cache.area.height;
-        match self.scroll.desired.take() {
-            Some(sm) => {
-                self.scroll.set(sm, height);
-            }
-            None => {
-                self.scroll.current = self
-                    .scroll
-                    .current
-                    .min(self.scroll.total_lines.saturating_sub(height));
-            }
-        }
-    }
-
-    fn render_scrollbar(&self, buf: &mut Buffer) {
-        let Some(scroll_area) = self.cache.scroll_area else {
-            return;
-        };
-
-        Scrollbar::new(ScrollbarData {
-            viewport_height: self.cache.area.height,
-            current_scroll: self.scroll.current as usize,
-            total_items: self.scroll.total_lines as usize,
-        })
-        .with_colors(self.colors.scrollbar)
-        .render(scroll_area, buf);
-    }
-
-    fn compute_total_lines(&self, kitty: &KittyGraphics) -> u16 {
-        let max_width = self.cache.area.width;
-        self.rich
-            .items
-            .iter()
-            .cloned()
-            .map(|item| match item {
-                MarkupRich::Text { range, .. } => {
-                    self.rich.formatter.slice(range).lines().count() as u16
-                }
-                MarkupRich::Image { index } => {
-                    let dims = self.kitty.dims(index);
-                    let max_width = kitty.width(max_width);
-                    let resized_dims = KittyGraphics::resize(dims, dims.with_width(max_width));
-                    kitty.rows(resized_dims.height)
-                }
-                MarkupRich::Break | MarkupRich::EmptyLine => 1,
-            })
-            .sum()
+impl Default for Markup {
+    fn default() -> Self {
+        Self::new(None)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum ScrollMove {
+pub enum MarkupScroll {
     Up,
     Down,
     PageUp,
@@ -593,330 +43,8 @@ pub enum ScrollMove {
     End,
 }
 
-#[derive(Debug, Clone)]
-enum MarkupPlain {
-    Paragraph {
-        text: Range<usize>,
-        alignment: Alignment,
-    },
-    Heading {
-        text: Range<usize>,
-        alignment: Alignment,
-    },
-    ListItem {
-        text: Range<usize>,
-    },
-    Code {
-        text: Range<usize>,
-        _language: Range<usize>,
-    },
-    Image {
-        index: u32,
-    },
-    ImageError {
-        text: Range<usize>,
-    },
-    ImageDescription {
-        text: Range<usize>,
-    },
-    Break,
-    EmptyLine,
-}
-
-struct MarkupPlainData {
-    items: Vec<MarkupPlain>,
-    formatter: Formatter,
-    buffer: String,
-}
-
-impl MarkupPlainData {
-    const fn new() -> Self {
-        Self {
-            items: Vec::new(),
-            formatter: Formatter::new(),
-            buffer: String::new(),
-        }
-    }
-
-    fn clear(&mut self) {
-        self.items.clear();
-        self.formatter.clear();
-        self.buffer.clear();
-    }
-}
-
-#[derive(Debug, Clone)]
-enum MarkupRich {
-    Text {
-        range: Range<usize>,
-        alignment: Alignment,
-    },
-    Image {
-        index: u32,
-    },
-    Break,
-    EmptyLine,
-}
-
-struct MarkupRichData {
-    items: Vec<MarkupRich>,
-    writer: AnsiWriter,
-    formatter: Formatter,
-    span: TextSpan,
-    highlighter: CodeHighlighter,
-}
-
-impl MarkupRichData {
-    fn new() -> Self {
-        Self {
-            items: Vec::new(),
-            writer: AnsiWriter::new(),
-            formatter: Formatter::new(),
-            span: TextSpan::new(),
-            highlighter: CodeHighlighter::new(),
-        }
-    }
-
-    fn clear(&mut self) {
-        self.items.clear();
-        self.writer.clear();
-        self.formatter.clear();
-        self.span.clear();
-    }
-}
-
-struct MarkupScroll {
-    current: u16,
-    desired: Option<ScrollMove>,
-    total_lines: u16,
-}
-
-impl MarkupScroll {
-    const fn new() -> Self {
-        Self {
-            current: 0,
-            desired: None,
-            total_lines: 0,
-        }
-    }
-
-    fn set(&mut self, sm: ScrollMove, viewport_height: u16) {
-        self.current = match sm {
-            ScrollMove::Up => self.current.saturating_sub(1),
-            ScrollMove::Down => {
-                (self.current + 1).min(self.total_lines.saturating_sub(viewport_height))
-            }
-            ScrollMove::PageUp => self.current.saturating_sub(viewport_height),
-            ScrollMove::PageDown => (self.current + viewport_height)
-                .min(self.total_lines.saturating_sub(viewport_height)),
-            ScrollMove::Start => 0,
-            ScrollMove::End => self.total_lines.saturating_sub(viewport_height),
-        };
-    }
-
-    fn clear(&mut self) {
-        self.current = 0;
-        self.desired = None;
-        self.total_lines = 0;
-    }
-}
-
-struct MarkupKitty {
-    id_start: u32,
-    images: Vec<MarkupImage>,
-    math: MarkupMath,
-    has_rendered: bool,
-}
-
-impl MarkupKitty {
-    const fn new(size: TerminalCellSize, palette: TerminalPalette) -> Self {
-        Self {
-            id_start: 90,
-            images: Vec::new(),
-            math: MarkupMath::new(size, palette),
-            has_rendered: false,
-        }
-    }
-
-    fn load(
-        &mut self,
-        index: u32,
-        from: LoadImageFrom,
-        kitty: &mut KittyGraphics,
-    ) -> Result<(), String> {
-        let i = index as usize;
-
-        if i == self.images.len() {
-            self.images.push(MarkupImage::new(self.id_start + index));
-        }
-
-        match from {
-            LoadImageFrom::Path(path) => {
-                let Some(path) = path else {
-                    return Err(String::from("No image filename found"));
-                };
-
-                let hash = utils::hash_fast(&path);
-                let image = &mut self.images[i];
-
-                if hash != image.hash {
-                    image
-                        .image
-                        .load_from_path(&path, kitty)
-                        .map_err(|err| match err {
-                            KittyError::Load(err) => format!(
-                                "Failed to load image\n'{}'\ndue to\n\"{}\"",
-                                path.display(),
-                                err
-                            ),
-                            KittyError::Encode(err) => format!(
-                                "Failed to encode image\n'{}'\ndue to\n\"{}\"",
-                                path.display(),
-                                err
-                            ),
-                        })?;
-
-                    image.hash = hash;
-                }
-            }
-            LoadImageFrom::Math(text) => {
-                let hash = utils::hash_fast(text);
-                let image = &mut self.images[i];
-
-                if hash != image.hash {
-                    let ast = self.math.parse(text).map_err(|err| {
-                        format!("Failed to parse math\n\"{text}\"\ndue to\n\"{}\"", err)
-                    })?;
-                    let png = self.math.to_png(ast).map_err(|err| {
-                        format!("Failed to create math image due to\n\"{}\"", err)
-                    })?;
-                    image
-                        .image
-                        .load_from_png_bytes(png, kitty)
-                        .map_err(|err| match err {
-                            KittyError::Load(err) => {
-                                format!("Failed to load math image due to\n\"{}\"", err)
-                            }
-                            KittyError::Encode(err) => {
-                                format!("Failed to encode math image due to\n\"{}\"", err)
-                            }
-                        })?;
-
-                    image.hash = hash;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn dims(&self, i: u32) -> Dimensions {
-        self.images[i as usize].image.dims()
-    }
-
-    fn image_mut(&mut self, i: u32) -> &mut Image {
-        &mut self.images[i as usize].image
-    }
-
-    const fn id_range(&self) -> RangeInclusive<u32> {
-        let end = self.id_start + self.images.len().saturating_sub(1) as u32;
-        self.id_start..=end
-    }
-}
-
-struct MarkupImage {
-    hash: u64,
-    image: Image,
-}
-
-impl MarkupImage {
-    const fn new(id: u32) -> Self {
-        Self {
-            hash: 0,
-            image: Image::new(id),
-        }
-    }
-}
-
-enum LoadImageFrom<'a> {
-    Path(Option<PathBuf>),
-    Math(&'a str),
-}
-
-struct MarkupMath {
-    layout_options: ratex_layout::LayoutOptions,
-    render_options: ratex_render::RenderOptions,
-}
-
-impl MarkupMath {
-    const fn new(size: TerminalCellSize, palette: TerminalPalette) -> Self {
-        Self {
-            layout_options: ratex_layout::LayoutOptions {
-                style: ratex_types::MathStyle::Display,
-                color: ratex_types::Color {
-                    r: palette.foreground.r as f32 / 255.0,
-                    g: palette.foreground.g as f32 / 255.0,
-                    b: palette.foreground.b as f32 / 255.0,
-                    a: 1.0,
-                },
-                align_relation_spacing: None,
-                leftright_delim_height: None,
-                inter_glyph_kern_em: 0.0,
-                explicit_size_multiplier: 1.0,
-            },
-            render_options: ratex_render::RenderOptions {
-                font_size: size.width as f32 * 1.2,
-                padding: 0.0,
-                background_color: ratex_types::Color {
-                    r: 0.0,
-                    g: 0.0,
-                    b: 0.0,
-                    a: 0.0,
-                },
-                font_dir: String::new(),
-                device_pixel_ratio: size.height as f32 / size.width as f32,
-            },
-        }
-    }
-
-    fn parse(&self, math: &str) -> ratex_parser::ParseResult<Vec<ratex_parser::ParseNode>> {
-        ratex_parser::parse(math)
-    }
-
-    fn to_png(&self, ast: Vec<ratex_parser::ParseNode>) -> Result<Vec<u8>, String> {
-        let layout = ratex_layout::layout(&ast, &self.layout_options);
-        let display_list = ratex_layout::to_display_list(&layout);
-        ratex_render::render_to_png(&display_list, &self.render_options)
-    }
-}
-
-struct MarkupCache {
-    size: Size,
-    area: Rect,
-    hash: u64,
-    scroll_area: Option<Rect>,
-}
-
-impl MarkupCache {
-    const fn new() -> Self {
-        Self {
-            size: Size::ZERO,
-            area: Rect::ZERO,
-            hash: 0,
-            scroll_area: None,
-        }
-    }
-
-    const fn clear(&mut self) {
-        self.size = Size::ZERO;
-        self.area = Rect::ZERO;
-        self.hash = 0;
-        self.scroll_area = None;
-    }
-}
-
 pub struct MarkupOptions {
-    pub padding: Padding,
+    pub padding: Margin,
     pub scrollbar: bool,
     pub scrollbar_margin: u16,
     pub break_char: char,
@@ -925,7 +53,7 @@ pub struct MarkupOptions {
 impl MarkupOptions {
     pub const fn new() -> Self {
         Self {
-            padding: Padding::ZERO,
+            padding: Margin::ZERO,
             scrollbar: false,
             scrollbar_margin: 1,
             break_char: '─',
@@ -940,19 +68,25 @@ impl Default for MarkupOptions {
 }
 
 pub struct MarkupColors {
-    pub syntax_theme: SyntaxHighlightTheme,
     pub scrollbar: ScrollbarColors,
+    pub text: Color,
+    pub error: Color,
     pub heading: Color,
     pub break_char: Color,
+    pub math: Rgb,
+    pub syntax_theme: MarkupCodeTheme,
 }
 
 impl MarkupColors {
     pub const fn new() -> Self {
         Self {
-            syntax_theme: SyntaxHighlightTheme::Base16EightiesDark,
             scrollbar: ScrollbarColors::DEFAULT,
+            text: Color::Default,
+            error: Color::Red,
             heading: Color::Yellow,
             break_char: Color::Indexed(240),
+            math: Rgb::WHITE,
+            syntax_theme: MarkupCodeTheme::Base16EightiesDark,
         }
     }
 }
@@ -963,15 +97,842 @@ impl Default for MarkupColors {
     }
 }
 
+impl Markup {
+    pub fn new(assets_dir: Option<PathBuf>) -> Self {
+        Self {
+            text: String::new(),
+            scroll: 0,
+            desired_scroll: None,
+            plain: Vec::new(),
+            rich: Vec::new(),
+            images: MarkupImages::new(assets_dir),
+            highlighter: CodeHighlighter::new(),
+            view: Size::ZERO,
+            size: Size::ZERO,
+            hash: 0,
+            total_lines: 0,
+            scroll_area: None,
+            options: MarkupOptions::new(),
+            colors: MarkupColors::new(),
+        }
+    }
+
+    pub const fn with_options(mut self, options: MarkupOptions) -> Self {
+        self.options = options;
+        self
+    }
+
+    pub const fn with_scrollbar(mut self, margin: u16) -> Self {
+        self.options.scrollbar = true;
+        self.options.scrollbar_margin = margin;
+        self
+    }
+
+    pub const fn with_padding(mut self, padding: Margin) -> Self {
+        self.options.padding = padding;
+        self
+    }
+
+    pub const fn with_colors(mut self, colors: MarkupColors) -> Self {
+        self.colors = colors;
+        self
+    }
+
+    pub const fn set_colors(&mut self, colors: MarkupColors) -> &mut Self {
+        self.colors = colors;
+        self
+    }
+
+    pub const fn set_desired_scroll(&mut self, sm: MarkupScroll) -> &mut Self {
+        self.desired_scroll = Some(sm);
+        self
+    }
+
+    pub fn input(&mut self, key: KeyCode) -> bool {
+        match key {
+            KeyCode::Down => self.scroll(MarkupScroll::Down),
+            KeyCode::Up => self.scroll(MarkupScroll::Up),
+            KeyCode::PageDown => self.scroll(MarkupScroll::PageDown),
+            KeyCode::PageUp => self.scroll(MarkupScroll::PageUp),
+            KeyCode::Home => self.scroll(MarkupScroll::Start),
+            KeyCode::End => self.scroll(MarkupScroll::End),
+            _ => false,
+        }
+    }
+
+    pub fn scroll(&mut self, ms: MarkupScroll) -> bool {
+        let old_scroll = self.scroll;
+        self.set_scroll(ms);
+        self.scroll != old_scroll
+    }
+
+    pub fn reset(&mut self) {
+        self.scroll = 0;
+        self.desired_scroll = None;
+    }
+
+    pub fn render(&mut self, area: Rect, frame: &mut Frame, markup: &str) {
+        let inner = area.inner(self.options.padding);
+
+        if inner.is_empty() {
+            return;
+        }
+
+        // Prepare markup
+        let cell = frame.cell_dims().unwrap_or_default();
+        self.parse_and_load(markup, cell, frame);
+        self.process_markup(area, inner, cell, frame);
+
+        // Scroll
+        self.update_scroll();
+        self.render_scrollbar(frame);
+
+        // Render
+        self.render_markup(inner.with_size(self.view), cell, frame);
+    }
+
+    fn render_markup(&mut self, mut area: Rect, cell: CellDims, frame: &mut Frame) {
+        let top_row = area.row();
+        let view_top = self.scroll;
+        let view_bot = self.scroll + area.rows();
+        let mut curr_line = 0;
+
+        const fn is_in_view(curr_line: u16, top: u16, bot: u16) -> bool {
+            curr_line >= top && curr_line < bot
+        }
+
+        for markup in self.rich.iter().copied() {
+            match markup {
+                MarkupRich::Text {
+                    range,
+                    alignment,
+                    kind,
+                } => {
+                    match kind {
+                        TextKind::Heading => {
+                            frame.push_fmt(Sgrs([Sgr::Bold, Sgr::Fg(self.colors.heading)]));
+                        }
+                        TextKind::Paragraph => {
+                            frame.push_fmt(Sgr::Fg(self.colors.text));
+                        }
+                        TextKind::Error => {
+                            frame.push_fmt(Sgr::Fg(self.colors.error));
+                        }
+                        TextKind::Code => {}
+                    }
+
+                    for line in self.text.slice(range).lines() {
+                        let is_in_view = is_in_view(curr_line, view_top, view_bot);
+
+                        if is_in_view {
+                            frame.push_str(line);
+                            frame.render(area, TextOptions::span().with_horizontal(alignment));
+                            area.shrink_down(1);
+                        } else {
+                            let sgr = SgrIter::new(line).only_sgr();
+                            frame.print_iter(sgr);
+                        }
+
+                        curr_line += 1;
+                    }
+
+                    frame.push_fmt(Sgr::Reset);
+                }
+                MarkupRich::Image { index } => {
+                    let dims = self.images.dims(index);
+                    let max_width = cell.width(area.cols());
+                    let resized_dims = dims.resize(dims.with_width(max_width));
+                    let resized_rows = cell.rows(resized_dims.height);
+
+                    if is_in_view(
+                        curr_line,
+                        view_top.saturating_sub(resized_rows - 1),
+                        view_bot,
+                    ) {
+                        let is_at_top = area.row() == top_row;
+                        let rows_outside_top = if is_at_top {
+                            curr_line.abs_diff(self.scroll)
+                        } else {
+                            0
+                        };
+                        let image_rows = (resized_rows - rows_outside_top).min(area.rows());
+                        let image_area = area.with_rows(image_rows);
+
+                        self.images
+                            .render(index, image_area, rows_outside_top, frame);
+
+                        area.shrink_down(image_rows);
+                    }
+
+                    curr_line += resized_rows;
+                }
+                MarkupRich::Break => {
+                    if is_in_view(curr_line, view_top, view_bot) {
+                        frame.cursor(area.pos);
+                        frame.print_fmt(Sgr::Fg(self.colors.break_char));
+                        frame.print_ch_repeat(self.options.break_char, area.cols());
+                        frame.print_fmt(Sgr::reset_fg());
+                        area.shrink_down(1);
+                    }
+
+                    curr_line += 1;
+                }
+                MarkupRich::EmptyLine => {
+                    if is_in_view(curr_line, view_top, view_bot) {
+                        area.shrink_down(1);
+                    }
+
+                    curr_line += 1;
+                }
+            }
+
+            if area.rows() == 0 {
+                break;
+            }
+        }
+    }
+
+    fn clear(&mut self) {
+        self.text.clear();
+        self.plain.clear();
+        self.rich.clear();
+        self.total_lines = 0;
+        self.view = Size::ZERO;
+        self.size = Size::ZERO;
+        self.hash = 0;
+    }
+
+    fn parse_and_load(&mut self, markup: &str, cell: CellDims, frame: &mut Frame) {
+        let hash = utils::hash_fast(markup);
+
+        if self.hash == hash {
+            return;
+        }
+
+        self.clear();
+        self.hash = hash;
+
+        // Convert tabs to spaces before we parse and load markup
+        let (markup, start) = if markup.contains('\t') {
+            let range = frame.text_mut().extend_get_range(
+                utils::graphemes(markup).map(|g| if g.0 == "\t" { "    " } else { g.0 }),
+            );
+            (frame.text().slice(range), Some(range.start))
+        } else {
+            (markup, None)
+        };
+
+        // Parse and load markup
+        let mut image_index = 0;
+
+        for (block, _) in MarkupBlockParser::new(markup) {
+            match block {
+                MarkupBlock::Paragraph { text, alignment } => {
+                    self.plain.push(MarkupPlain::Paragraph {
+                        text: self.text.push_str_get_range(text),
+                        alignment,
+                    });
+                    self.plain.push(MarkupPlain::EmptyLine);
+                }
+                MarkupBlock::Heading {
+                    text,
+                    alignment,
+                    newline,
+                } => {
+                    self.plain.push(MarkupPlain::Heading {
+                        text: self.text.push_str_get_range(text),
+                        alignment,
+                    });
+                    if newline {
+                        self.plain.push(MarkupPlain::EmptyLine);
+                    }
+                }
+                MarkupBlock::List { items } => {
+                    for item in items {
+                        self.plain.push(MarkupPlain::ListItem {
+                            text: self.text.push_str_get_range(item),
+                        });
+                    }
+                    self.plain.push(MarkupPlain::EmptyLine);
+                }
+                MarkupBlock::Code { language, text } => {
+                    self.plain.push(MarkupPlain::Code {
+                        text: self.text.push_str_get_range(text),
+                        _language: self.text.push_str_get_range(language),
+                    });
+                    self.plain.push(MarkupPlain::EmptyLine);
+                }
+                MarkupBlock::Image { description, path } => {
+                    match self.images.load(image_index, ImageSource::Path(path)) {
+                        Ok(_) => {
+                            self.plain.push(MarkupPlain::Image { index: image_index });
+                        }
+                        Err(err) => {
+                            self.plain.push(MarkupPlain::ImageError {
+                                text: self.text.push_fmt_get_range(format_args!("ERROR\n{err}")),
+                            });
+                        }
+                    }
+
+                    image_index += 1;
+
+                    if !description.is_empty() {
+                        self.plain.push(MarkupPlain::ImageDescription {
+                            text: self.text.push_str_get_range(description),
+                        });
+                    }
+
+                    self.plain.push(MarkupPlain::EmptyLine);
+                }
+                MarkupBlock::Math { text } => {
+                    match self
+                        .images
+                        .load(image_index, ImageSource::Math(text, self.colors.math, cell))
+                    {
+                        Ok(_) => {
+                            self.plain.push(MarkupPlain::Image { index: image_index });
+                        }
+                        Err(err) => {
+                            self.plain.push(MarkupPlain::ImageError {
+                                text: self.text.push_fmt_get_range(format_args!("ERROR\n{err}")),
+                            });
+                        }
+                    }
+
+                    image_index += 1;
+
+                    self.plain.push(MarkupPlain::EmptyLine);
+                }
+                MarkupBlock::Break => {
+                    self.plain.push(MarkupPlain::Break);
+                    self.plain.push(MarkupPlain::EmptyLine);
+                }
+                MarkupBlock::Comment { .. } => continue,
+            }
+        }
+
+        // Remove last empty line
+        let is_last_empty_line = self
+            .plain
+            .last()
+            .map(|mp| matches!(mp, MarkupPlain::EmptyLine))
+            .unwrap_or(false);
+        if is_last_empty_line {
+            self.plain.pop();
+        }
+
+        if let Some(start) = start {
+            frame.text_mut().truncate(start);
+        }
+    }
+
+    fn process_markup(&mut self, area: Rect, inner: Rect, cell: CellDims, frame: &mut Frame) {
+        if self.size == area.size {
+            return;
+        }
+
+        self.size = area.size;
+        self.view = inner.size;
+        self.scroll_area = None;
+
+        self.relayout(cell, frame);
+
+        if self.is_scrollable() {
+            let scroll_area = area.right_edge();
+            self.view
+                .sub_cols(scroll_area.cols() + self.options.scrollbar_margin);
+            self.scroll_area = Some(scroll_area);
+            self.relayout(cell, frame);
+        }
+    }
+
+    fn relayout(&mut self, cell: CellDims, frame: &mut Frame) {
+        self.rich.clear();
+
+        let width = self.view.cols;
+        let writer = frame.text_mut();
+
+        fn markup_to_ansi<'a>(markup: &str, width: u16, writer: &'a mut String) -> &'a str {
+            InlineParser::new(markup).for_each(|event| match event {
+                InlineEvent::Text(text) => writer.push_str(text),
+                InlineEvent::Tag(tag) => writer.push_fmt(tag.as_sgr()),
+            });
+            utils::text_wrap(writer, width);
+            writer.as_str()
+        }
+
+        let plain_to_rich_iter = self.plain.iter().copied().map(|plain| {
+            let rich = match plain {
+                MarkupPlain::Paragraph { text, alignment } => {
+                    let markup = self.text.slice(text);
+                    let ansi = markup_to_ansi(markup, width, writer);
+                    let range = self.text.push_str_get_range(ansi);
+                    MarkupRich::Text {
+                        range,
+                        alignment,
+                        kind: TextKind::Paragraph,
+                    }
+                }
+                MarkupPlain::Heading { text, alignment } => {
+                    let markup = self.text.slice(text);
+                    writer.push_str(markup);
+                    utils::text_wrap(writer, width);
+                    let range = self.text.push_str_get_range(writer.as_str());
+                    MarkupRich::Text {
+                        range,
+                        alignment,
+                        kind: TextKind::Heading,
+                    }
+                }
+                MarkupPlain::ListItem { text } => {
+                    let markup = self.text.slice(text);
+                    let ansi = markup_to_ansi(markup, width.saturating_sub(4), writer);
+
+                    let start = self.text.len();
+                    for (i, line) in ansi.lines().enumerate() {
+                        let indent = if i == 0 { "  • " } else { "    " };
+                        self.text.extend([indent, line, "\n"]);
+                    }
+                    let end = self.text.len();
+
+                    MarkupRich::Text {
+                        range: Range { start, end },
+                        alignment: HorizontalAlignment::Left,
+                        kind: TextKind::Paragraph,
+                    }
+                }
+                MarkupPlain::Code { text, _language } => {
+                    let lang = self.text.slice(_language);
+                    let code = self.text.slice(text);
+
+                    self.highlighter.highlight(
+                        lang,
+                        code,
+                        self.colors.syntax_theme,
+                        |span, color| match color {
+                            Some(rgb) => {
+                                writer.push_str_fg(span, Color::Rgb(rgb));
+                            }
+                            None => {
+                                writer.push_str_fg(span, self.colors.text);
+                            }
+                        },
+                    );
+
+                    MarkupRich::Text {
+                        range: self.text.push_str_get_range(writer.as_str()),
+                        alignment: HorizontalAlignment::Left,
+                        kind: TextKind::Code,
+                    }
+                }
+                MarkupPlain::Image { index } => MarkupRich::Image { index },
+                MarkupPlain::ImageError { text } => {
+                    let error = self.text.slice(text);
+                    writer.push_str(error);
+                    utils::text_wrap(writer, width);
+                    let range = self.text.push_str_get_range(writer.as_str());
+                    MarkupRich::Text {
+                        range,
+                        alignment: HorizontalAlignment::Center,
+                        kind: TextKind::Error,
+                    }
+                }
+                MarkupPlain::ImageDescription { text } => {
+                    let markup = self.text.slice(text);
+                    let ansi = markup_to_ansi(markup, width, writer);
+                    let range = self.text.push_str_get_range(ansi);
+                    MarkupRich::Text {
+                        range,
+                        alignment: HorizontalAlignment::Center,
+                        kind: TextKind::Paragraph,
+                    }
+                }
+                MarkupPlain::Break => MarkupRich::Break,
+                MarkupPlain::EmptyLine => MarkupRich::EmptyLine,
+            };
+
+            writer.clear();
+            rich
+        });
+
+        self.rich.extend(plain_to_rich_iter);
+        self.total_lines = self.compute_total_lines(cell);
+    }
+
+    const fn is_scrollable(&self) -> bool {
+        self.options.scrollbar && Scroll::is_scrollable(self.total_lines as usize, self.view)
+    }
+
+    fn update_scroll(&mut self) {
+        match self.desired_scroll.take() {
+            Some(sm) => {
+                self.set_scroll(sm);
+            }
+            None => {
+                self.scroll = self
+                    .scroll
+                    .min(self.total_lines.saturating_sub(self.view.rows));
+            }
+        }
+    }
+
+    fn set_scroll(&mut self, ms: MarkupScroll) {
+        let height = self.view.rows;
+        self.scroll = match ms {
+            MarkupScroll::Up => self.scroll.saturating_sub(1),
+            MarkupScroll::Down => (self.scroll + 1).min(self.total_lines.saturating_sub(height)),
+            MarkupScroll::PageUp => self.scroll.saturating_sub(height),
+            MarkupScroll::PageDown => {
+                (self.scroll + height).min(self.total_lines.saturating_sub(height))
+            }
+            MarkupScroll::Start => 0,
+            MarkupScroll::End => self.total_lines.saturating_sub(height),
+        };
+    }
+
+    fn render_scrollbar(&self, frame: &mut Frame) {
+        let Some(scroll_area) = self.scroll_area else {
+            return;
+        };
+
+        Scrollbar::new(ScrollbarData {
+            viewport_height: self.view.rows,
+            current_scroll: self.scroll as usize,
+            total_items: self.total_lines as usize,
+        })
+        .with_colors(self.colors.scrollbar)
+        .render(scroll_area, frame);
+    }
+
+    fn compute_total_lines(&self, cell: CellDims) -> u16 {
+        self.rich
+            .iter()
+            .copied()
+            .map(|item| match item {
+                MarkupRich::Text { range, .. } => self.text.slice(range).lines().count() as u16,
+                MarkupRich::Image { index } => {
+                    let dims = self.images.dims(index);
+                    let max_width = cell.width(self.size.cols);
+                    let resized_dims = dims.resize(dims.with_width(max_width));
+                    cell.rows(resized_dims.height)
+                }
+                MarkupRich::Break | MarkupRich::EmptyLine => 1,
+            })
+            .sum()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MarkupPlain {
+    Paragraph {
+        text: Range<usize>,
+        alignment: HorizontalAlignment,
+    },
+    Heading {
+        text: Range<usize>,
+        alignment: HorizontalAlignment,
+    },
+    ListItem {
+        text: Range<usize>,
+    },
+    Code {
+        text: Range<usize>,
+        _language: Range<usize>,
+    },
+    Image {
+        index: u8,
+    },
+    ImageError {
+        text: Range<usize>,
+    },
+    ImageDescription {
+        text: Range<usize>,
+    },
+    Break,
+    EmptyLine,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MarkupRich {
+    Text {
+        range: Range<usize>,
+        alignment: HorizontalAlignment,
+        kind: TextKind,
+    },
+    Image {
+        index: u8,
+    },
+    Break,
+    EmptyLine,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TextKind {
+    Heading,
+    Paragraph,
+    Code,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MarkupCodeTheme {
+    Base16OceanDark,
+    Base16OceanLight,
+    Base16MochaDark,
+    Base16EightiesDark,
+    InspiredGitHub,
+    SolarizedDark,
+    SolarizedLight,
+}
+
+impl MarkupCodeTheme {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Base16OceanDark => "base16-ocean.dark",
+            Self::Base16OceanLight => "base16-ocean.light",
+            Self::Base16MochaDark => "base16-mocha.dark",
+            Self::Base16EightiesDark => "base16-eighties.dark",
+            Self::InspiredGitHub => "InspiredGitHub",
+            Self::SolarizedDark => "Solarized (dark)",
+            Self::SolarizedLight => "Solarized (light)",
+        }
+    }
+}
+
+struct CodeHighlighter {
+    syntax_set: syntect::parsing::SyntaxSet,
+    theme_set: syntect::highlighting::ThemeSet,
+}
+
+impl CodeHighlighter {
+    fn new() -> Self {
+        Self {
+            syntax_set: syntect::parsing::SyntaxSet::load_defaults_newlines(),
+            theme_set: syntect::highlighting::ThemeSet::load_defaults(),
+        }
+    }
+
+    fn highlight(
+        &self,
+        language: &str,
+        code: &str,
+        theme: MarkupCodeTheme,
+        mut f: impl FnMut(&str, Option<Rgb>),
+    ) {
+        let syntax = if language.is_empty() {
+            self.syntax_set.find_syntax_plain_text()
+        } else {
+            self.syntax_set
+                .find_syntax_by_token(language)
+                .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text())
+        };
+
+        let mut highlighter =
+            syntect::easy::HighlightLines::new(syntax, &self.theme_set.themes[theme.as_str()]);
+        for code_line in syntect::util::LinesWithEndings::from(code) {
+            match highlighter.highlight_line(code_line, &self.syntax_set) {
+                Ok(spans) => {
+                    for (style, span) in spans {
+                        let syntect::highlighting::Color { r, g, b, .. } = style.foreground;
+                        f(span, Some(Rgb(r, g, b)));
+                    }
+                }
+                Err(_) => {
+                    f(code_line, None);
+                }
+            }
+        }
+    }
+}
+
+struct MarkupImages {
+    images: Vec<MarkupImage>,
+    id_start: u8,
+    dir: Option<PathBuf>,
+}
+
+impl MarkupImages {
+    const fn new(dir: Option<PathBuf>) -> Self {
+        Self {
+            images: Vec::new(),
+            id_start: 50,
+            dir,
+        }
+    }
+
+    fn dims(&self, index: u8) -> Dims {
+        self.images[index as usize].dims()
+    }
+
+    fn load(&mut self, index: u8, source: ImageSource) -> MarkupResult<()> {
+        if index == self.images.len() as u8 {
+            self.images.push(MarkupImage::new(self.id_start + index));
+        }
+
+        match source {
+            ImageSource::Path(path) => {
+                if path.is_empty() {
+                    return Err(MarkupError::EmptyImagePath);
+                }
+
+                let path = self
+                    .dir
+                    .as_deref()
+                    .map(|p| p.join(path))
+                    .unwrap_or_else(|| PathBuf::from(path));
+                let hash = utils::hash_fast(&path);
+                let image = &mut self.images[index as usize];
+
+                if hash == image.hash {
+                    return Ok(());
+                }
+
+                image
+                    .load_from_path(&path, ImageLoadOptions::none())
+                    .map_err(|err| MarkupError::Image(path, err))?;
+
+                image.hash = hash;
+            }
+            ImageSource::Math(math, color, cell) => {
+                let hash = utils::hash_fast(math);
+                let image = &mut self.images[index as usize];
+
+                if hash == image.hash {
+                    return Ok(());
+                }
+
+                let png = math_to_png(math, color, cell)?;
+                image
+                    .load_from_bytes(png, ImageLoadOptions::none())
+                    .map_err(MarkupError::MathImage)?;
+
+                image.hash = hash;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn render(&mut self, index: u8, area: Rect, rows_outside_top: u16, frame: &mut Frame) {
+        self.images[index as usize].render(
+            area,
+            frame,
+            ImageRenderOptions {
+                fit: ImageFitMode::FitWidthCropHeight { rows_outside_top },
+                horizontal: HorizontalAlignment::Center,
+                vertical: VerticalAlignment::Top,
+            },
+        );
+    }
+}
+
+struct MarkupImage {
+    hash: u64,
+    image: Image,
+}
+
+impl MarkupImage {
+    const fn new(id: u8) -> Self {
+        Self {
+            hash: 0,
+            image: Image::new(id as u32),
+        }
+    }
+}
+
+impl std::ops::Deref for MarkupImage {
+    type Target = Image;
+
+    fn deref(&self) -> &Self::Target {
+        &self.image
+    }
+}
+
+impl std::ops::DerefMut for MarkupImage {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.image
+    }
+}
+
+enum ImageSource<'a> {
+    Path(&'a str),
+    Math(&'a str, Rgb, CellDims),
+}
+
+fn math_to_png(math: &str, color: Rgb, size: CellDims) -> MarkupResult<Vec<u8>> {
+    let layout_options = ratex_layout::LayoutOptions {
+        color: ratex_types::Color {
+            r: color.0 as f32 / 255.0,
+            g: color.1 as f32 / 255.0,
+            b: color.2 as f32 / 255.0,
+            a: 1.0,
+        },
+        ..Default::default()
+    };
+    let render_options = ratex_render::RenderOptions {
+        font_size: size.width as f32,
+        padding: 0.0,
+        background_color: ratex_types::Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        },
+        device_pixel_ratio: size.height as f32 / size.width as f32,
+        ..Default::default()
+    };
+
+    let ast = ratex_parser::parse(math).map_err(MarkupError::MathParse)?;
+    let layout = ratex_layout::layout(&ast, &layout_options);
+    let display_list = ratex_layout::to_display_list(&layout);
+    ratex_render::render_to_png(&display_list, &render_options).map_err(MarkupError::MathRender)
+}
+
 #[derive(Debug)]
+enum MarkupError {
+    EmptyImagePath,
+    Image(PathBuf, ImageError),
+    MathParse(ratex_parser::ParseError),
+    MathRender(String),
+    MathImage(ImageError),
+}
+
+impl std::fmt::Display for MarkupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyImagePath => f.write_str("Empty image path."),
+            Self::Image(path, err) => f.write_fmt(format_args!(
+                "Failed to load or encode image\n'{}'\ndue to\n\"{}\".",
+                path.display(),
+                err
+            )),
+            Self::MathParse(err) => {
+                f.write_fmt(format_args!("Failed to parse math due to\n\"{}\".", err))
+            }
+            Self::MathRender(msg) => f.write_fmt(format_args!(
+                "Failed to render math as png due to\n\"{}\".",
+                msg
+            )),
+            Self::MathImage(err) => f.write_fmt(format_args!(
+                "Failed to load or encode math image due to\n\"{}\".",
+                err
+            )),
+        }
+    }
+}
+
+impl std::error::Error for MarkupError {}
+
+#[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum MarkupBlock<'a> {
     Paragraph {
         text: &'a str,
-        alignment: Alignment,
+        alignment: HorizontalAlignment,
     },
     Heading {
         text: &'a str,
-        alignment: Alignment,
+        alignment: HorizontalAlignment,
         newline: bool,
     },
     List {
@@ -997,7 +958,7 @@ pub enum MarkupBlock<'a> {
 
 pub struct MarkupBlockParser<'a> {
     input: &'a str,
-    graphemes: utils::PeekableGraphemesPrevious<'a>,
+    graphemes: PeekableGraphemesPrevious<'a>,
 }
 
 const MARKUP_CENTER: &str = ":";
@@ -1020,8 +981,8 @@ impl<'a> Iterator for MarkupBlockParser<'a> {
 
             if let Some("\n") | Some("\r\n") | None = self.graphemes.previous() {
                 let (block, range) = match g {
-                    MARKUP_CENTER => self.parse_paragraph(i, Alignment::Center),
-                    MARKUP_RIGHT => self.parse_paragraph(i, Alignment::Right),
+                    MARKUP_CENTER => self.parse_paragraph(i, HorizontalAlignment::Center),
+                    MARKUP_RIGHT => self.parse_paragraph(i, HorizontalAlignment::Right),
                     MARKUP_HEADING => self.parse_heading(i),
                     MARKUP_COMMENT => self.parse_comment(i),
                     MARKUP_IMAGE => self.parse_image(i),
@@ -1030,7 +991,7 @@ impl<'a> Iterator for MarkupBlockParser<'a> {
                         if ticks >= 3 {
                             self.parse_code_block(i, ticks)
                         } else {
-                            self.parse_paragraph(i, Alignment::Left)
+                            self.parse_paragraph(i, HorizontalAlignment::Left)
                         }
                     }
                     MARKUP_LIST => {
@@ -1040,23 +1001,29 @@ impl<'a> Iterator for MarkupBlockParser<'a> {
                         } else if dashes == 3
                             && self.graphemes.count_consecutive_by(|g| g.contains('\n'), 2) == 2
                         {
-                            (MarkupBlock::Break, i..i + dashes + 2)
+                            (
+                                MarkupBlock::Break,
+                                Range {
+                                    start: i,
+                                    end: i + dashes + 2,
+                                },
+                            )
                         } else {
-                            self.parse_paragraph(i, Alignment::Left)
+                            self.parse_paragraph(i, HorizontalAlignment::Left)
                         }
                     }
                     MARKUP_MATH => {
                         if let Some((_, MARKUP_MATH)) = self.graphemes.next() {
                             self.parse_math(i)
                         } else {
-                            self.parse_paragraph(i, Alignment::Left)
+                            self.parse_paragraph(i, HorizontalAlignment::Left)
                         }
                     }
-                    _ => self.parse_paragraph(i, Alignment::Left),
+                    _ => self.parse_paragraph(i, HorizontalAlignment::Left),
                 };
                 return Some((block, range));
             } else {
-                return Some(self.parse_paragraph(i, Alignment::Left));
+                return Some(self.parse_paragraph(i, HorizontalAlignment::Left));
             }
         }
 
@@ -1068,18 +1035,18 @@ impl<'a> MarkupBlockParser<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
             input,
-            graphemes: utils::PeekableGraphemesPrevious::new(input),
+            graphemes: PeekableGraphemesPrevious::new(input),
         }
     }
 
     fn parse_paragraph(
         &mut self,
         start: usize,
-        alignment: Alignment,
+        alignment: HorizontalAlignment,
     ) -> (MarkupBlock<'a>, Range<usize>) {
         let start_offset = match alignment {
-            Alignment::Left => 0,
-            Alignment::Center | Alignment::Right => 1,
+            HorizontalAlignment::Left => 0,
+            HorizontalAlignment::Center | HorizontalAlignment::Right => 1,
         };
         let paragraph_start = start + start_offset;
         let (paragraph_end, end) = match self.graphemes.find_consecutive_by(|g| g.contains('\n'), 2)
@@ -1088,24 +1055,24 @@ impl<'a> MarkupBlockParser<'a> {
             None => (self.input.len(), self.input.len()),
         };
 
-        return (
+        (
             MarkupBlock::Paragraph {
                 text: self.input[paragraph_start..paragraph_end].trim(),
                 alignment,
             },
-            start..end,
-        );
+            Range { start, end },
+        )
     }
 
     fn parse_heading(&mut self, start: usize) -> (MarkupBlock<'a>, Range<usize>) {
         let count = self.graphemes.count_consecutive(MARKUP_HEADING, usize::MAX);
         let (alignment, offset) = match self.graphemes.next() {
             Some((_, g)) => match g {
-                MARKUP_CENTER => (Alignment::Center, 1),
-                MARKUP_RIGHT => (Alignment::Right, 1),
-                _ => (Alignment::Left, 0),
+                MARKUP_CENTER => (HorizontalAlignment::Center, 1),
+                MARKUP_RIGHT => (HorizontalAlignment::Right, 1),
+                _ => (HorizontalAlignment::Left, 0),
             },
-            None => return self.parse_paragraph(start, Alignment::Left),
+            None => return self.parse_paragraph(start, HorizontalAlignment::Left),
         };
 
         let heading_start = start + 1 + count + offset;
@@ -1121,14 +1088,14 @@ impl<'a> MarkupBlockParser<'a> {
             None => (self.input.len(), self.input.len(), false),
         };
 
-        return (
+        (
             MarkupBlock::Heading {
                 text: self.input[heading_start..heading_end].trim(),
                 alignment,
                 newline,
             },
-            start..end,
-        );
+            Range { start, end },
+        )
     }
 
     fn parse_list(&mut self, start: usize) -> (MarkupBlock<'a>, Range<usize>) {
@@ -1138,12 +1105,12 @@ impl<'a> MarkupBlockParser<'a> {
             None => (self.input.len(), self.input.len()),
         };
 
-        return (
+        (
             MarkupBlock::List {
                 items: ListItems::new(self.input[list_start..list_end].trim()),
             },
-            start..end,
-        );
+            Range { start, end },
+        )
     }
 
     fn parse_comment(&mut self, start: usize) -> (MarkupBlock<'a>, Range<usize>) {
@@ -1153,12 +1120,12 @@ impl<'a> MarkupBlockParser<'a> {
             None => (self.input.len(), self.input.len()),
         };
 
-        return (
+        (
             MarkupBlock::Comment {
                 _text: self.input[comment_start..comment_end].trim(),
             },
-            start..end,
-        );
+            Range { start, end },
+        )
     }
 
     fn parse_code_block(&mut self, start: usize, ticks: usize) -> (MarkupBlock<'a>, Range<usize>) {
@@ -1169,7 +1136,10 @@ impl<'a> MarkupBlockParser<'a> {
                     language: self.input[lang_start..].trim(),
                     text: "",
                 },
-                start..self.input.len(),
+                Range {
+                    start,
+                    end: self.input.len(),
+                },
             );
         };
 
@@ -1182,14 +1152,17 @@ impl<'a> MarkupBlockParser<'a> {
                         language,
                         text: &self.input[code_start..],
                     },
-                    start..self.input.len(),
+                    Range {
+                        start,
+                        end: self.input.len(),
+                    },
                 );
             };
 
             let end_ticks = self.graphemes.count_consecutive("`", usize::MAX);
             if end_ticks == ticks {
                 let end = code_end + g.len() + end_ticks;
-                let mut graphemes = self.input[end..].grapheme_indices(true);
+                let mut graphemes = utils::grapheme_indices(&self.input[end..]);
 
                 let Some((i, g)) = graphemes.next() else {
                     return (
@@ -1197,7 +1170,7 @@ impl<'a> MarkupBlockParser<'a> {
                             language,
                             text: &self.input[code_start..code_end],
                         },
-                        start..end,
+                        Range { start, end },
                     );
                 };
 
@@ -1208,7 +1181,10 @@ impl<'a> MarkupBlockParser<'a> {
                                 language,
                                 text: &self.input[code_start..code_end],
                             },
-                            start..i + g.len(),
+                            Range {
+                                start,
+                                end: i + g.len(),
+                            },
                         );
                     };
 
@@ -1221,7 +1197,10 @@ impl<'a> MarkupBlockParser<'a> {
                                 language,
                                 text: &self.input[code_start..code_end],
                             },
-                            start..i + g.len(),
+                            Range {
+                                start,
+                                end: i + g.len(),
+                            },
                         );
                     }
                 }
@@ -1231,17 +1210,17 @@ impl<'a> MarkupBlockParser<'a> {
 
     fn parse_image(&mut self, start: usize) -> (MarkupBlock<'a>, Range<usize>) {
         let Some((descr_start, "[")) = self.graphemes.next() else {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         };
         let Some((descr_end, _)) = self.graphemes.find("]") else {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         };
 
         let Some((path_start, "(")) = self.graphemes.next() else {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         };
         let Some((path_end, _)) = self.graphemes.find(")") else {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         };
 
         let description = self.input[descr_start + 1..descr_end].trim();
@@ -1250,28 +1229,37 @@ impl<'a> MarkupBlockParser<'a> {
         let Some((end, g)) = self.graphemes.next() else {
             return (
                 MarkupBlock::Image { description, path },
-                start..self.input.len(),
+                Range {
+                    start,
+                    end: self.input.len(),
+                },
             );
         };
 
         if !g.contains("\n") {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         }
 
         let Some((_, g)) = self.graphemes.next() else {
-            return (MarkupBlock::Image { description, path }, start..end);
+            return (
+                MarkupBlock::Image { description, path },
+                Range { start, end },
+            );
         };
 
         if !g.contains("\n") {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         }
 
-        (MarkupBlock::Image { description, path }, start..end)
+        (
+            MarkupBlock::Image { description, path },
+            Range { start, end },
+        )
     }
 
     fn parse_math(&mut self, start: usize) -> (MarkupBlock<'a>, Range<usize>) {
         let Some((end_math, _)) = self.graphemes.find_consecutive(MARKUP_MATH, 2) else {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         };
 
         let start_math = start + 2;
@@ -1279,33 +1267,39 @@ impl<'a> MarkupBlockParser<'a> {
         let text = self.input[start_math..end_math].trim();
 
         if text.is_empty() {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         }
 
         let Some((end, g)) = self.graphemes.next() else {
-            return (MarkupBlock::Math { text }, start..self.input.len());
+            return (
+                MarkupBlock::Math { text },
+                Range {
+                    start,
+                    end: self.input.len(),
+                },
+            );
         };
 
         if !g.contains("\n") {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         }
 
         let Some((_, g)) = self.graphemes.next() else {
-            return (MarkupBlock::Math { text }, start..end);
+            return (MarkupBlock::Math { text }, Range { start, end });
         };
 
         if !g.contains("\n") {
-            return self.parse_paragraph(start, Alignment::Left);
+            return self.parse_paragraph(start, HorizontalAlignment::Left);
         }
 
-        (MarkupBlock::Math { text }, start..end)
+        (MarkupBlock::Math { text }, Range { start, end })
     }
 }
 
 #[derive(Debug)]
 pub struct ListItems<'a> {
     text: &'a str,
-    graphemes: utils::PeekableGraphemesPrevious<'a>,
+    graphemes: PeekableGraphemesPrevious<'a>,
     start: usize,
 }
 
@@ -1313,7 +1307,7 @@ impl<'a> ListItems<'a> {
     fn new(text: &'a str) -> Self {
         Self {
             text,
-            graphemes: utils::PeekableGraphemesPrevious::new(text),
+            graphemes: PeekableGraphemesPrevious::new(text),
             start: 0,
         }
     }
@@ -1342,76 +1336,6 @@ impl<'a> Iterator for ListItems<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum SyntaxHighlightTheme {
-    Base16OceanDark,
-    Base16OceanLight,
-    Base16MochaDark,
-    Base16EightiesDark,
-    InspiredGitHub,
-    SolarizedDark,
-    SolarizedLight,
-}
-
-impl SyntaxHighlightTheme {
-    const fn as_str(self) -> &'static str {
-        match self {
-            SyntaxHighlightTheme::Base16OceanDark => "base16-ocean.dark",
-            SyntaxHighlightTheme::Base16OceanLight => "base16-ocean.light",
-            SyntaxHighlightTheme::Base16MochaDark => "base16-mocha.dark",
-            SyntaxHighlightTheme::Base16EightiesDark => "base16-eighties.dark",
-            SyntaxHighlightTheme::InspiredGitHub => "InspiredGitHub",
-            SyntaxHighlightTheme::SolarizedDark => "Solarized (dark)",
-            SyntaxHighlightTheme::SolarizedLight => "Solarized (light)",
-        }
-    }
-}
-
-struct CodeHighlighter {
-    syntax_set: SyntaxSet,
-    theme_set: ThemeSet,
-}
-
-impl CodeHighlighter {
-    fn new() -> Self {
-        Self {
-            syntax_set: SyntaxSet::load_defaults_newlines(),
-            theme_set: ThemeSet::load_defaults(),
-        }
-    }
-
-    fn highlight(
-        &self,
-        language: &str,
-        code: &str,
-        theme: SyntaxHighlightTheme,
-        mut f: impl FnMut(&str, Option<(u8, u8, u8)>),
-    ) {
-        let syntax = if language.is_empty() {
-            self.syntax_set.find_syntax_plain_text()
-        } else {
-            self.syntax_set
-                .find_syntax_by_token(language)
-                .unwrap_or_else(|| self.syntax_set.find_syntax_plain_text())
-        };
-
-        let mut highlighter = HighlightLines::new(syntax, &self.theme_set.themes[theme.as_str()]);
-        for code_line in LinesWithEndings::from(code) {
-            match highlighter.highlight_line(code_line, &self.syntax_set) {
-                Ok(spans) => {
-                    for (style, span) in spans {
-                        let syntect::highlighting::Color { r, g, b, .. } = style.foreground;
-                        f(span, Some((r, g, b)));
-                    }
-                }
-                Err(_) => {
-                    f(code_line, None);
-                }
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
 enum InlineEvent<'a> {
     Text(&'a str),
     Tag(InlineTag),
@@ -1426,19 +1350,19 @@ enum InlineTag {
 }
 
 impl InlineTag {
-    const fn into_ansi(self) -> AnsiTag {
+    const fn as_sgr(self) -> Sgr {
         match self {
-            InlineTag::BoldStart => AnsiTag::Bold,
-            InlineTag::BoldEnd => AnsiTag::NotBold,
-            InlineTag::ItalicStart => AnsiTag::Italic,
-            InlineTag::ItalicEnd => AnsiTag::NotItalic,
+            InlineTag::BoldStart => Sgr::Bold,
+            InlineTag::BoldEnd => Sgr::NotBold,
+            InlineTag::ItalicStart => Sgr::Italic,
+            InlineTag::ItalicEnd => Sgr::NotItalic,
         }
     }
 }
 
 struct InlineParser<'a> {
     input: &'a str,
-    chars: utils::PeekableCharsPrevious<'a>,
+    chars: PeekableCharsPrevious<'a>,
     start: usize,
     tag: Option<InlineTag>,
     bold: bool,
@@ -1449,7 +1373,7 @@ impl<'a> InlineParser<'a> {
     fn new(input: &'a str) -> Self {
         Self {
             input,
-            chars: utils::PeekableCharsPrevious::new(input),
+            chars: PeekableCharsPrevious::new(input),
             start: 0,
             tag: None,
             bold: false,
@@ -1495,20 +1419,16 @@ impl<'a> Iterator for InlineParser<'a> {
                 }
                 // First char, only need to look for start tag
                 (None, Some(next)) => {
-                    if !*tag_cond {
-                        if !next.is_whitespace() && next != curr {
-                            *tag_cond = true;
-                            return Some(tag_start);
-                        }
+                    if !*tag_cond && !next.is_whitespace() && next != curr {
+                        *tag_cond = true;
+                        return Some(tag_start);
                     }
                 }
                 // Last char, only need to look for end tag
                 (Some(prev), None) => {
-                    if *tag_cond {
-                        if !prev.is_whitespace() && prev != curr {
-                            *tag_cond = false;
-                            return Some(tag_end);
-                        }
+                    if *tag_cond && !prev.is_whitespace() && prev != curr {
+                        *tag_cond = false;
+                        return Some(tag_end);
                     }
                 }
                 // Nothing to look for
@@ -1558,5 +1478,299 @@ impl<'a> Iterator for InlineParser<'a> {
             self.start = self.input.len();
             Some(InlineEvent::Text(remaining))
         }
+    }
+}
+
+#[derive(Debug)]
+struct PeekableGraphemesPrevious<'a> {
+    graphemes: std::iter::Peekable<utils::GraphemeIndices<'a>>,
+    current: Option<(usize, &'a str)>,
+    previous: Option<&'a str>,
+}
+
+#[allow(unused)]
+impl<'a> PeekableGraphemesPrevious<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            graphemes: utils::grapheme_indices(input).peekable(),
+            current: None,
+            previous: None,
+        }
+    }
+
+    const fn previous(&self) -> Option<&'a str> {
+        self.previous
+    }
+
+    fn peek(&mut self) -> Option<&'a str> {
+        self.graphemes.peek().map(|(_, g)| *g).map(|g| g.0)
+    }
+
+    fn next_if(&mut self, func: impl Fn(&str) -> bool) -> Option<(usize, &'a str)> {
+        if let Some((_, peek)) = self.graphemes.peek()
+            && func(peek)
+        {
+            return self.next();
+        }
+        None
+    }
+
+    fn next_if_eq(&mut self, g: &str) -> Option<(usize, &'a str)> {
+        self.next_if(|n| n == g)
+    }
+
+    fn next_if_newline(&mut self) -> Option<(usize, &'a str)> {
+        self.next_if(|n| n.contains('\n'))
+    }
+
+    fn find(&mut self, g: &str) -> Option<(usize, &'a str)> {
+        self.find_by(|n| n == g)
+    }
+
+    fn find_by(&mut self, func: impl Fn(&str) -> bool) -> Option<(usize, &'a str)> {
+        loop {
+            let (i, n) = self.next()?;
+            if func(n) {
+                return Some((i, n));
+            }
+        }
+    }
+
+    fn find_newline(&mut self) -> Option<(usize, &'a str)> {
+        self.find_by(|n| n.contains('\n'))
+    }
+
+    fn find_with_previous(
+        &mut self,
+        g: &str,
+        prev_func: impl Fn(&str) -> bool,
+    ) -> Option<(usize, &'a str)> {
+        self.find_by_with_previous(|n| n == g, prev_func)
+    }
+
+    fn find_by_with_previous(
+        &mut self,
+        next_func: impl Fn(&str) -> bool,
+        prev_func: impl Fn(&str) -> bool,
+    ) -> Option<(usize, &'a str)> {
+        loop {
+            let (i, n) = self.find_by(&next_func)?;
+
+            if let Some(p) = self.previous
+                && prev_func(p)
+            {
+                return Some((i, n));
+            }
+        }
+    }
+
+    fn find_pattern(&mut self, prev: &str, next: &str) -> Option<(usize, &'a str, &'a str)> {
+        self.find_pattern_by(|p, n| p == prev && n == next)
+    }
+
+    fn find_pattern_by(
+        &mut self,
+        func: impl Fn(&str, &str) -> bool,
+    ) -> Option<(usize, &'a str, &'a str)> {
+        loop {
+            let (i, n) = self.next()?;
+
+            if let Some(p) = self.previous
+                && func(p, n)
+            {
+                return Some((i, p, n));
+            }
+        }
+    }
+
+    fn find_consecutive(&mut self, g: &str, n: usize) -> Option<(usize, &'a str)> {
+        self.find_consecutive_by(|s| s == g, n)
+    }
+
+    fn find_consecutive_by(
+        &mut self,
+        func: impl Fn(&str) -> bool,
+        n: usize,
+    ) -> Option<(usize, &'a str)> {
+        match n {
+            0 => None,
+            1 => self.find_by(func),
+            _ => loop {
+                self.find_by(&func)?;
+
+                let mut count = 1;
+                while let Some((i, g)) = self.next_if(&func) {
+                    count += 1;
+                    if count == n {
+                        return Some((i, g));
+                    }
+                }
+            },
+        }
+    }
+
+    fn count_consecutive(&mut self, g: &str, max: usize) -> usize {
+        self.count_consecutive_by(|n| n == g, max)
+    }
+
+    fn count_consecutive_by(&mut self, g: impl Fn(&str) -> bool, max: usize) -> usize {
+        if max == 0 {
+            return 0;
+        }
+
+        let mut count = 0;
+        while self.next_if(&g).is_some() {
+            count += 1;
+            if count == max {
+                break;
+            }
+        }
+        count
+    }
+}
+
+impl<'a> Iterator for PeekableGraphemesPrevious<'a> {
+    type Item = (usize, &'a str);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.graphemes.next().map(|(i, g)| (i, g.0));
+
+        next?;
+
+        self.previous = self.current.map(|(_, g)| g);
+        self.current = next;
+        next
+    }
+}
+
+#[derive(Debug)]
+struct PeekableCharsPrevious<'a> {
+    chars: std::iter::Peekable<std::str::CharIndices<'a>>,
+    current: Option<(usize, char)>,
+    previous: Option<char>,
+}
+
+#[allow(unused)]
+impl<'a> PeekableCharsPrevious<'a> {
+    fn new(input: &'a str) -> Self {
+        Self {
+            chars: input.char_indices().peekable(),
+            current: None,
+            previous: None,
+        }
+    }
+
+    const fn previous(&self) -> Option<char> {
+        self.previous
+    }
+
+    fn peek(&mut self) -> Option<char> {
+        self.chars.peek().copied().map(|(_, c)| c)
+    }
+
+    fn next_if(&mut self, f: impl Fn(char) -> bool) -> Option<(usize, char)> {
+        if let Some(p) = self.peek()
+            && f(p)
+        {
+            return self.next();
+        }
+        None
+    }
+
+    fn next_if_eq(&mut self, c: char) -> Option<(usize, char)> {
+        self.next_if(|n| n == c)
+    }
+
+    fn find(&mut self, c: char) -> Option<(usize, char)> {
+        self.find_by(|n| n == c)
+    }
+
+    fn find_by(&mut self, f: impl Fn(char) -> bool) -> Option<(usize, char)> {
+        loop {
+            let (i, n) = self.next()?;
+
+            if f(n) {
+                return Some((i, n));
+            }
+        }
+    }
+
+    fn find_with_previous(
+        &mut self,
+        c: char,
+        prev_func: impl Fn(char) -> bool,
+    ) -> Option<(usize, char)> {
+        self.find_by_with_previous(|n| n == c, prev_func)
+    }
+
+    fn find_by_with_previous(
+        &mut self,
+        next_func: impl Fn(char) -> bool,
+        prev_func: impl Fn(char) -> bool,
+    ) -> Option<(usize, char)> {
+        loop {
+            let (i, n) = self.find_by(&next_func)?;
+
+            if let Some(p) = self.previous
+                && prev_func(p)
+            {
+                return Some((i, n));
+            }
+        }
+    }
+
+    fn find_consecutive(&mut self, c: char, n: usize) -> Option<(usize, char)> {
+        self.find_consecutive_by(|s| s == c, n)
+    }
+
+    fn find_consecutive_by(&mut self, f: impl Fn(char) -> bool, n: usize) -> Option<(usize, char)> {
+        match n {
+            0 => None,
+            1 => self.find_by(f),
+            _ => loop {
+                self.find_by(&f)?;
+
+                let mut count = 1;
+                while let Some((i, c)) = self.next_if(&f) {
+                    count += 1;
+                    if count == n {
+                        return Some((i, c));
+                    }
+                }
+            },
+        }
+    }
+
+    fn count_consecutive(&mut self, c: char, max: usize) -> usize {
+        self.count_consecutive_by(|n| n == c, max)
+    }
+
+    fn count_consecutive_by(&mut self, c: impl Fn(char) -> bool, max: usize) -> usize {
+        if max == 0 {
+            return 0;
+        }
+
+        let mut count = 0;
+        while self.next_if(&c).is_some() {
+            count += 1;
+            if count == max {
+                break;
+            }
+        }
+        count
+    }
+}
+
+impl<'a> Iterator for PeekableCharsPrevious<'a> {
+    type Item = (usize, char);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.chars.next();
+
+        next?;
+
+        self.previous = self.current.map(|(_, c)| c);
+        self.current = next;
+        next
     }
 }

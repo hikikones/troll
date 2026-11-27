@@ -7,10 +7,8 @@ license.workspace = true
 
 [dependencies]
 bevy_ecs = { workspace = true, optional = true }
-constcat = { workspace = true }
 directories = { workspace = true }
 ouroboros = { workspace = true }
-ratatui = { workspace = true }
 redb = { workspace = true }
 rusqlite = { workspace = true }
 

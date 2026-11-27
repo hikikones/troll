@@ -54,6 +54,11 @@ impl Rect {
         self
     }
 
+    pub const fn with_size_min(mut self, size: Size) -> Self {
+        self.size.set_min(size);
+        self
+    }
+
     pub const fn with_cols(mut self, cols: u16) -> Self {
         self.size.cols = cols;
         self
@@ -405,52 +410,28 @@ impl Rect {
         )
     }
 
-    pub const fn split_horizontally(self) -> (Self, Self) {
-        let top_rows = self.size.rows / 2;
-        (
-            self.with_rows(top_rows),
-            Self {
-                pos: self.pos.with_row(self.pos.row + top_rows),
-                size: self.size.with_rows(self.size.rows - top_rows),
-            },
-        )
+    pub const fn split_horizontally(self, top_gap: u16, bot_gap: u16) -> (Self, Self) {
+        let half = self.size.rows / 2;
+        let mut top = self.with_rows(half);
+        let mut bot = Self {
+            pos: self.pos.with_row(self.pos.row + half),
+            size: self.size.with_rows(self.size.rows - half),
+        };
+        top.sub_rows(top_gap);
+        bot.shrink_down(bot_gap);
+        (top, bot)
     }
 
-    pub const fn split_vertically(self) -> (Self, Self) {
-        let left_cols = self.size.cols / 2;
-        (
-            self.with_cols(left_cols),
-            Self {
-                pos: self.pos.with_col(self.pos.col + left_cols),
-                size: self.size.with_cols(self.size.cols - left_cols),
-            },
-        )
-    }
-
-    pub const fn split_horizontally_with_gap(self, extra_gaps: u16) -> (Self, Self) {
-        let top_rows = (self.size.rows / 2).saturating_sub(extra_gaps);
-        (
-            self.with_rows(top_rows),
-            Self {
-                pos: self
-                    .pos
-                    .with_row(self.pos.row + top_rows + 1 + extra_gaps * 2),
-                size: self.size.with_rows(top_rows),
-            },
-        )
-    }
-
-    pub const fn split_vertically_with_gap(self, extra_gaps: u16) -> (Self, Self) {
-        let left_cols = (self.size.cols / 2).saturating_sub(extra_gaps);
-        (
-            self.with_cols(left_cols),
-            Self {
-                pos: self
-                    .pos
-                    .with_col(self.pos.col + left_cols + 1 + extra_gaps * 2),
-                size: self.size.with_cols(left_cols),
-            },
-        )
+    pub const fn split_vertically(self, left_gap: u16, right_gap: u16) -> (Self, Self) {
+        let half = self.size.cols / 2;
+        let mut left = self.with_cols(half);
+        let mut right = Self {
+            pos: self.pos.with_col(self.pos.col + half),
+            size: self.size.with_cols(self.size.cols - half),
+        };
+        left.sub_cols(left_gap);
+        right.shrink_right(right_gap);
+        (left, right)
     }
 
     pub const fn split_lines<const N: usize>(self) -> [Self; N] {
@@ -579,7 +560,7 @@ pub struct Pos {
 }
 
 impl Pos {
-    pub const ZERO: Self = Self { col: 0, row: 0 };
+    pub const ZERO: Self = Self::all(0);
 
     pub const fn new(col: u16, row: u16) -> Self {
         Self { col, row }
@@ -690,7 +671,11 @@ pub struct Size {
 }
 
 impl Size {
-    pub const ZERO: Self = Self { cols: 0, rows: 0 };
+    pub const ZERO: Self = Self::all(0);
+    pub const TINY: Self = Self::new(40, 6);
+    pub const SMALL: Self = Self::new(56, 12);
+    pub const MEDIUM: Self = Self::new(80, 18);
+    pub const LARGE: Self = Self::new(96, 24);
 
     pub const fn new(cols: u16, rows: u16) -> Self {
         Self { cols, rows }
@@ -740,6 +725,31 @@ impl Size {
         self
     }
 
+    pub const fn set_cols(&mut self, cols: u16) {
+        self.cols = cols;
+    }
+
+    pub const fn set_rows(&mut self, rows: u16) {
+        self.rows = rows;
+    }
+
+    pub const fn set_min(&mut self, other: Self) {
+        self.set_cols_min(other.cols);
+        self.set_rows_min(other.rows);
+    }
+
+    pub const fn set_cols_min(&mut self, min: u16) {
+        if self.cols > min {
+            self.cols = min;
+        }
+    }
+
+    pub const fn set_rows_min(&mut self, min: u16) {
+        if self.rows > min {
+            self.rows = min;
+        }
+    }
+
     pub const fn is_empty(&self) -> bool {
         self.cols == 0 || self.rows == 0
     }
@@ -754,6 +764,11 @@ impl Size {
 
     pub const fn not_equals(&self, other: Self) -> bool {
         self.cols != other.cols || self.rows != other.rows
+    }
+
+    pub const fn min(mut self, other: Self) -> Self {
+        self.set_min(other);
+        self
     }
 
     pub const fn add(self, rhs: Self) -> Self {
@@ -826,6 +841,10 @@ impl Size {
         self.cols = (self.cols as f32 * v) as u16
     }
 
+    pub const fn mul_cols_f32_as_u16(&self, v: f32) -> u16 {
+        (self.cols as f32 * v) as u16
+    }
+
     pub const fn mul_rows(&mut self, v: u16) {
         self.rows *= v;
     }
@@ -834,32 +853,16 @@ impl Size {
         self.rows = (self.rows as f32 * v) as u16
     }
 
+    pub const fn mul_rows_f32_as_u16(&self, v: f32) -> u16 {
+        (self.rows as f32 * v) as u16
+    }
+
     pub const fn div_cols(&mut self, v: u16) {
         self.cols /= v;
     }
 
     pub const fn div_rows(&mut self, v: u16) {
         self.rows /= v;
-    }
-
-    pub const fn set_cols(&mut self, cols: u16) {
-        self.cols = cols;
-    }
-
-    pub const fn set_rows(&mut self, rows: u16) {
-        self.rows = rows;
-    }
-
-    pub const fn set_cols_min(&mut self, min: u16) {
-        if self.cols > min {
-            self.cols = min;
-        }
-    }
-
-    pub const fn set_rows_min(&mut self, min: u16) {
-        if self.rows > min {
-            self.rows = min;
-        }
     }
 }
 
@@ -1007,12 +1010,7 @@ pub struct Margin {
 }
 
 impl Margin {
-    pub const ZERO: Self = Self {
-        left: 0,
-        right: 0,
-        top: 0,
-        bottom: 0,
-    };
+    pub const ZERO: Self = Self::all(0);
 
     pub const fn new(left: u16, right: u16, top: u16, bottom: u16) -> Self {
         Self {
