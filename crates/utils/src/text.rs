@@ -46,8 +46,8 @@ impl<'a> Grapheme<'a> {
         self.0.cmp(other)
     }
 
-    pub fn width(&self) -> usize {
-        unicode_width::UnicodeWidthStr::width(self.0)
+    pub fn width(&self) -> u16 {
+        str_width(self.0)
     }
 }
 

@@ -177,7 +177,7 @@ impl AnsiViewer {
     }
 
     pub fn push_repeat(&mut self, ch: char, n: u16) {
-        self.ansi.push_repeat(ch, n as usize);
+        self.ansi.push_repeat(ch, n);
     }
 
     pub fn push_str(&mut self, text: &str) {

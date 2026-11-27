@@ -105,7 +105,7 @@ impl Frame {
     }
 
     pub fn print_ch_repeat(&mut self, ch: char, n: u16) {
-        self.buffer.extend(std::iter::repeat_n(ch, n as usize));
+        self.buffer.push_repeat(ch, n);
     }
 
     pub fn print_str(&mut self, text: &str) {
@@ -218,7 +218,7 @@ impl Frame {
     }
 
     pub fn push_ch_repeat(&mut self, ch: char, n: u16) {
-        self.text.extend(std::iter::repeat_n(ch, n as usize));
+        self.text.push_repeat(ch, n);
     }
 
     pub fn push_str(&mut self, text: &str) {
@@ -324,12 +324,12 @@ fn print_span_with_ansi(
                 output.push_fmt(CursorToPos(pos));
 
                 let empty_left_count = start_text_col - pos.col;
-                output.extend(std::iter::repeat_n(' ', empty_left_count as usize));
+                output.push_repeat(' ', empty_left_count);
 
                 output.push_str(text);
 
                 let empty_right_count = max_width - (empty_left_count + display_width);
-                output.extend(std::iter::repeat_n(' ', empty_right_count as usize));
+                output.push_repeat(' ', empty_right_count);
             } else {
                 output.push_fmt(CursorToPos(pos.with_col(start_text_col)));
                 output.push_str(text);
@@ -356,12 +356,12 @@ fn print_span_with_ansi(
                 }
 
                 for g in utils::graphemes(s) {
-                    let w = g.width() as u16;
+                    let w = g.width();
 
                     if width + w > max_width {
                         if fill {
                             let remaining = max_width - width;
-                            output.push_repeat(' ', remaining as usize);
+                            output.push_repeat(' ', remaining);
                         }
                         width = max_width;
                         break;

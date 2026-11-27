@@ -3,8 +3,8 @@ use std::{error::Error, fmt::Display, range::Range};
 pub trait StringExt {
     fn slice(&self, range: Range<usize>) -> &str;
     fn push_get_range(&mut self, ch: char) -> Range<usize>;
-    fn push_repeat(&mut self, ch: char, n: usize);
-    fn push_repeat_get_range(&mut self, ch: char, n: usize) -> Range<usize>;
+    fn push_repeat(&mut self, ch: char, n: u16);
+    fn push_repeat_get_range(&mut self, ch: char, n: u16) -> Range<usize>;
     fn push_str_get_range(&mut self, s: &str) -> Range<usize>;
     fn push_str_get_range2(&mut self, s1: &str, s2: &str) -> (Range<usize>, Range<usize>);
     fn push_fmt(&mut self, content: impl Display);
@@ -30,11 +30,11 @@ impl StringExt for String {
         }
     }
 
-    fn push_repeat(&mut self, ch: char, n: usize) {
-        self.extend(std::iter::repeat_n(ch, n));
+    fn push_repeat(&mut self, ch: char, n: u16) {
+        self.extend(std::iter::repeat_n(ch, n as usize));
     }
 
-    fn push_repeat_get_range(&mut self, ch: char, n: usize) -> Range<usize> {
+    fn push_repeat_get_range(&mut self, ch: char, n: u16) -> Range<usize> {
         let start = self.len();
         self.push_repeat(ch, n);
 
